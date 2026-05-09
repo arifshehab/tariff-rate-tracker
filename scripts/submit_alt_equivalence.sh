@@ -14,9 +14,8 @@
 #   2. Run --alternatives-only --parallel --alt-workers 2. This dispatches all 6
 #      rebuild alts (4 USMCA + metal_flat + dutyfree_nonzero) across 2 concurrent
 #      future::multisession workers, writing fresh outputs to output/alternative/.
-#   3. Diff the 4 USMCA daily/by_authority/by_country CSVs against the baseline.
-#      metal_flat and dutyfree_nonzero have no baseline (the 5h sequential run
-#      timed out before they ran), so we just confirm they produced output.
+#   3. Diff all 6 rebuild alts' daily/by_authority/by_country CSVs against the
+#      baseline.
 #
 # Walltime sizing:
 #   6 alts / 2 workers = 3 batches * ~85 min/batch ~= 4.5 h. Add ~30 min for
@@ -27,8 +26,7 @@
 #   192 GB matches the production allocation and is conservative.
 #
 # Phase 1 acceptance (per docs/parallel_full_pipeline_plan_v2.md):
-#   - Serial-baseline diff is empty for the 4 USMCA variants.
-#   - All 6 alts produce output.
+#   - Serial-baseline diff is empty for all 6 rebuild alts.
 #   - One injected alt failure (if we ever add one) is isolated, not fatal.
 #
 # Log locations:
@@ -110,11 +108,11 @@ rm -rf "$PARALLEL_DIR"
 cp -a output/alternative "$PARALLEL_DIR"
 echo "Parallel run -> $PARALLEL_DIR"
 
-# ---- Step 3: diff USMCA variants against baseline ----
+# ---- Step 3: diff all 6 rebuild alts against baseline ----
 echo
-echo "--- Step 3: diffing 4 USMCA variants against baseline ---" | tee "$DIFF_REPORT"
+echo "--- Step 3: diffing 6 rebuild alts against baseline ---" | tee "$DIFF_REPORT"
 DIFF_RC=0
-for variant in usmca_annual usmca_monthly usmca_2024 usmca_dec2025; do
+for variant in usmca_annual usmca_monthly usmca_2024 usmca_dec2025 metal_flat dutyfree_nonzero; do
   for kind in daily_overall by_authority by_country; do
     f="${kind}_${variant}.csv"
     if [ ! -f "$BASELINE_DIR/$f" ] || [ ! -f "$PARALLEL_DIR/$f" ]; then
@@ -133,18 +131,6 @@ for variant in usmca_annual usmca_monthly usmca_2024 usmca_dec2025; do
       DIFF_RC=1
     fi
   done
-done
-
-echo
-echo "--- New variants (no baseline; existence-only check) ---" | tee -a "$DIFF_REPORT"
-for variant in metal_flat dutyfree_nonzero; do
-  any=$(ls "$PARALLEL_DIR"/*"_${variant}".csv 2>/dev/null | wc -l)
-  if [ "$any" -gt 0 ]; then
-    echo "  OK:    ${variant} produced $any output files" | tee -a "$DIFF_REPORT"
-  else
-    echo "  MISS:  ${variant} produced no outputs" | tee -a "$DIFF_REPORT"
-    DIFF_RC=1
-  fi
 done
 
 echo
