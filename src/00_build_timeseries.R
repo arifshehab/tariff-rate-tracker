@@ -18,6 +18,7 @@
 #   Rscript src/00_build_timeseries.R --alternatives-only  # Run only alternatives (requires existing timeseries)
 #   Rscript src/00_build_timeseries.R --rebuild-alts metal_flat,usmca_2024  # Subset rebuild alternatives (used with --with-alternatives or --alternatives-only)
 #   Rscript src/00_build_timeseries.R --refresh-usmca     # Re-download USMCA shares from DataWeb API
+#   Rscript src/00_build_timeseries.R --publish          # After build, mirror outputs to shared model_data tree
 #
 # Available rebuild-alts names (passed comma-separated): usmca_annual,
 #   usmca_monthly, usmca_2024, usmca_dec2025, metal_flat, dutyfree_nonzero,
@@ -266,6 +267,19 @@ build_full_timeseries <- function(
       # i. Cache parse results (for incremental)
       saveRDS(ch99_data, file.path(output_dir, paste0('ch99_', rev_id, '.rds')))
       saveRDS(products, file.path(output_dir, paste0('products_', rev_id, '.rds')))
+
+      # Flat CSV consumed by run_weighted_etr (08_weighted_etr.R) and the
+      # tariff-rate-tracker-blog repo. Loop iterates oldest -> newest, so the
+      # last write lands on the latest processed revision (correct for both
+      # --full and incremental modes). ch99_refs is a list-column; flatten
+      # to ';'-joined string to match 08_weighted_etr.R's str_split(., ';').
+      dir.create('data/processed', recursive = TRUE, showWarnings = FALSE)
+      products %>%
+        mutate(ch99_refs = vapply(ch99_refs, paste,
+                                  FUN.VALUE = character(1), collapse = ';')) %>%
+        select(hts10, base_rate, base_rate_raw, ch99_refs,
+               n_ch99_refs, description) %>%
+        write_csv('data/processed/products_raw.csv')
 
       # j. TPC validation if this revision has a tpc_date
       if (!is.na(tpc_date) && file.exists(tpc_path)) {
@@ -553,6 +567,7 @@ if (sys.nframe() == 0) {
   with_alternatives <- '--with-alternatives' %in% args
   alternatives_only <- '--alternatives-only' %in% args
   refresh_usmca <- '--refresh-usmca' %in% args
+  do_publish <- '--publish' %in% args
   use_policy_dates <- !('--use-hts-dates' %in% args)  # default: policy dates
   unweighted <- '--unweighted' %in% args
   start_from <- NULL
@@ -574,6 +589,21 @@ if (sys.nframe() == 0) {
   # Echo to stdout immediately. The structured log isn't open yet — both
   # branches re-log via log_parallel_config() once init_logging() has run.
   log_parallel_config(parallel_cfg)
+
+  # Capture overall build start so publish can detect a stale rate_timeseries.rds
+  # (i.e. one written by an earlier run) and refuse to mirror it.
+  build_started_at <- Sys.time()
+  build_flags <- list(
+    full = full_rebuild,
+    build_only = build_only,
+    core_only = core_only,
+    with_alternatives = with_alternatives,
+    alternatives_only = alternatives_only,
+    refresh_usmca = refresh_usmca,
+    use_policy_dates = use_policy_dates,
+    start_from = start_from,
+    parallel = parallel_cfg
+  )
 
   # --- Alternatives-only mode: skip build, iterate existing snapshots ---
   if (alternatives_only) {
@@ -621,6 +651,17 @@ if (sys.nframe() == 0) {
                               rebuild_alts = rebuild_alts,
                               alt_workers = parallel_cfg$alt_workers)
     })
+
+    if (do_publish) {
+      tryCatch({
+        source(here('src', 'publish.R'))
+        publish_to_shared(build_flags = build_flags,
+                          build_started_at = build_started_at)
+      }, error = function(e) {
+        log_warn('Publish failed: ', conditionMessage(e))
+        message('WARNING: --publish failed: ', conditionMessage(e))
+      })
+    }
 
   } else {
   # --- Main build path (not --alternatives-only) ---
@@ -780,6 +821,19 @@ if (sys.nframe() == 0) {
     }
 
     }) # end capture_messages
+  }
+
+  if (do_publish && !is.null(result)) {
+    tryCatch({
+      source(here('src', 'publish.R'))
+      publish_to_shared(build_flags = build_flags,
+                        build_started_at = build_started_at)
+    }, error = function(e) {
+      log_warn('Publish failed: ', conditionMessage(e))
+      message('WARNING: --publish failed: ', conditionMessage(e))
+    })
+  } else if (do_publish && is.null(result)) {
+    message('WARNING: --publish skipped (build did not produce a result).')
   }
   } # end else (main build path)
 }

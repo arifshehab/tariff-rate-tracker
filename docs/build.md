@@ -252,6 +252,70 @@ This writes `statutory_rates.csv.gz` (dense per-authority statutory rates at HTS
 
 To generate configs for all revision dates at once, use `generate_etrs_configs_all_revisions()` from R.
 
+## Publishing to shared model data
+
+Build outputs can be mirrored to the Budget Lab shared model-data tree at `/nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/`. Each publish writes an immutable, dated vintage; a `latest` symlink points at the most recent one.
+
+### Trigger
+
+Append `--publish` to a build:
+
+```bash
+Rscript src/00_build_timeseries.R --full --core-only --publish
+Rscript src/00_build_timeseries.R --full --with-alternatives --publish
+Rscript src/00_build_timeseries.R --alternatives-only --publish
+```
+
+Or publish whatever is on disk in a separate step:
+
+```bash
+Rscript src/publish.R              # publish current local outputs
+Rscript src/publish.R --dry-run    # plan only, no writes
+```
+
+A failed publish logs a warning but does not fail the build. The `arrow` and `digest` packages are required (both in the optional set; `Rscript src/install_dependencies.R --all` covers them).
+
+### Shared layout
+
+```
+Tariff-Rate-Tracker/
+  2026-05-08/
+    timeseries/
+      rate_timeseries.rds        # R-native panel
+      rate_timeseries.parquet    # cross-language equivalent
+      metadata.rds
+    daily/                       # output/daily/*.csv
+    quality/                     # output/quality/*
+    etr/                         # output/etr/*.csv          (if built)
+    etrs_config/                 # output/etrs_config/*      (if built)
+    alternative/                 # output/alternative/*      (if --with-alternatives or --alternatives-only)
+    manifest.json
+  2026-05-09/
+    ...
+  latest -> 2026-05-09
+```
+
+### Vintage rules
+
+- Default vintage is today's date (`YYYY-MM-DD`). A second publish on the same day uses `_2`, then `_3`, etc.
+- Vintages are immutable. `--alternatives-only --publish` writes a new vintage with the panel re-copied (each vintage is self-contained).
+- Files older than the build start are not copied — a vintage only contains files written during the build that produced it.
+- The `latest` symlink is updated atomically (write `.latest.tmp`, then rename).
+
+### What gets published
+
+The shared tree is for downstream consumers, so only canonical products are mirrored — not intermediates:
+
+- ✅ `data/timeseries/rate_timeseries.rds` + `.parquet`, `metadata.rds`
+- ✅ `output/daily/`, `output/quality/`, `output/etr/`, `output/etrs_config/`, `output/alternative/`
+- ❌ `data/timeseries/snapshot_*.rds`, `delta_*.rds`, `ch99_*.rds`, `products_*.rds` (intermediates)
+- ❌ `data/processed/`, `data/hts_archives/` (intermediates / re-downloadable raw inputs)
+- ❌ `output/comparisons/` (validation, not a product)
+
+### Manifest
+
+Every vintage includes `manifest.json` recording: vintage id, build start + publish timestamps, git commit + branch + dirty bit, the build flags actually used, R + key package versions, and `{path, size_bytes, sha256}` for every published file.
+
 ## Updating when a new HTS revision is published
 
 1. Run `Rscript src/01_scrape_revision_dates.R` or update `config/revision_dates.csv`.

@@ -83,6 +83,14 @@ Rscript src/00_build_timeseries.R --full --core-only
 
 That sequence builds the core series without requiring private benchmark data or optional weighting inputs.
 
+To also mirror the build outputs to the shared model-data tree (`/nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/<vintage>/`), append `--publish`:
+
+```bash
+Rscript src/00_build_timeseries.R --full --core-only --publish
+```
+
+See [docs/build.md](docs/build.md#publishing-to-shared-model-data) for the shared layout, vintage rules, and manifest contents.
+
 ## Repository structure
 
 - `src/00_build_timeseries.R`: main build orchestrator
