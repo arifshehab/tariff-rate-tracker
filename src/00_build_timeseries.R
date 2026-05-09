@@ -23,6 +23,12 @@
 #   usmca_monthly, usmca_2024, usmca_dec2025, metal_flat, dutyfree_nonzero,
 #   subdivision_r_mid. Default (omit --rebuild-alts) runs all of them.
 #
+# Parallel mode (Phase 0/1; see docs/parallel_full_pipeline_plan_v2.md):
+#   --parallel             Enable parallel mode (off by default)
+#   --workers N            Per-revision worker count (Phase 3, currently no-op)
+#   --alt-workers M        Concurrent rebuild alternatives (Phase 1, active)
+#   --backend B            'multisession' (default) or 'multicore' (Linux only)
+#
 # Storage layout:
 #   data/timeseries/
 #     metadata.rds                # last_revision, last_build_time
@@ -44,6 +50,7 @@ library(here)
 # Source pipeline components
 source(here('src', 'logging.R'))
 source(here('src', 'helpers.R'))
+source(here('src', 'parallel.R'))
 source(here('src', '01_scrape_revision_dates.R'))
 source(here('src', '02_download_hts.R'))
 source(here('src', '03_parse_chapter99.R'))
@@ -79,7 +86,8 @@ build_full_timeseries <- function(
   scenario = 'baseline',
   start_from = NULL,
   stacking_method = 'mutual_exclusion',
-  use_policy_dates = TRUE
+  use_policy_dates = TRUE,
+  parallel_cfg = NULL
 ) {
   start_time <- Sys.time()
 
@@ -98,6 +106,7 @@ build_full_timeseries <- function(
     level = 'info'
   )
   log_info('Build started: ', if (is.null(start_from)) 'full backfill' else paste('from', start_from))
+  if (!is.null(parallel_cfg)) log_parallel_config(parallel_cfg)
 
   # ---- Setup ----
   ensure_dir(output_dir)
@@ -557,6 +566,15 @@ if (sys.nframe() == 0) {
   # --unweighted overrides config to opt into an unweighted run for this invocation.
   cli_weight_mode <- if (unweighted) 'unweighted' else NULL
 
+  # Resolve --parallel / --workers / --alt-workers / --backend up-front so both
+  # branches below see the same config. Off-by-default; serial behavior is
+  # identical to pre-flag builds.
+  parallel_cfg <- resolve_parallel_config(args)
+
+  # Echo to stdout immediately. The structured log isn't open yet — both
+  # branches re-log via log_parallel_config() once init_logging() has run.
+  log_parallel_config(parallel_cfg)
+
   # --- Alternatives-only mode: skip build, iterate existing snapshots ---
   if (alternatives_only) {
     snapshot_dir <- here('data', 'timeseries')
@@ -574,6 +592,7 @@ if (sys.nframe() == 0) {
       level = 'info'
     )
     log_info('Mode: alternatives-only')
+    log_parallel_config(parallel_cfg)
 
     message('Using existing snapshots in: ', snapshot_dir,
             ' (', length(snap_files), ' revisions)')
@@ -598,7 +617,9 @@ if (sys.nframe() == 0) {
 
     capture_messages({
       run_alternative_series(imports = imports, policy_params = pp,
-                              rebuild = TRUE, rebuild_alts = rebuild_alts)
+                              rebuild = TRUE,
+                              rebuild_alts = rebuild_alts,
+                              alt_workers = parallel_cfg$alt_workers)
     })
 
   } else {
@@ -679,7 +700,8 @@ if (sys.nframe() == 0) {
     message('Mode: Using raw HTS revision dates (--use-hts-dates)')
   }
   result <- build_full_timeseries(start_from = start_from,
-                                   use_policy_dates = use_policy_dates)
+                                   use_policy_dates = use_policy_dates,
+                                   parallel_cfg = parallel_cfg)
 
   # --- Step D: Summary ---
   if (!is.null(result)) {
@@ -752,7 +774,8 @@ if (sys.nframe() == 0) {
         source(here('src', 'apply_scenarios.R'))
         run_alternative_series(imports = imports, policy_params = pp,
                                 rebuild = with_alternatives,
-                                rebuild_alts = rebuild_alts)
+                                rebuild_alts = rebuild_alts,
+                                alt_workers = parallel_cfg$alt_workers)
       }, error = function(e) message('Alternative series failed: ', conditionMessage(e)))
     }
 

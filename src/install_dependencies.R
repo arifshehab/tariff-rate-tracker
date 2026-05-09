@@ -11,6 +11,13 @@
 #
 # =============================================================================
 
+local({
+  r <- getOption('repos')
+  if (is.null(r) || !nzchar(r['CRAN']) || identical(unname(r['CRAN']), '@CRAN@')) {
+    options(repos = c(CRAN = 'https://cloud.r-project.org'))
+  }
+})
+
 REQUIRED <- c(
   'tidyverse',   # dplyr, tidyr, readr, ggplot2, stringr, purrr, etc.
   'jsonlite',    # HTS JSON parsing
@@ -23,7 +30,11 @@ OPTIONAL <- c(
   'digest',      # Chapter 99 PDF change detection (01_scrape_revision_dates.R)
   'arrow',       # Parquet export (09_daily_series.R export_daily_slice)
   'openxlsx',    # Excel workbook export (09_daily_series.R save_daily_workbook)
-  'httr'         # HTTP utilities (optional download fallbacks)
+  'httr',        # HTTP utilities (optional download fallbacks)
+  'future',      # Parallel mode backend (src/parallel.R, --parallel)
+  'future.apply',# future_lapply for concurrent alternatives
+  'parallelly',  # availableCores() detection for default workers
+  'callr'        # Subprocess fallback for alt_runner when needed
 )
 
 install_if_missing <- function(packages, label = 'required') {

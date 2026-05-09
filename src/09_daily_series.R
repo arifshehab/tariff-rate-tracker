@@ -1327,6 +1327,79 @@ run_post_build_scenarios_per_revision <- function(scenario_names,
 }
 
 
+#' Build the rebuild-alternatives registry
+#'
+#' Returns a list of (variant, pp_override) records — one per rebuild
+#' alternative. Each pp_override is a fully-populated policy_params list,
+#' so it serializes cleanly across to subprocess workers without any
+#' parent-environment lookups.
+#'
+#' Order matches the historical sequence in run_alternative_series() so
+#' a serial run produces the same logs as before.
+#'
+#' @param pp Base policy_params (typically load_policy_params())
+#' @return List of spec records: list(variant, pp_override)
+build_rebuild_alt_registry <- function(pp) {
+  list(
+    # USMCA 2025 annual average (time-invariant counterfactual)
+    list(variant = 'usmca_annual', pp_override = local({
+      x <- pp
+      x$USMCA_SHARES$year <- 2025
+      x$USMCA_SHARES$mode <- 'annual'
+      x
+    })),
+    # USMCA raw monthly shares (time-varying; tracks effective_date month,
+    # falls back to most recent available monthly file when newer files
+    # haven't been published yet).
+    list(variant = 'usmca_monthly', pp_override = local({
+      x <- pp
+      x$USMCA_SHARES$mode <- 'monthly'
+      x$USMCA_SHARES$year <- NULL
+      x
+    })),
+    # USMCA 2024 shares (pre-tariff steady-state)
+    list(variant = 'usmca_2024', pp_override = local({
+      x <- pp
+      x$USMCA_SHARES$year <- 2024
+      x$USMCA_SHARES$mode <- 'annual'
+      x
+    })),
+    # USMCA fixed latest month (Dec 2025 — post-behavioral-shift equilibrium)
+    list(variant = 'usmca_dec2025', pp_override = local({
+      x <- pp
+      x$USMCA_SHARES$mode <- 'fixed_month'
+      x$USMCA_SHARES$year <- 2025
+      x$USMCA_SHARES$month <- 12
+      x
+    })),
+    # Flat 100% metal content (upper bound: all derivative value is metal)
+    list(variant = 'metal_flat', pp_override = local({
+      x <- pp
+      x$metal_content$method <- 'flat'
+      x$metal_content$flat_share <- 1.0
+      x
+    })),
+    # Nonzero duty-free treatment (sensitivity: exclude 0% MFN from IEEPA)
+    list(variant = 'dutyfree_nonzero', pp_override = local({
+      x <- pp
+      x$ieepa_duty_free_treatment <- 'nonzero_base_only'
+      x
+    })),
+    # Subdivision (r) calibration mid-point — sensitivity scenario for the
+    # auto-parts certification + FTA-exempt fix. 0.5 / 0.5 mid-point: half of
+    # EU/JP/KR subdiv-r imports filed under 9903.94.45/.55/.65 (15% floor),
+    # half of KR subdiv-r imports FTA-qualifying under KORUS (rate_232 = 0).
+    # See docs/s232/subdivision_r_calibration.md.
+    list(variant = 'subdivision_r_mid', pp_override = local({
+      x <- pp
+      x$auto_parts_subdivision_r$certified_share <- 0.5
+      x$auto_parts_subdivision_r$fta_exempt_shares$KR <- 0.5
+      x
+    }))
+  )
+}
+
+
 #' Run all alternative daily series
 #'
 #' Post-build alternatives (fast): apply scenarios to the per-revision
@@ -1337,18 +1410,22 @@ run_post_build_scenarios_per_revision <- function(scenario_names,
 #' Rebuild alternatives (slow): re-run full calculation with modified policy
 #' params. Only runs when rebuild = TRUE.
 #'
+#' When alt_workers > 1, rebuild alternatives are dispatched concurrently
+#' via alt_runner() in src/parallel.R. Default alt_workers = 1 preserves
+#' today's serial behavior.
+#'
 #' @param imports Import weights tibble (or NULL)
 #' @param policy_params Policy params list
 #' @param rebuild Logical; if TRUE, also run rebuild alternatives
 #' @param rebuild_alts Optional character vector subsetting which rebuild
 #'   alternatives to run (e.g., c('metal_flat', 'usmca_2024')). Default NULL
 #'   runs all of them. Only consulted when rebuild = TRUE.
+#' @param alt_workers Concurrent workers for rebuild alternatives (>= 1)
 #' @return Invisible NULL
 run_alternative_series <- function(imports = NULL, policy_params = NULL,
-                                    rebuild = FALSE, rebuild_alts = NULL) {
-
-  # Helper: TRUE if scenario should run given the rebuild_alts filter
-  want_alt <- function(name) is.null(rebuild_alts) || name %in% rebuild_alts
+                                    rebuild = FALSE,
+                                    rebuild_alts = NULL,
+                                    alt_workers = 1L) {
 
   message('\n', strrep('=', 70))
   message('ALTERNATIVE DAILY SERIES')
@@ -1378,88 +1455,49 @@ run_alternative_series <- function(imports = NULL, policy_params = NULL,
 
   # --- Rebuild alternatives (only with --with-alternatives) ---
   if (rebuild) {
-    message('\n  Running rebuild alternatives (this will take a while)...')
     pp <- policy_params %||% load_policy_params()
+    alt_registry <- build_rebuild_alt_registry(pp)
 
-    # 1a. USMCA 2025 annual average (time-invariant counterfactual)
-    if (want_alt('usmca_annual')) tryCatch({
-      pp_usmca <- pp
-      pp_usmca$USMCA_SHARES$year <- 2025
-      pp_usmca$USMCA_SHARES$mode <- 'annual'
-      build_alternative_timeseries(pp_usmca, 'usmca_annual', imports = imports, policy_params = pp_usmca)
-    }, error = function(e) {
-      message('  FAILED (usmca_annual): ', conditionMessage(e))
-    })
+    if (!is.null(rebuild_alts)) {
+      alt_registry <- Filter(function(spec) spec$variant %in% rebuild_alts,
+                              alt_registry)
+      missing <- setdiff(rebuild_alts, vapply(alt_registry, `[[`, character(1), 'variant'))
+      if (length(missing) > 0L) {
+        message('  rebuild_alts filter dropped unknown variants: ',
+                paste(missing, collapse = ', '))
+      }
+    }
 
-    # 1b. USMCA raw monthly shares (time-varying; tracks effective_date month,
-    #     falls back to most recent available monthly file when newer files
-    #     haven't been published yet).
-    if (want_alt('usmca_monthly')) tryCatch({
-      pp_usmca_m <- pp
-      pp_usmca_m$USMCA_SHARES$mode <- 'monthly'
-      pp_usmca_m$USMCA_SHARES$year <- NULL
-      build_alternative_timeseries(pp_usmca_m, 'usmca_monthly', imports = imports, policy_params = pp_usmca_m)
-    }, error = function(e) {
-      message('  FAILED (usmca_monthly): ', conditionMessage(e))
-    })
+    if (!exists('alt_runner', mode = 'function')) {
+      source(here('src', 'parallel.R'))
+    }
 
-    # 1c. USMCA 2024 shares (pre-tariff steady-state)
-    if (want_alt('usmca_2024')) tryCatch({
-      pp_usmca_24 <- pp
-      pp_usmca_24$USMCA_SHARES$year <- 2024
-      pp_usmca_24$USMCA_SHARES$mode <- 'annual'
-      build_alternative_timeseries(pp_usmca_24, 'usmca_2024', imports = imports, policy_params = pp_usmca_24)
-    }, error = function(e) {
-      message('  FAILED (usmca_2024): ', conditionMessage(e))
-    })
+    alt_workers <- max(1L, as.integer(alt_workers))
+    message(sprintf(
+      '\n  Running %d rebuild alternatives %s...',
+      length(alt_registry),
+      if (alt_workers > 1L) sprintf('(%d concurrent)', alt_workers) else '(sequential)'
+    ))
 
-    # 1d. USMCA fixed latest month (Dec 2025 — post-behavioral-shift equilibrium)
-    if (want_alt('usmca_dec2025')) tryCatch({
-      pp_usmca_f <- pp
-      pp_usmca_f$USMCA_SHARES$mode <- 'fixed_month'
-      pp_usmca_f$USMCA_SHARES$year <- 2025
-      pp_usmca_f$USMCA_SHARES$month <- 12
-      build_alternative_timeseries(pp_usmca_f, 'usmca_dec2025', imports = imports, policy_params = pp_usmca_f)
-    }, error = function(e) {
-      message('  FAILED (usmca_dec2025): ', conditionMessage(e))
-    })
+    alt_log_dir <- here('output', 'logs', 'alternatives')
+    results <- alt_runner(
+      alt_registry,
+      alt_workers = alt_workers,
+      log_dir = alt_log_dir,
+      imports = imports
+    )
 
-    # 2. Flat 100% metal content (upper bound: all derivative value is metal)
-    if (want_alt('metal_flat')) tryCatch({
-      pp_metal <- pp
-      pp_metal$metal_content$method <- 'flat'
-      pp_metal$metal_content$flat_share <- 1.0
-      build_alternative_timeseries(pp_metal, 'metal_flat', imports = imports, policy_params = pp_metal)
-    }, error = function(e) {
-      message('  FAILED (metal_flat): ', conditionMessage(e))
-    })
-
-    # 3. Nonzero duty-free treatment (sensitivity analysis: exclude 0% MFN from IEEPA)
-    if (want_alt('dutyfree_nonzero')) tryCatch({
-      pp_dutyfree <- pp
-      pp_dutyfree$ieepa_duty_free_treatment <- 'nonzero_base_only'
-      build_alternative_timeseries(pp_dutyfree, 'dutyfree_nonzero', imports = imports, policy_params = pp_dutyfree)
-    }, error = function(e) {
-      message('  FAILED (dutyfree_nonzero): ', conditionMessage(e))
-    })
-
-    # 4. Subdivision (r) calibration mid-point — sensitivity scenario for the
-    #    auto-parts certification + FTA-exempt fix. Without calibrated CBP /
-    #    industry data we set a 0.5 / 0.5 mid-point: half of EU/JP/KR subdiv-r
-    #    imports are assumed to file under 9903.94.45/.55/.65 (15% floor)
-    #    and half of KR subdiv-r imports are assumed FTA-qualifying under
-    #    KORUS (rate_232 = 0). EU and JP fta_share remain at 0 (no equivalent
-    #    FTA carve-out for EU; SPI=JP signal near zero on autos in 2025).
-    #    See docs/s232/subdivision_r_calibration.md.
-    if (want_alt('subdivision_r_mid')) tryCatch({
-      pp_subdiv_r <- pp
-      pp_subdiv_r$auto_parts_subdivision_r$certified_share <- 0.5
-      pp_subdiv_r$auto_parts_subdivision_r$fta_exempt_shares$KR <- 0.5
-      build_alternative_timeseries(pp_subdiv_r, 'subdivision_r_mid',
-                                    imports = imports, policy_params = pp_subdiv_r)
-    }, error = function(e) {
-      message('  FAILED (subdivision_r_mid): ', conditionMessage(e))
-    })
+    statuses <- vapply(results, function(r) r$status %||% 'unknown', character(1))
+    n_ok <- sum(statuses == 'ok')
+    failed <- vapply(results[statuses != 'ok'], function(r) r$variant, character(1))
+    message(sprintf('\n  Rebuild alternatives: %d/%d succeeded',
+                    n_ok, length(results)))
+    if (length(failed) > 0L) {
+      message('  Failed: ', paste(failed, collapse = ', '))
+    }
+    if (alt_workers > 1L) {
+      message('  Per-alt logs: ', alt_log_dir)
+    }
   }
 
   message('\n', strrep('=', 70))
