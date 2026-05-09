@@ -369,6 +369,7 @@ alt_runner <- function(alt_specs, alt_workers = 1L, log_dir = NULL,
     future.seed = TRUE,
     future.globals = list(
       .run_one_alt = .run_one_alt,
+      .with_alt_log = .with_alt_log,
       log_dir = log_dir,
       imports = imports,
       here_path = here_path
