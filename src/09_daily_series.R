@@ -499,22 +499,49 @@ export_daily_slice <- function(ts, date_range, countries = NULL, products = NULL
 
 #' Load import weights for daily series weighting
 #'
+#' Behavior when the weight file is missing or unconfigured is controlled by
+#' `weight_mode` in `config/local_paths.yaml`:
+#'   - 'required' (default): error out — weighted outputs are mandatory unless
+#'     the user has explicitly opted into an unweighted run.
+#'   - 'unweighted': return NULL silently so callers skip weighted outputs.
+#'
 #' @param imports_path Path to hs10_by_country_gtap RDS (default: from local_paths config)
-#' @return Tibble with hs10, cty_code, imports; or NULL if unavailable
-load_import_weights <- function(imports_path = NULL) {
-  if (is.null(imports_path)) {
+#' @param weight_mode Override `weight_mode` from local_paths.yaml. One of
+#'   'required' (default behavior — hard error if file missing) or
+#'   'unweighted' (return NULL, callers skip weighted outputs).
+#' @return Tibble with hs10, cty_code, imports; or NULL if `weight_mode == 'unweighted'`
+#'   and no weight file is available.
+load_import_weights <- function(imports_path = NULL, weight_mode = NULL) {
+  if (is.null(imports_path) || is.null(weight_mode)) {
     local_paths <- load_local_paths()
-    imports_path <- local_paths$import_weights
+    if (is.null(imports_path)) imports_path <- local_paths$import_weights
+    if (is.null(weight_mode)) weight_mode <- local_paths$weight_mode %||% 'required'
   }
-  if (is.null(imports_path)) {
-    message('Import weights not configured in config/local_paths.yaml — computing unweighted means only')
-    return(NULL)
+
+  weight_mode <- match.arg(weight_mode, c('required', 'unweighted'))
+
+  if (is.null(imports_path) || !nzchar(imports_path)) {
+    if (weight_mode == 'unweighted') {
+      message('weight_mode = "unweighted" and no import_weights path set — skipping weighted outputs.')
+      return(NULL)
+    }
+    stop(weight_resolution_error(
+      'config/local_paths.yaml has no `import_weights:` path set',
+      context = 'load'
+    ))
   }
   if (!file.exists(imports_path)) {
-    message('Import weights not found — computing unweighted means only')
-    return(NULL)
+    if (weight_mode == 'unweighted') {
+      message('weight_mode = "unweighted" — import weights file not found at ',
+              imports_path, '; skipping weighted outputs.')
+      return(NULL)
+    }
+    stop(weight_resolution_error(
+      paste0('the configured file does not exist: ', imports_path),
+      context = 'load'
+    ))
   }
-  message('Loading import weights...')
+  message('Loading import weights from: ', imports_path)
   imports_raw <- readRDS(imports_path)
   imports <- imports_raw %>%
     group_by(hs10, cty_code) %>%
