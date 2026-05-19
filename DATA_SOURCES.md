@@ -19,7 +19,7 @@ These files are committed because the tracker depends on them directly, but many
 | Resource family | Typical path | Primary role |
 |---|---|---|
 | Country and concordance tables | `resources/census_codes.csv`, `resources/country_partner_mapping.csv`, `resources/hs10_gtap_crosswalk.csv` | Country dimension, reporting groups, optional weighting links |
-| Product exemption and product-list resources | `resources/ieepa_exempt_products.csv`, `resources/floor_exempt_products.csv`, `resources/s301_product_lists.csv`, `resources/s232_derivative_products.csv`, `resources/s232_copper_products.csv`, `resources/s122_exempt_products.csv` | Encode product scope that is not fully recoverable from HTS JSON alone |
+| Product exemption and product-list resources | `resources/ieepa_exempt_products.csv`, `resources/floor_exempt_products.csv`, `resources/s301_product_lists.csv`, `resources/s232_derivative_products.csv`, `resources/s232_copper_products.csv`, `resources/s232_annex_products.csv`, `resources/s122_exempt_products.csv` | Encode product scope that is not fully recoverable from HTS JSON alone. The annex product file is regenerable from HTSUS U.S. Note 16(c) via `Rscript src/scrape_us_notes.R --annex` — see [docs/s232/annex_parser.md](docs/s232/annex_parser.md). |
 | USMCA utilization shares | `resources/usmca_product_shares_*.csv`, `resources/usmca_shares.csv` | Empirical scaling of USMCA exemptions |
 | Metal content shares | `resources/metal_content_shares_bea_hs10.csv` | Derivative Section 232 scaling inputs |
 
