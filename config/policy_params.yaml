@@ -266,6 +266,16 @@ section_232_annexes:
       applies_to: ['annex_1b']
       chapters: ['84', '85', '87']
       aggregate_share: 0.0
+    zero_metal_content:
+      # 9903.82.01 / Note 16(a): articles in subdivision (c) lists that
+      # contain no aluminum, steel, or copper get "No change" — i.e., 0%
+      # additional 232 duty. Models the fraction of imports under each
+      # annex product that contain zero metal of the applicable type.
+      # Calibration source: would need trade-flow data with metal-content
+      # breakdowns (CBP entry-summary detail, industry surveys). Dormant
+      # until calibrated; rate engine applies a no-op when share = 0.
+      applies_to: ['annex_1a', 'annex_1b', 'annex_3']
+      aggregate_share: 0.0
   # Country-specific surcharges preserved under the annex regime.
   # The April 2026 proclamation explicitly retains prior country-specific
   # S232 surcharges for Russian aluminum across Annex I-A, I-B, and III.

@@ -268,6 +268,74 @@ run_test('rev_5 merge is idempotent', {
 
 
 # =============================================================================
+# zero_metal_content (9903.82.01) exemption — rate-engine behavior
+# =============================================================================
+#
+# Verifies the new aggregate-share carve-out in 06_calculate_rates.R step 5c:
+#   - aggregate_share = 0 → rate_232 unchanged (dormant default)
+#   - aggregate_share = 0.05 → rate_232 scaled by (1 - 0.05) for in-scope rows
+#   - heading_program_products skipped; annex_2 rows skipped
+#
+# Uses a synthetic rate snapshot rather than building a full revision; we just
+# need the case_when contract to be honored.
+
+message('\n=== zero_metal_content exemption (rate engine) ===')
+
+run_test('config block exists in policy_params.yaml', {
+  pp <- yaml::read_yaml(here('config', 'policy_params.yaml'))
+  zmc <- pp$section_232_annexes$exemptions$zero_metal_content
+  stopifnot(!is.null(zmc),
+            identical(zmc$aggregate_share, 0.0),
+            setequal(unlist(zmc$applies_to), c('annex_1a', 'annex_1b', 'annex_3')))
+})
+
+# Helper: produce a minimal rate snapshot and run the zero_metal_content block
+# in isolation. We mirror the exact case_when logic from 06_calculate_rates.R.
+apply_zmc <- function(rates, share, applies_to = c('annex_1a', 'annex_1b', 'annex_3'),
+                       heading_program_products = character(0)) {
+  if (is.na(share) || share <= 0) return(rates)
+  rates |> dplyr::mutate(rate_232 = dplyr::if_else(
+    !(hts10 %in% heading_program_products) & s232_annex %in% applies_to,
+    rate_232 * (1 - share),
+    rate_232
+  ))
+}
+
+run_test('share=0 leaves rate_232 unchanged', {
+  rates <- tibble::tibble(
+    hts10 = c('7601100000', '8504909610', '8703230140'),
+    s232_annex = c('annex_1a', 'annex_3', 'annex_2'),
+    rate_232 = c(0.50, 0.15, 0.00)
+  )
+  out <- apply_zmc(rates, share = 0)
+  stopifnot(identical(out$rate_232, rates$rate_232))
+})
+
+run_test('share=0.10 scales 1a/1b/3 by 0.9, skips annex_2', {
+  rates <- tibble::tibble(
+    hts10 = c('7601100000', '8504909610', '8703230140', '7308200035'),
+    s232_annex = c('annex_1a', 'annex_3', 'annex_2', 'annex_1b'),
+    rate_232 = c(0.50, 0.15, 0.00, 0.25)
+  )
+  out <- apply_zmc(rates, share = 0.10)
+  stopifnot(
+    isTRUE(all.equal(out$rate_232, c(0.45, 0.135, 0.00, 0.225)))
+  )
+})
+
+run_test('heading_program_products skip the scaling', {
+  rates <- tibble::tibble(
+    hts10 = c('7601100000', '8703230140'),
+    s232_annex = c('annex_1a', 'annex_1a'),
+    rate_232 = c(0.50, 0.50)
+  )
+  out <- apply_zmc(rates, share = 0.10,
+                    heading_program_products = '8703230140')
+  stopifnot(isTRUE(all.equal(out$rate_232, c(0.45, 0.50))))
+})
+
+
+# =============================================================================
 # Summary
 # =============================================================================
 

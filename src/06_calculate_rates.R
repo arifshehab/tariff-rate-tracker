@@ -1992,6 +1992,28 @@ calculate_rates_for_revision <- function(
           TRUE ~ rate_232
         ))
 
+      # 9903.82.01 zero-metal-content carve-out (Note 16(a)):
+      # Articles classified in subdivision (c) lists that do not contain any
+      # aluminum, steel, or copper get "No change" — 0% additional 232 duty.
+      # Modeled as an aggregate fraction of imports under each annex product
+      # that contain zero metal. Dormant by default (aggregate_share = 0 in
+      # policy_params.yaml); a non-zero share scales rate_232 down by
+      # (1 - share). Calibration would require per-prefix metal-content
+      # trade data (CBP entry summaries, industry surveys); none today.
+      zmc_cfg <- annex_cfg$exemptions$zero_metal_content
+      zmc_share <- as.numeric(zmc_cfg$aggregate_share %||% 0)
+      if (!is.na(zmc_share) && zmc_share > 0) {
+        zmc_annexes <- paste0('annex_', unlist(zmc_cfg$applies_to %||% c('1a', '1b', '3')))
+        rates <- rates %>%
+          mutate(rate_232 = if_else(
+            !(hts10 %in% heading_program_products) & s232_annex %in% zmc_annexes,
+            rate_232 * (1 - zmc_share),
+            rate_232
+          ))
+        message('  zero_metal_content exemption applied: share=', zmc_share,
+                ', annexes=', paste(zmc_annexes, collapse = ','))
+      }
+
       # UK annex-aware deal (replaces old flat 25% override for post-annex revisions)
       uk_code <- get_country_constants()$CTY_UK %||% '4120'
       uk_1a_chapters <- annex_cfg$annexes$annex_1a$uk_applies_to %||% c('steel', 'aluminum')
