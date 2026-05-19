@@ -160,24 +160,26 @@ Pass `--with-artifacts` to include the heavier artifact-dependent integration ch
 | Metal content shares | `resources/metal_content_shares_bea_hs10.csv` | committed | derivative 232 metal-share estimation | regenerate from BEA workflow if needed |
 | Floor exemptions | `resources/floor_exempt_products.csv` plus revision-specific `data/us_notes/floor_exempt_{revision}.csv` | committed plus auto-scrape | floor-country exemptions | `src/scrape_us_notes.R --floor-exemptions` (validates anchor coverage; refuses partial overwrites) |
 | Section 122 exemptions | `resources/s122_exempt_products.csv` | committed | Annex II exemptions | manual refresh when authority changes |
+| Import weights | `data/weights/hs10_by_country_gtap_<year>_con.rds` (gitignored) or path set in `config/local_paths.yaml` | built locally; auto-detected | HS10×country import value for weighted ETRs, weighted daily series, sector aggregates | `Rscript src/build_import_weights.R --year 2024` — see [docs/weights.md](weights.md) |
+
+> Required by default. Skip with `--unweighted` or `weight_mode: unweighted` in `config/local_paths.yaml`.
 
 ### Optional inputs
 
 | Input | Path | Status | Role |
 |---|---|---|---|
-| Import weights | local path via `config/local_paths.yaml` | private/local | weighted daily outputs and weighted ETRs |
 | TPC benchmark | local path via `config/local_paths.yaml` | private/local | validation only |
 | Tariff-ETRs repo | local path via `config/local_paths.yaml` | optional/local | comparison only |
 | Chapter 99 PDFs | `data/us_notes/*.pdf` | auto-download via `scrape_us_notes.R`; hash-checked by `01_scrape_revision_dates.R` | regenerate resource files from US Notes |
 
 ## What runs without what
 
-| Scenario | Timeseries | Daily aggregates | Weighted ETR | TPC comparison |
-|---|---|---|---|---|
-| Core only | Yes | Yes | No | No |
-| Core + weights | Yes | Yes | Yes | No |
-| Core + TPC | Yes | Yes | No | Yes |
-| Core + weights + TPC | Yes | Yes | Yes | Yes |
+| Scenario | Build runs? | Timeseries | Daily aggregates | Weighted ETR | By-category aggregates | TPC comparison |
+|---|---|---|---|---|---|---|
+| No weights, default `weight_mode: required` | **No** — preflight + build error out | — | — | — | — | — |
+| No weights, `--unweighted` (or `weight_mode: unweighted`) | Yes | Yes | unweighted only | No | unweighted only | No |
+| Weights + no TPC (default) | Yes | Yes | weighted | Yes | weighted | No |
+| Weights + TPC | Yes | Yes | weighted | Yes | weighted | Yes |
 
 ## Expected outputs
 
@@ -191,6 +193,7 @@ Pass `--with-artifacts` to include the heavier artifact-dependent integration ch
 | `output/daily/daily_overall.csv` | daily aggregate mean and weighted ETR series |
 | `output/daily/daily_by_country.csv` | daily country-level aggregate rates |
 | `output/daily/daily_by_authority.csv` | daily authority decomposition |
+| `output/daily/daily_by_category.csv` | daily by-GTAP-sector aggregate rates (only when import weights available) |
 | `output/quality/` | build diagnostics and quality checks |
 
 ### Optional outputs
@@ -199,7 +202,7 @@ Pass `--with-artifacts` to include the heavier artifact-dependent integration ch
 |---|---|
 | `output/etr/` | weighted ETR tables and plots |
 | `output/comparisons/` | benchmark comparison artifacts |
-| `output/alternative/` | sensitivity variants |
+| `output/alternative/` | sensitivity / counterfactual variants (per scenario; includes `by_category_<variant>.csv`); see [Scenarios](#scenarios-and-counterfactuals) |
 | `output/etrs_config/{date}/` | ETRs-compatible config directories (from `generate_etrs_config.R`) |
 
 ## Comparison workflows

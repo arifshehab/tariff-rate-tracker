@@ -2,15 +2,24 @@
 # Apply Tariff Scenarios
 # =============================================================================
 #
-# Zeros out disabled authorities and re-applies stacking rules to produce
-# counterfactual rate estimates.
+# Produces counterfactual rate estimates by transforming the standard rate
+# schema. Scenarios are defined in config/scenarios.yaml and support two
+# composable mechanisms:
 #
-# Scenarios are defined in config/scenarios.yaml. Each scenario specifies
-# which authorities to disable (e.g., no_ieepa removes IEEPA reciprocal
-# and fentanyl).
+#   disable: [auth, ...]   — zero out one or more authority columns wholesale
+#                            (e.g., no_ieepa = [ieepa_reciprocal, ieepa_fentanyl]).
+#                            Stacking rules are re-applied afterwards.
 #
-# Works on any tibble with the standard rate schema — a single revision
-# snapshot or the full time series.
+#   patches: [...]         — targeted, date-bounded rate overrides selected by
+#                            country_group / product_set / from_date. Currently
+#                            supports the `floor` action (sets all-in rate to a
+#                            target value). See the PATCH DSL block below for
+#                            the full filter + action vocabulary, or
+#                            docs/scenarios.md for an authoring guide.
+#
+# Both formats may appear in the same scenario; patches are applied AFTER
+# disable. Works on any tibble with the standard rate schema — a single
+# revision snapshot or the full time series.
 #
 # =============================================================================
 
