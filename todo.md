@@ -1,12 +1,11 @@
 # Tariff Rate Tracker — TODO
 
-## Active priorities (updated 2026-04-23)
+## Active priorities (updated 2026-05-19)
 
-1. **Sync published rev_5 artifacts with current code**: rebuild `2026_rev_5`, `rate_timeseries.rds`, and `metadata.rds` so the saved release outputs reflect the landed Russia fix and `tests/test_rate_calculation.R` stops failing against stale artifacts.
+1. **Sync published rev_5 artifacts with current code**: rebuild `2026_rev_5`, `rate_timeseries.rds`, and `metadata.rds` so the saved release outputs reflect the landed Russia fix and `tests/test_rate_calculation.R` stops failing against stale artifacts (3 failures in Test 12 "Annex-era country surcharges (rev_5)" trace to this).
 2. **Close the live USMCA annex gap**: check annex-era `s232_usmca_eligible` coverage, then refresh 2026 monthly USMCA files once DataWeb stops returning HTTP 503, and rebuild `usmca_monthly` snapshots from the refreshed monthly inputs.
-3. **Replace static annex scaffolding with dynamic parsing**: move `load_annex_products()` / `extract_section232_rates()` off the static CSV path so annex classifications track future HTS revisions automatically.
-4. **Finish the biggest post-annex modeling gaps**: Russia clause (8), UK 95% qualifying-content treatment, Annex IV exception buckets, and product-condition exemptions are still approximated or unmodeled.
-5. **Then clear secondary rebuild/calibration debt**: rerun the OOM-failed post-build alternatives, calibrate semi/annex assumptions, and tackle the remaining low-priority performance and cleanup items.
+3. **Finish the biggest post-annex modeling gaps**: Russia clause (8) full smelter/cast origin logic, UK 95% qualifying-content blending, Annex IV exception buckets, and product-condition exemptions like 9903.81.92 are still approximated or unmodeled. (9903.82.01 zero-metal-content is now scaffolded but dormant — calibration is its own line item below.)
+4. **Then clear secondary rebuild/calibration debt**: rerun the OOM-failed post-build alternatives, calibrate semi/annex/zmc assumptions, and tackle the remaining low-priority performance and cleanup items.
 
 ## Section 232 annex restructuring (April 2026 proclamation)
 
@@ -21,22 +20,28 @@ Presidential proclamation of 2 April 2026 replaces single-rate 232 with four pro
 
 ### Open work
 
-Recommended order here: rebuild release artifacts, confirm the Russia sync in saved outputs, replace the static Ch99 path, then finish the remaining post-annex modeling/documentation items.
+Recommended order here: rebuild release artifacts (item #1 of active priorities — currently blocking 3 tests), confirm the Russia sync in saved outputs, then finish the remaining post-annex modeling/documentation items.
 
-- [ ] **Russia rev_5 release sync:** the source fix has landed (`section_232_annexes.country_surcharges` plus the post-annex `pmax()` path in step 5c), and a fresh `calculate_rates_for_revision()` run now restores the 200% rate for `country == '4621'` on Annex I-A/I-B/III aluminum and aluminum derivatives. But the checked-in `snapshot_2026_rev_5.rds` and `rate_timeseries.rds` still predate that fix, so `tests/test_rate_calculation.R` fails against the saved rev_5 artifact.
+- [ ] **Russia rev_5 release sync:** the source fix has landed (`section_232_annexes.country_surcharges` plus the post-annex `pmax()` path in step 5c), and a fresh `calculate_rates_for_revision()` run now restores the 200% rate for `country == '4621'` on Annex I-A/I-B/III aluminum and aluminum derivatives. But the checked-in `snapshot_2026_rev_5.rds` and `rate_timeseries.rds` still predate that fix, so `tests/test_rate_calculation.R` fails against the saved rev_5 artifact (Test 12: 3 failures, confirmed 2026-05-19).
 - [ ] **Russia clause (8) is still only partially modeled.** The April 2, 2026 proclamation covers Annex I-A/I-B/III aluminum articles or derivatives that are the product of Russia **or** where any primary aluminum was smelted in Russia **or** the article was cast in Russia. Current logic only keys on exporter country (`country == '4621'`). See `docs/s232/russia_rev5_fix_plan.md`.
 - [ ] **Document (or assign) `deriv_type` in annex-era revisions.** In rev_5 all rows have `deriv_type = NA` and per-type shares = 0 because `apply_232_derivatives()` gates on pre-annex Ch99 codes (9903.81.89-93, 9903.85.04/07/08, 9903.78.01) that are absent from the rev_5 HTS. This is correct-by-policy (full-value taxation replaces metal-content scaling) but arrived at accidentally through a failing gate. Either add a comment documenting the intent, or have step 5c assign a sentinel value (e.g., `deriv_type = 'annex_1a'`) so downstream readers can distinguish "no derivative classification" from "annex-era full-value regime." See `docs/s232/rev5_baseline_review.md` §§4-5.
 - [ ] **Rebuild release artifacts from HEAD.** Re-run `2026_rev_5`, then recombine `rate_timeseries.rds` and `metadata.rds`, so published outputs match the current tree and the new Russia snapshot tests pass on saved artifacts.
-- [x] **Dynamic Ch99 parsing** in `load_annex_products()` / `extract_section232_rates()` — landed 2026-05-19. `Rscript src/scrape_us_notes.R --annex` regenerates `resources/s232_annex_products.csv` by parsing Note 16(c)(i)–(x) from `data/us_notes/chapter99_<revision>.pdf`. Idempotent; curator entries (`source != 'us_note_16'`) win on prefix overlap so manual edge-case calls (annex_2 removals, (c)(ix) overrides) are preserved. Validated semantically against the curator baseline for rev_5 — 2652 codes assigned identically, 0 disagreements. Future Note 16 changes (e.g., rev_6's 9903.82.18/.19 USMCA carve-out used (c)(iii) and (c)(i) — already covered) flow through automatically.
-- [ ] **Modeling gap: conditioned post-annex branches**
-  - UK reduced rates with 95% qualifying-content condition
-  - Annex IV exception buckets / conditioned 10% and 0% paths
+- [x] **Dynamic Ch99 parsing** in `load_annex_products()` / `extract_section232_rates()` — landed 2026-05-19 across 4 commits. `Rscript src/scrape_us_notes.R --annex` regenerates `resources/s232_annex_products.csv` by parsing Note 16(c)(i)–(x) from `data/us_notes/chapter99_<revision>.pdf` (initial parser `0d41a7b`; hardening `ed69eef` — auto-detects latest revision via `latest_local_chapter99_revision()`, derives effective_date from `policy_params.yaml::section_232_annexes.effective_date`, 25 tests in `tests/run_tests_annex_parser.R` wired into CI; methodology doc `59d2561` at `docs/s232/annex_parser.md`). Idempotent; curator entries (`source != 'us_note_16'`) win on prefix overlap so manual edge-case calls (annex_2 removals, (c)(ix) overrides) are preserved. Validated semantically against the curator baseline for rev_5 — 2652 codes assigned identically, 0 disagreements. Future Note 16 changes flow through automatically (rev_6's 9903.82.18/.19 USMCA carve-out reuses (c)(i)/(c)(iii) products that are already covered).
+- [x] **9903.82.01 zero-metal-content carve-out — scaffolded** (`7250a0f`, 2026-05-19). Note 16(a) exemption for articles in (c) lists containing no aluminum/steel/copper. Added `section_232_annexes.exemptions.zero_metal_content` config block + step 5c rate-scaling branch in `06_calculate_rates.R` + 4 tests. Dormant (`aggregate_share = 0.0`); behaviorally a no-op until calibrated. **Calibration is its own item below.**
+- [ ] **Modeling gap: conditioned post-annex branches still open**
+  - UK reduced rates with 95% qualifying-content condition (9903.82.04/.05)
+  - 9903.82.18 / 9903.82.19 — rev_6 USMCA limited-quantity vehicle-parts carve-out (Commerce-authorized limited quantities; needs quantity-tracking logic that the current rate engine doesn't have)
+  - Annex IV exception buckets / other conditioned 10% paths beyond zero_metal_content
   - `9903.81.92` and other product-condition exemptions that don't fit the current country/product binary framework
 
 ### Lower priority
 
 - [ ] UK content share blending (`uk_content_qualifying_share`, default 30% per SGEPT)
-- [ ] Exemption calibration (US-origin 1%, de minimis 2%, motorcycle 0.1% per SGEPT)
+- [ ] Exemption calibration. All four annex exemptions are scaffolded with `aggregate_share: 0.0` (dormant) in `policy_params.yaml::section_232_annexes.exemptions`; turning any of them on is a one-line config edit once shares are known:
+  - `us_origin_metal` (~1% per SGEPT)
+  - `de_minimis_weight` (~2% per SGEPT, applies_to annex_1b/3, excludes chs 72/73/74/76)
+  - `motorcycle_parts` (~0.1% per SGEPT, applies_to annex_1b)
+  - `zero_metal_content` (9903.82.01 — no SGEPT estimate; would need per-prefix metal-content trade data, probably CBP entry-summary detail or industry surveys)
 - [ ] Annex III sunset (Dec 2027 → I-B rate): logic in place, needs future HTS revision to test
 - [ ] **Calibrate `auto_parts_subdivision_r` shares** — landed as dormant config knobs (all default 0). When set, step 5d in `06_calculate_rates.R` applies a three-way mix per Note 33(r): `rate_232 = fta × 0 + (1-fta) × [cert × floor + (1-cert) × annex_1b]`. The FTA exemption follows lines 35836-35837 (KORUS / EO 14345 imports exempt from 9903.94.44/.45/.54/.55/.64/.65 additional duty AND from 9903.82.x metals annex via the (r)(1) carve-out). Resource list is 8 prefixes (87060030, 87089210/.50/.60/.75, 87089315/.30, 87089981) at rev_6; rebuild via `scripts/build_subdivision_r_products.R` after annex updates.
   - **DataWeb does not provide direct chapter-99 granularity** (investigated 2026-05-02 via `src/download_subdivision_r_share.R`). `rateProvisionCodes` is a 2-digit aggregate, not 9903.xx-line specific.
