@@ -360,10 +360,14 @@ check_annex_classification <- function(ts, policy_params = NULL) {
 
 #' Run full quality report
 #'
-#' @param timeseries_path Path to rate_timeseries.rds
+#' @param ts Optional in-memory timeseries tibble. If supplied, skips the
+#'   ~1.26 GB readRDS — preferred from the orchestrator to avoid two
+#'   simultaneous copies in memory.
+#' @param timeseries_path Path to rate_timeseries.rds (used when ts is NULL)
 #' @param output_dir Directory for quality report outputs
 #' @return List with schema_check, revision_quality, anomalies
 run_quality_report <- function(
+  ts = NULL,
   timeseries_path = here('data', 'timeseries', 'rate_timeseries.rds'),
   output_dir = here('output', 'quality')
 ) {
@@ -371,13 +375,14 @@ run_quality_report <- function(
   message('QUALITY REPORT')
   message(strrep('=', 70))
 
-  if (!file.exists(timeseries_path)) {
-    stop('Time series file not found: ', timeseries_path)
-  }
-
   if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
-  ts <- readRDS(timeseries_path)
+  if (is.null(ts)) {
+    if (!file.exists(timeseries_path)) {
+      stop('Time series file not found: ', timeseries_path)
+    }
+    ts <- readRDS(timeseries_path)
+  }
   pp <- tryCatch(load_policy_params(), error = function(e) NULL)
   message('Loaded time series: ', nrow(ts), ' rows, ',
           n_distinct(ts$revision), ' revisions')

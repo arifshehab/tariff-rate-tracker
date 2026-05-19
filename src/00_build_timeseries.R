@@ -12,9 +12,16 @@
 #   Rscript src/00_build_timeseries.R --start-from rev_25  # Explicit incremental
 #   Rscript src/00_build_timeseries.R --build-only  # Skip downstream (daily/ETR/quality)
 #   Rscript src/00_build_timeseries.R --core-only  # Build + downstream, but skip weighted outputs
+#   Rscript src/00_build_timeseries.R --unweighted  # Opt out of weighted outputs for this run
+#                                                   # (alternative to setting weight_mode in config/local_paths.yaml)
 #   Rscript src/00_build_timeseries.R --with-alternatives  # Also run rebuild alternatives
 #   Rscript src/00_build_timeseries.R --alternatives-only  # Run only alternatives (requires existing timeseries)
+#   Rscript src/00_build_timeseries.R --rebuild-alts metal_flat,usmca_2024  # Subset rebuild alternatives (used with --with-alternatives or --alternatives-only)
 #   Rscript src/00_build_timeseries.R --refresh-usmca     # Re-download USMCA shares from DataWeb API
+#
+# Available rebuild-alts names (passed comma-separated): usmca_annual,
+#   usmca_monthly, usmca_2024, usmca_dec2025, metal_flat, dutyfree_nonzero,
+#   subdivision_r_mid. Default (omit --rebuild-alts) runs all of them.
 #
 # Storage layout:
 #   data/timeseries/
@@ -154,13 +161,18 @@ build_full_timeseries <- function(
     start_idx <- which(revisions_to_process == start_from) + 1
 
     if (start_idx > length(revisions_to_process)) {
-      message('No new revisions after ', start_from, '. Nothing to process.')
-      return(invisible(NULL))
+      # No new revisions to iterate, but still rebuild rate_timeseries.rds
+      # from existing snapshots and let the caller run downstream — otherwise
+      # incremental mode silently skips daily series + alternatives refreshes
+      # whenever the tracker is up-to-date.
+      message('No new revisions after ', start_from,
+              '. Skipping iteration; will rebuild from existing snapshots.')
+      revisions_to_process <- character(0)
+    } else {
+      revisions_to_process <- revisions_to_process[start_idx:length(revisions_to_process)]
+      message('Incremental: processing ', length(revisions_to_process),
+              ' revisions after ', start_from)
     }
-
-    revisions_to_process <- revisions_to_process[start_idx:length(revisions_to_process)]
-    message('Incremental: processing ', length(revisions_to_process),
-            ' revisions after ', start_from)
   }
 
   # ---- Main processing loop ----
@@ -307,12 +319,20 @@ build_full_timeseries <- function(
   # Load all snapshot files (including pre-existing from incremental)
   all_snapshot_files <- list.files(output_dir, pattern = '^snapshot_.*\\.rds$', full.names = TRUE)
 
-  timeseries <- map_dfr(all_snapshot_files, function(f) {
-    tryCatch(readRDS(f), error = function(e) {
-      warning('Failed to read snapshot: ', f, ' -- ', e$message)
-      NULL
-    })
-  })
+  # Use data.table::rbindlist instead of purrr::map_dfr — at full scale
+  # (~195M rows) map_dfr peaks at ~2x memory and OOMs around 10 GB. rbindlist
+  # binds in place and handles schema mismatches with fill = TRUE.
+  timeseries <- tibble::as_tibble(
+    data.table::rbindlist(
+      lapply(all_snapshot_files, function(f) {
+        tryCatch(readRDS(f), error = function(e) {
+          warning('Failed to read snapshot: ', f, ' -- ', e$message)
+          NULL
+        })
+      }),
+      fill = TRUE
+    )
+  )
 
   # Enforce schema consistency (old snapshots may lack newer columns)
   timeseries <- enforce_rate_schema(timeseries)
@@ -517,10 +537,17 @@ if (sys.nframe() == 0) {
   alternatives_only <- '--alternatives-only' %in% args
   refresh_usmca <- '--refresh-usmca' %in% args
   use_policy_dates <- !('--use-hts-dates' %in% args)  # default: policy dates
+  unweighted <- '--unweighted' %in% args
   start_from <- NULL
+  rebuild_alts <- NULL
   for (i in seq_along(args)) {
     if (args[i] == '--start-from' && i < length(args)) start_from <- args[i + 1]
+    if (args[i] == '--rebuild-alts' && i < length(args))
+      rebuild_alts <- strsplit(args[i + 1], ',')[[1]]
   }
+
+  # --unweighted overrides config to opt into an unweighted run for this invocation.
+  cli_weight_mode <- if (unweighted) 'unweighted' else NULL
 
   # --- Alternatives-only mode: skip build, iterate existing snapshots ---
   if (alternatives_only) {
@@ -547,11 +574,11 @@ if (sys.nframe() == 0) {
     source(here('src', 'apply_scenarios.R'))
 
     pp <- load_policy_params(use_policy_dates = use_policy_dates)
-    imports <- load_import_weights()
+    imports <- load_import_weights(weight_mode = cli_weight_mode)
 
     capture_messages({
       run_alternative_series(imports = imports, policy_params = pp,
-                              rebuild = TRUE)
+                              rebuild = TRUE, rebuild_alts = rebuild_alts)
     })
 
   } else {
@@ -636,9 +663,13 @@ if (sys.nframe() == 0) {
     # daily series, ETR, quality, and alternatives is written to the build log.
     capture_messages({
 
-    if (core_only) {
+    if (core_only || unweighted) {
+      label <- if (core_only && unweighted) '--core-only --unweighted'
+               else if (core_only) '--core-only'
+               else '--unweighted'
       message('\n', strrep('=', 70))
-      message('POST-BUILD: Core only (--core-only) — unweighted daily series + quality report')
+      message('POST-BUILD: Core only (', label,
+              ') — unweighted daily series + quality report')
       message(strrep('=', 70))
 
       tryCatch(
@@ -655,7 +686,10 @@ if (sys.nframe() == 0) {
       message('POST-BUILD: Daily series, ETR, quality report')
       message(strrep('=', 70))
 
-      imports <- load_import_weights()
+      # Load weights OUTSIDE tryCatch so a missing-weights failure aborts the
+      # build instead of being silently absorbed. Use --unweighted (CLI) or
+      # set weight_mode: unweighted in config/local_paths.yaml to opt out.
+      imports <- load_import_weights(weight_mode = cli_weight_mode)
 
       tryCatch(
         run_daily_series(ts, imports = imports, policy_params = pp),
@@ -668,20 +702,21 @@ if (sys.nframe() == 0) {
       )
 
       tryCatch(
-        run_quality_report(result$timeseries_path),
+        run_quality_report(ts = ts, timeseries_path = result$timeseries_path),
         error = function(e) message('Quality report failed: ', conditionMessage(e))
       )
 
       # --- Step F: Alternative daily series ---
       # Post-build alternatives always run; rebuild alternatives only with --with-alternatives.
-      # Release the full timeseries first — alternatives iterate per-revision snapshots
-      # and holding ts alongside them was the source of the prior OOMs.
-      if (exists('ts', inherits = FALSE)) rm(ts)
+      # Release the full timeseries — alternatives iterate per-revision snapshots
+      # and holding ts alongside them was the source of prior OOMs.
+      rm(ts)
       gc()
       tryCatch({
         source(here('src', 'apply_scenarios.R'))
         run_alternative_series(imports = imports, policy_params = pp,
-                                rebuild = with_alternatives)
+                                rebuild = with_alternatives,
+                                rebuild_alts = rebuild_alts)
       }, error = function(e) message('Alternative series failed: ', conditionMessage(e)))
     }
 
