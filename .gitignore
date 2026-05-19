@@ -13,6 +13,7 @@ config/.chapter99_pending
 
 # Data files (large)
 data/hts_archives/*.json
+data/hts_archives/_archive/
 data/processed/
 data/timeseries/
 data/tpc/*.csv
@@ -29,6 +30,7 @@ snapshots/
 changes/
 exports/
 test_output/
+logs/
 
 # Large DataWeb source dumps (re-downloaded via src/download_usmca_dataweb.R)
 resources/USITC - USMCA - *.xlsx
