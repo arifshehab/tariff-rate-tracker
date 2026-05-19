@@ -1288,6 +1288,65 @@ ANNEX_SUBDIVISION_MAP <- tibble::tribble(
 )
 
 
+#' Resolve the most recent revision for which we have a chapter99 PDF on disk.
+#'
+#' Globs data/us_notes/chapter99_*.pdf, parses the embedded revision tokens
+#' (e.g. "2026_rev_7" or "rev_18"), and orders them via load_revision_dates()
+#' so we pick the latest by effective_date rather than by lexical sort. Falls
+#' back to a string sort if revision_dates.csv is unavailable.
+#'
+#' @return Character revision ID (e.g. "2026_rev_7") or NULL if no PDFs found
+latest_local_chapter99_revision <- function(us_notes_dir = here::here('data', 'us_notes'),
+                                             revision_dates_csv = here::here('config', 'revision_dates.csv')) {
+  if (!dir.exists(us_notes_dir)) return(NULL)
+  pdfs <- list.files(us_notes_dir, pattern = '^chapter99_.*\\.pdf$')
+  if (length(pdfs) == 0) return(NULL)
+
+  revs <- sub('^chapter99_(.*)\\.pdf$', '\\1', pdfs)
+  # Drop the generic 'chapter99.pdf' if it slipped in.
+  revs <- revs[revs != 'chapter99']
+  if (length(revs) == 0) return(NULL)
+
+  rd <- tryCatch(
+    readr::read_csv(revision_dates_csv, show_col_types = FALSE,
+                    col_types = readr::cols(.default = readr::col_character())),
+    error = function(e) NULL
+  )
+  if (is.null(rd) || !'revision' %in% names(rd) || !'effective_date' %in% names(rd)) {
+    return(sort(revs, decreasing = TRUE)[1])
+  }
+  ordered <- rd |>
+    dplyr::filter(.data$revision %in% revs) |>
+    dplyr::arrange(dplyr::desc(as.Date(.data$effective_date)))
+  if (nrow(ordered) > 0) ordered$revision[1]
+  else sort(revs, decreasing = TRUE)[1]
+}
+
+
+#' Resolve the §232 annex regime effective date from policy_params.yaml.
+#'
+#' All products listed in Note 16(c) of any post-restructure revision became
+#' effective on the date the annex regime started (2026-04-06 per the April
+#' 2 2026 proclamation), regardless of which revision PDF we parse. Later
+#' revisions republish the same product lists (rev_5 ≡ rev_7) or refine the
+#' rate-overlay codes (rev_6) without changing the products themselves.
+#'
+#' If a future proclamation EXPANDS Note 16(c) with new products at a later
+#' date, those additions should be tagged with the expansion's effective
+#' date — but that requires per-prefix dating that the current parser does
+#' not produce. Until then, the annex regime start is the right stamp.
+#'
+#' @return Character date (YYYY-MM-DD)
+annex_regime_effective_date <- function(policy_params_yaml = here::here('config', 'policy_params.yaml')) {
+  pp <- yaml::read_yaml(policy_params_yaml)
+  d <- pp$section_232_annexes$effective_date
+  if (is.null(d) || !nzchar(as.character(d))) {
+    stop('section_232_annexes.effective_date missing from ', policy_params_yaml)
+  }
+  as.character(d)
+}
+
+
 #' Parse Note 16(c) annex product lists from a Chapter 99 PDF.
 #'
 #' Extracts HS prefixes from subdivisions (c)(i)–(c)(x) of U.S. Note 16 in the
@@ -1301,11 +1360,18 @@ ANNEX_SUBDIVISION_MAP <- tibble::tribble(
 #'
 #' Output schema matches resources/s232_annex_products.csv.
 #'
-#' @param pdf_path Path to a chapter99_<revision>.pdf (or NULL — uses current)
-#' @param effective_date Date to stamp on parsed rows; default 2026-04-06
+#' @param pdf_path Path to a chapter99_<revision>.pdf (or NULL — downloads
+#'   the generic Chapter 99 PDF, which corresponds to the current revision)
+#' @param effective_date Date to stamp on parsed rows. Required; callers
+#'   should derive this from revision_dates.csv via revision_effective_date().
 #' @return Tibble with columns: hts_prefix, annex, metal_type, source, effective_date
 parse_annex_products <- function(pdf_path = NULL,
-                                  effective_date = '2026-04-06') {
+                                  effective_date = NULL) {
+  if (is.null(effective_date)) {
+    stop('parse_annex_products() requires effective_date. ',
+         'Use annex_regime_effective_date() to read it from policy_params.yaml, ',
+         'or call build_annex_products_for_revision() which does so automatically.')
+  }
   if (is.null(pdf_path)) pdf_path <- download_chapter99_pdf()
   stopifnot(file.exists(pdf_path))
 
@@ -1346,10 +1412,9 @@ parse_annex_products <- function(pdf_path = NULL,
   # Extract HS codes from each subdivision block.
   # HS codes in the PDF look like: 7601, 7616.99.5160, 7308.20.0035.
   # Strip dots after extraction; keep 4-10 digit normalized prefixes.
-  # Filter out:
-  #   - page-header artifacts like "2026" (the year string appears on every page)
-  #   - 4-digit codes outside the §232 annex chapter range (72-95) so we
-  #     don't pick up stray numbers from prose text
+  # Two-layer false-positive defense:
+  #   1) drop page-header lines (running titles, "Revision N (YEAR)" stamps)
+  #   2) chapter-range filter on numeric tokens (see below)
   extract_codes <- function(lines) {
     # Drop lines that are clearly page headers / running titles before we
     # match numeric tokens. These contain words like "Harmonized" or
@@ -1361,9 +1426,18 @@ parse_annex_products <- function(pdf_path = NULL,
       text, '\\b\\d{4}(?:\\.\\d{2}(?:\\.\\d{2,4})?)?(?:\\d{2,6})?\\b')[[1]]
     norm <- stringr::str_remove_all(matches, '\\.')
     norm <- norm[nchar(norm) >= 4 & nchar(norm) <= 10]
-    # §232 annex covers HS chapters 72-95 (metals through machinery/furniture).
-    # Anything outside that range is a stray number from the prose, not an
-    # HS code.
+    # Chapter-range filter: §232 annex Note 16(c) only enumerates products in
+    # HS chapters 72-95 (steel/aluminum/copper primaries through manufactured
+    # derivatives in machinery, electricals, vehicles, parts, furniture, etc).
+    # Anything outside this range that slipped past the page-header filter is
+    # a stray number from the prose — calendar years (20xx), proclamation
+    # numbers, statistical-note references — not an HS code.
+    #
+    # If a future proclamation expands annex scope to a different chapter
+    # range, this needs to widen. Annex II "removed-from-scope" entries in
+    # chapters 04, 21, 22, 27-39, 66, 96 are NOT extracted here by design —
+    # those come from the curator path (source = 'proclamation' in the CSV)
+    # since Note 16(c) doesn't list removed products.
     chapter <- as.integer(substr(norm, 1, 2))
     keep <- !is.na(chapter) & chapter >= 72 & chapter <= 95
     unique(norm[keep])
@@ -1417,11 +1491,21 @@ parse_annex_products <- function(pdf_path = NULL,
 #'   resources/s232_annex_products.csv); pass NULL to skip the merge.
 #' @param effective_date Date stamp for parsed rows
 #' @return Tibble in the canonical annex CSV schema
-build_annex_products_for_revision <- function(revision = '2026_rev_5',
+build_annex_products_for_revision <- function(revision = NULL,
                                                pdf_path = NULL,
                                                static_csv = here::here('resources',
                                                                        's232_annex_products.csv'),
-                                               effective_date = '2026-04-06') {
+                                               effective_date = NULL) {
+  if (is.null(revision)) {
+    revision <- latest_local_chapter99_revision()
+    if (is.null(revision)) {
+      stop('No chapter99 PDFs in data/us_notes/. ',
+           'Pass --annex-revision <id> or download PDFs first via ',
+           '`Rscript src/scrape_us_notes.R --download-pdfs`.')
+    }
+    message('  Auto-detected latest revision: ', revision)
+  }
+
   if (is.null(pdf_path)) {
     candidate <- here::here('data', 'us_notes', paste0('chapter99_', revision, '.pdf'))
     if (!file.exists(candidate)) {
@@ -1431,6 +1515,14 @@ build_annex_products_for_revision <- function(revision = '2026_rev_5',
       stop('No PDF available for ', revision)
     }
     pdf_path <- candidate
+  }
+
+  if (is.null(effective_date)) {
+    # All products in Note 16(c) of any post-restructure revision share the
+    # annex regime start date (2026-04-06). See annex_regime_effective_date()
+    # for why parsing a later revision still tags 2026-04-06.
+    effective_date <- annex_regime_effective_date()
+    message('  Annex regime effective date: ', effective_date)
   }
 
   message('Building annex map from ', basename(pdf_path), '...')
@@ -1755,10 +1847,9 @@ if (sys.nframe() == 0) {
     }
 
     if (do_annex || do_all_modes) {
-      annex_revision <- if (is.null(annex_revision_value)) '2026_rev_5' else annex_revision_value
-      annex_output   <- here('resources', 's232_annex_products.csv')
+      annex_output <- here('resources', 's232_annex_products.csv')
       annex_result <- build_annex_products_for_revision(
-        revision   = annex_revision,
+        revision   = annex_revision_value,  # NULL → auto-detect latest
         static_csv = annex_output
       )
       if (!dry_run) {

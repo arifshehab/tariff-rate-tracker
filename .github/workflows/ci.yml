@@ -59,5 +59,8 @@ jobs:
       - name: Run weights-resolution tests
         run: Rscript tests/run_tests_weights_resolution.R
 
+      - name: Run annex-parser tests
+        run: Rscript tests/run_tests_annex_parser.R
+
       - name: Run rate-calculation tests
         run: Rscript tests/test_rate_calculation.R
