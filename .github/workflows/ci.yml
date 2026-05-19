@@ -42,11 +42,22 @@ jobs:
       - name: Download required HTS archives
         run: Rscript src/02_download_hts.R
 
+      - name: Opt out of weighted outputs (CI runs smoke tests only)
+        # The smoke tests do not need import weights (~1.5GB Census ZIP build).
+        # Strict-mode preflight expects weights by default; this file documents
+        # the explicit opt-out. See docs/weights.md.
+        run: |
+          printf 'weight_mode: unweighted\n' > config/local_paths.yaml
+          cat config/local_paths.yaml
+
       - name: Run preflight
         run: Rscript src/preflight.R
 
       - name: Run daily-series smoke tests
         run: Rscript tests/run_tests_daily_series.R
+
+      - name: Run weights-resolution tests
+        run: Rscript tests/run_tests_weights_resolution.R
 
       - name: Run rate-calculation tests
         run: Rscript tests/test_rate_calculation.R
