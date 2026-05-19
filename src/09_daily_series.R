@@ -92,6 +92,31 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       )
   }
 
+  # --- GTAP category crosswalk (HS10 → GTAP sector) ---
+  # Used by compute_agg_category to produce by_category aggregates. If the file
+  # is missing the by-category aggregation is skipped silently — keeps the
+  # aggregator backwards-compatible. Crosswalk schema: hs10, hs6_code,
+  # gtap_code, description (note: 'hs10' here is the same 10-digit code the
+  # rate snapshot stores under 'hts10').
+  gtap_crosswalk_path <- here::here('resources', 'hs10_gtap_crosswalk.csv')
+  has_categories <- file.exists(gtap_crosswalk_path)
+  if (has_categories) {
+    gtap_xwalk <- suppressMessages(
+      read_csv(gtap_crosswalk_path, col_types = cols(.default = col_character()))
+    ) %>% select(hs10, gtap_code) %>% distinct()
+    # Note: ts/ts_weighted are NOT joined to gtap_xwalk upfront — at full
+    # build size (~195M rows) the materialized join OOMs at the coalesce
+    # step. compute_agg_category does the join per revision instead.
+    if (has_weights) {
+      # Per-sector total imports (denominator for sector-weighted ETR).
+      sector_total_imports <- imports %>%
+        left_join(gtap_xwalk, by = 'hs10') %>%
+        mutate(gtap_code = coalesce(gtap_code, 'unmapped')) %>%
+        group_by(gtap_code) %>%
+        summarise(sector_total_imports = sum(imports), .groups = 'drop')
+    }
+  }
+
   # China code for net authority decomposition
   CTY_CHINA <- if (!is.null(policy_params)) policy_params$CTY_CHINA %||% '5700' else '5700'
 
@@ -228,6 +253,54 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     return(row)
   }
 
+  compute_agg_category <- function(revision, valid_from, valid_until, sub_start = valid_from) {
+    rev_data <- ts %>%
+      filter(revision == !!revision) %>%
+      left_join(gtap_xwalk, by = c('hts10' = 'hs10')) %>%
+      mutate(gtap_code = coalesce(gtap_code, 'unmapped'))
+    rev_data <- apply_expiry_zeroing(rev_data, sub_start, policy_params)
+    rev_data <- apply_stacking_rules(rev_data, stacking_method = stacking_method)
+    n_products_rev <- n_distinct(rev_data$hts10)
+    row <- rev_data %>%
+      group_by(gtap_code) %>%
+      summarise(
+        mean_additional_exposed = mean(total_additional),
+        mean_total_exposed = mean(total_rate),
+        mean_additional_all_pairs = sum(total_additional) / n_products_rev,
+        mean_total_all_pairs = sum(total_rate) / n_products_rev,
+        n_products_present = n_distinct(hts10),
+        n_pairs_present = n(),
+        .groups = 'drop'
+      ) %>%
+      mutate(
+        revision = revision, valid_from = valid_from, valid_until = valid_until,
+        n_products_total = n_products_rev
+      )
+    if (has_weights) {
+      wt_data <- ts_weighted %>%
+        filter(revision == !!revision) %>%
+        left_join(gtap_xwalk, by = c('hts10' = 'hs10')) %>%
+        mutate(gtap_code = coalesce(gtap_code, 'unmapped'))
+      wt_data <- apply_expiry_zeroing(wt_data, sub_start, policy_params)
+      wt_data <- apply_stacking_rules(wt_data, stacking_method = stacking_method)
+      wt_sector <- wt_data %>%
+        group_by(gtap_code) %>%
+        summarise(
+          tariffed_imports = sum(imports),
+          weighted_numerator = sum(total_rate * imports),
+          .groups = 'drop'
+        ) %>%
+        left_join(sector_total_imports, by = 'gtap_code') %>%
+        mutate(
+          sector_total_imports = coalesce(sector_total_imports, tariffed_imports),
+          weighted_etr = weighted_numerator / sector_total_imports
+        ) %>%
+        select(gtap_code, weighted_etr)
+      row <- row %>% left_join(wt_sector, by = 'gtap_code')
+    }
+    return(row)
+  }
+
   # --- Per-revision aggregates (with generic expiry splitting) ---
   # Generic interval splitter: splits a revision interval at all expiry dates
   # and calls the aggregation function for each sub-interval
@@ -250,6 +323,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   agg_overall <- split_and_aggregate(compute_agg_overall)
   agg_by_country <- split_and_aggregate(compute_agg_country)
   agg_by_authority <- split_and_aggregate(compute_agg_authority)
+  agg_by_category <- if (has_categories) split_and_aggregate(compute_agg_category) else tibble()
 
   # Add etr_base to authority decomposition so parts sum to weighted_etr.
   # Computed as residual: weighted_etr - sum(authority ETRs). This guarantees
@@ -293,17 +367,23 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   daily_overall <- expand_intervals(agg_overall)
   daily_by_country <- expand_intervals(agg_by_country)
   daily_by_authority <- expand_intervals(agg_by_authority)
+  daily_by_category <- if (nrow(agg_by_category) > 0) expand_intervals(agg_by_category) else tibble()
 
   message('  Daily overall rows: ', nrow(daily_overall))
   message('  Daily by-country rows: ', nrow(daily_by_country))
   message('  Daily by-authority rows: ', nrow(daily_by_authority))
+  if (has_categories) {
+    message('  Daily by-category rows: ', nrow(daily_by_category))
+  }
 
   return(list(
     daily_overall = daily_overall,
     daily_by_country = daily_by_country,
     daily_by_authority = daily_by_authority,
+    daily_by_category = daily_by_category,
     agg_by_country = agg_by_country,
-    agg_by_authority = agg_by_authority
+    agg_by_authority = agg_by_authority,
+    agg_by_category = agg_by_category
   ))
 }
 
@@ -715,6 +795,10 @@ save_daily_outputs <- function(daily, out_dir = here('output', 'daily')) {
   }
   write_csv(daily$daily_by_country, file.path(out_dir, 'daily_by_country.csv'))
   write_csv(daily$daily_by_authority, file.path(out_dir, 'daily_by_authority.csv'))
+  has_category <- !is.null(daily$daily_by_category) && nrow(daily$daily_by_category) > 0
+  if (has_category) {
+    write_csv(daily$daily_by_category, file.path(out_dir, 'daily_by_category.csv'))
+  }
   saveRDS(daily, file.path(out_dir, 'daily_aggregates.rds'))
 
   # --- Excel workbook (overwrite individual sheets, preserve workbook) ---
@@ -727,6 +811,9 @@ save_daily_outputs <- function(daily, out_dir = here('output', 'daily')) {
   message('  daily_overall.csv: ', nrow(daily$daily_overall), ' rows')
   message('  daily_by_country.csv: ', nrow(daily$daily_by_country), ' rows')
   message('  daily_by_authority.csv: ', nrow(daily$daily_by_authority), ' rows')
+  if (has_category) {
+    message('  daily_by_category.csv: ', nrow(daily$daily_by_category), ' rows')
+  }
   message('  daily_aggregates.rds')
   if (requireNamespace('openxlsx', quietly = TRUE)) message('  daily_workbook.xlsx')
 }
@@ -761,6 +848,7 @@ run_daily_series <- function(ts, imports = NULL, policy_params = NULL) {
 save_alternative_output <- function(daily_overall, variant,
                                      agg_by_authority = NULL,
                                      agg_by_country = NULL,
+                                     agg_by_category = NULL,
                                      out_dir = here('output', 'alternative')) {
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
   daily_overall <- daily_overall %>% mutate(variant = variant)
@@ -804,6 +892,18 @@ save_alternative_output <- function(daily_overall, variant,
     write_csv(trimmed, file.path(out_dir, fname_cty))
     message('  Saved: ', fname_cty, ' (', nrow(trimmed), ' rows)')
   }
+
+  # By-category (GTAP sector): interval-encoded
+  if (!is.null(agg_by_category) && nrow(agg_by_category) > 0) {
+    trimmed_cat <- agg_by_category %>%
+      select(any_of(c('gtap_code', 'revision', 'valid_from', 'valid_until',
+                       'mean_additional_exposed', 'mean_total_exposed',
+                       'weighted_etr', 'n_products_present'))) %>%
+      mutate(variant = variant)
+    fname_cat <- paste0('by_category_', variant, '.csv')
+    write_csv(trimmed_cat, file.path(out_dir, fname_cat))
+    message('  Saved: ', fname_cat, ' (', nrow(trimmed_cat), ' rows)')
+  }
 }
 
 
@@ -840,6 +940,43 @@ build_rev_intervals <- function(revs_built, rev_dates, horizon_end = Sys.Date())
 }
 
 
+#' Split revision intervals at patch activation dates
+#'
+#' For each revision interval [vf, vu], any split_date D with vf < D <= vu is
+#' inserted as a boundary so the interval becomes [vf, D-1] and [D, vu]. The
+#' caller (aggregate_snapshots_per_revision) then runs the transform with the
+#' sub-interval's valid_from, and apply_scenario_spec gates patches whose
+#' filter$from_date is later than that valid_from.
+#'
+#' Revisions outside the patch date span — and rev_intervals when no split
+#' dates apply — are returned unchanged.
+#'
+#' @param rev_intervals Tibble with revision, valid_from, valid_until (one row
+#'   per revision)
+#' @param split_dates Vector of Date split points (e.g., from
+#'   collect_patch_split_dates(scenario_spec))
+#' @return Tibble with same columns, possibly more rows when sub-intervals
+#'   were generated
+split_rev_intervals_at_patches <- function(rev_intervals, split_dates) {
+  if (length(split_dates) == 0) return(rev_intervals)
+  split_dates <- sort(unique(as.Date(split_dates)))
+
+  rev_intervals %>%
+    pmap_dfr(function(revision, valid_from, valid_until) {
+      vf <- as.Date(valid_from)
+      vu <- as.Date(valid_until)
+      interior <- split_dates[split_dates > vf & split_dates <= vu]
+      if (length(interior) == 0) {
+        return(tibble(revision = revision, valid_from = vf, valid_until = vu))
+      }
+      # Boundaries: [vf, d1-1], [d1, d2-1], ..., [dN, vu]
+      starts <- c(vf, interior)
+      ends <- c(interior - 1, vu)
+      tibble(revision = revision, valid_from = starts, valid_until = ends)
+    })
+}
+
+
 #' Aggregate a set of per-revision snapshots into daily + interval parts
 #'
 #' Loads one snapshot at a time, attaches interval columns, optionally applies
@@ -862,27 +999,53 @@ aggregate_snapshots_per_revision <- function(snapshot_dir, rev_intervals,
                                               policy_params = NULL,
                                               transform = NULL,
                                               progress_every = 10L) {
-  n_revs <- nrow(rev_intervals)
-  daily_parts <- vector('list', n_revs)
-  auth_parts <- vector('list', n_revs)
-  country_parts <- vector('list', n_revs)
+  # rev_intervals may carry multiple sub-rows per revision when the caller has
+  # split intervals at patch from_dates (see split_rev_intervals_at_patches);
+  # each sub-row is processed independently with its own valid_from passed to
+  # the transform. Snapshots are loaded at most once per revision.
+  n_subs <- nrow(rev_intervals)
+  daily_parts <- vector('list', n_subs)
+  auth_parts <- vector('list', n_subs)
+  country_parts <- vector('list', n_subs)
+  category_parts <- vector('list', n_subs)
 
-  for (i in seq_len(n_revs)) {
+  # Detect whether transform expects a `valid_from` argument (new patch-aware
+  # signature) vs the legacy 1-arg form. Lets both coexist during rollout.
+  transform_takes_valid_from <- FALSE
+  if (!is.null(transform)) {
+    transform_takes_valid_from <- 'valid_from' %in% names(formals(transform))
+  }
+
+  cached_snapshot <- NULL
+  cached_rev <- NULL
+
+  for (i in seq_len(n_subs)) {
     rev_id <- rev_intervals$revision[i]
+    sub_from <- rev_intervals$valid_from[i]
+    sub_until <- rev_intervals$valid_until[i]
+
     snap_path <- file.path(snapshot_dir, paste0('snapshot_', rev_id, '.rds'))
     if (!file.exists(snap_path)) {
       message('    SKIP ', rev_id, ': snapshot not found')
       next
     }
 
-    snapshot <- readRDS(snap_path)
-    snapshot <- enforce_rate_schema(snapshot)
-    snapshot$valid_from <- rev_intervals$valid_from[i]
-    snapshot$valid_until <- rev_intervals$valid_until[i]
+    if (is.null(cached_rev) || cached_rev != rev_id) {
+      cached_snapshot <- readRDS(snap_path) %>% enforce_rate_schema()
+      cached_rev <- rev_id
+    }
+
+    snapshot <- cached_snapshot
+    snapshot$valid_from <- sub_from
+    snapshot$valid_until <- sub_until
     snapshot$revision <- rev_id
 
     if (!is.null(transform)) {
-      snapshot <- transform(snapshot)
+      snapshot <- if (transform_takes_valid_from) {
+        transform(snapshot, valid_from = sub_from)
+      } else {
+        transform(snapshot)
+      }
     }
 
     daily <- suppressMessages(
@@ -891,18 +1054,20 @@ aggregate_snapshots_per_revision <- function(snapshot_dir, rev_intervals,
     daily_parts[[i]] <- daily$daily_overall
     auth_parts[[i]] <- daily$agg_by_authority
     country_parts[[i]] <- daily$agg_by_country
+    category_parts[[i]] <- daily$agg_by_category
     rm(snapshot, daily)
     gc()
 
-    if (i %% progress_every == 0 || i == n_revs) {
-      message('    ', i, '/', n_revs, ' revisions aggregated')
+    if (i %% progress_every == 0 || i == n_subs) {
+      message('    ', i, '/', n_subs, ' sub-intervals aggregated')
     }
   }
 
   list(
     daily_overall = bind_rows(daily_parts),
     agg_by_authority = bind_rows(auth_parts),
-    agg_by_country = bind_rows(country_parts)
+    agg_by_country = bind_rows(country_parts),
+    agg_by_category = bind_rows(category_parts)
   )
 }
 
@@ -1027,7 +1192,8 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
 
   save_alternative_output(parts$daily_overall, variant_name,
                            agg_by_authority = parts$agg_by_authority,
-                           agg_by_country = parts$agg_by_country)
+                           agg_by_country = parts$agg_by_country,
+                           agg_by_category = parts$agg_by_category)
 
   message('  Done: ', variant_name)
   return(invisible(parts$daily_overall))
@@ -1085,31 +1251,55 @@ run_post_build_scenarios_per_revision <- function(scenario_names,
   for (scenario_name in scenario_names) {
     scenario_spec <- scenarios[[scenario_name]]
     disable <- scenario_spec$disable %||% character(0)
+    patches <- scenario_spec$patches %||% list()
     message('\n  Scenario: ', scenario_name, ' (per-revision)')
     message('    ', scenario_spec$description)
     if (length(disable) > 0) {
       message('    Disabling: ', paste(disable, collapse = ', '))
     }
 
+    # If the scenario has date-bounded patches, split rev_intervals at each
+    # activation date so the transform sees a coherent on/off state per
+    # sub-interval. No-op when patches is empty.
+    split_dates <- collect_patch_split_dates(scenario_spec)
+    rev_intervals_for_scenario <- split_rev_intervals_at_patches(
+      rev_intervals, split_dates
+    )
+    if (length(patches) > 0) {
+      message('    Patches: ', length(patches),
+              '; activation dates: ',
+              paste(format(split_dates), collapse = ', '))
+      n_split <- nrow(rev_intervals_for_scenario) - nrow(rev_intervals)
+      if (n_split > 0) {
+        message('    Sub-intervals added: ', n_split)
+      }
+    }
+
     # local() binds scenario_spec/name by value so the closure can't be
-    # aliased by the next loop iteration.
+    # aliased by the next loop iteration. valid_from is forwarded to
+    # apply_scenario_spec to gate date-bounded patches.
     transform <- local({
       spec <- scenario_spec
       name <- scenario_name
-      function(snapshot) apply_scenario_spec(snapshot, spec, name)
+      pp <- policy_params
+      function(snapshot, valid_from = NULL) {
+        apply_scenario_spec(snapshot, spec, name,
+                            valid_from = valid_from, pp = pp)
+      }
     })
 
     ok <- tryCatch({
       parts <- aggregate_snapshots_per_revision(
         snapshot_dir = snapshot_dir,
-        rev_intervals = rev_intervals,
+        rev_intervals = rev_intervals_for_scenario,
         imports = imports,
         policy_params = policy_params,
         transform = transform
       )
       save_alternative_output(parts$daily_overall, scenario_name,
                                agg_by_authority = parts$agg_by_authority,
-                               agg_by_country = parts$agg_by_country)
+                               agg_by_country = parts$agg_by_country,
+                               agg_by_category = parts$agg_by_category)
       TRUE
     }, error = function(e) {
       message('  FAILED (', scenario_name, '): ', conditionMessage(e))
@@ -1141,9 +1331,15 @@ run_post_build_scenarios_per_revision <- function(scenario_names,
 #' @param imports Import weights tibble (or NULL)
 #' @param policy_params Policy params list
 #' @param rebuild Logical; if TRUE, also run rebuild alternatives
+#' @param rebuild_alts Optional character vector subsetting which rebuild
+#'   alternatives to run (e.g., c('metal_flat', 'usmca_2024')). Default NULL
+#'   runs all of them. Only consulted when rebuild = TRUE.
 #' @return Invisible NULL
 run_alternative_series <- function(imports = NULL, policy_params = NULL,
-                                    rebuild = FALSE) {
+                                    rebuild = FALSE, rebuild_alts = NULL) {
+
+  # Helper: TRUE if scenario should run given the rebuild_alts filter
+  want_alt <- function(name) is.null(rebuild_alts) || name %in% rebuild_alts
 
   message('\n', strrep('=', 70))
   message('ALTERNATIVE DAILY SERIES')
@@ -1177,7 +1373,7 @@ run_alternative_series <- function(imports = NULL, policy_params = NULL,
     pp <- policy_params %||% load_policy_params()
 
     # 1a. USMCA 2025 annual average (time-invariant counterfactual)
-    tryCatch({
+    if (want_alt('usmca_annual')) tryCatch({
       pp_usmca <- pp
       pp_usmca$USMCA_SHARES$year <- 2025
       pp_usmca$USMCA_SHARES$mode <- 'annual'
@@ -1189,7 +1385,7 @@ run_alternative_series <- function(imports = NULL, policy_params = NULL,
     # 1b. USMCA raw monthly shares (time-varying; tracks effective_date month,
     #     falls back to most recent available monthly file when newer files
     #     haven't been published yet).
-    tryCatch({
+    if (want_alt('usmca_monthly')) tryCatch({
       pp_usmca_m <- pp
       pp_usmca_m$USMCA_SHARES$mode <- 'monthly'
       pp_usmca_m$USMCA_SHARES$year <- NULL
@@ -1199,7 +1395,7 @@ run_alternative_series <- function(imports = NULL, policy_params = NULL,
     })
 
     # 1c. USMCA 2024 shares (pre-tariff steady-state)
-    tryCatch({
+    if (want_alt('usmca_2024')) tryCatch({
       pp_usmca_24 <- pp
       pp_usmca_24$USMCA_SHARES$year <- 2024
       pp_usmca_24$USMCA_SHARES$mode <- 'annual'
@@ -1209,7 +1405,7 @@ run_alternative_series <- function(imports = NULL, policy_params = NULL,
     })
 
     # 1d. USMCA fixed latest month (Dec 2025 — post-behavioral-shift equilibrium)
-    tryCatch({
+    if (want_alt('usmca_dec2025')) tryCatch({
       pp_usmca_f <- pp
       pp_usmca_f$USMCA_SHARES$mode <- 'fixed_month'
       pp_usmca_f$USMCA_SHARES$year <- 2025
@@ -1220,7 +1416,7 @@ run_alternative_series <- function(imports = NULL, policy_params = NULL,
     })
 
     # 2. Flat 100% metal content (upper bound: all derivative value is metal)
-    tryCatch({
+    if (want_alt('metal_flat')) tryCatch({
       pp_metal <- pp
       pp_metal$metal_content$method <- 'flat'
       pp_metal$metal_content$flat_share <- 1.0
@@ -1230,12 +1426,30 @@ run_alternative_series <- function(imports = NULL, policy_params = NULL,
     })
 
     # 3. Nonzero duty-free treatment (sensitivity analysis: exclude 0% MFN from IEEPA)
-    tryCatch({
+    if (want_alt('dutyfree_nonzero')) tryCatch({
       pp_dutyfree <- pp
       pp_dutyfree$ieepa_duty_free_treatment <- 'nonzero_base_only'
       build_alternative_timeseries(pp_dutyfree, 'dutyfree_nonzero', imports = imports, policy_params = pp_dutyfree)
     }, error = function(e) {
       message('  FAILED (dutyfree_nonzero): ', conditionMessage(e))
+    })
+
+    # 4. Subdivision (r) calibration mid-point — sensitivity scenario for the
+    #    auto-parts certification + FTA-exempt fix. Without calibrated CBP /
+    #    industry data we set a 0.5 / 0.5 mid-point: half of EU/JP/KR subdiv-r
+    #    imports are assumed to file under 9903.94.45/.55/.65 (15% floor)
+    #    and half of KR subdiv-r imports are assumed FTA-qualifying under
+    #    KORUS (rate_232 = 0). EU and JP fta_share remain at 0 (no equivalent
+    #    FTA carve-out for EU; SPI=JP signal near zero on autos in 2025).
+    #    See docs/s232/subdivision_r_calibration.md.
+    if (want_alt('subdivision_r_mid')) tryCatch({
+      pp_subdiv_r <- pp
+      pp_subdiv_r$auto_parts_subdivision_r$certified_share <- 0.5
+      pp_subdiv_r$auto_parts_subdivision_r$fta_exempt_shares$KR <- 0.5
+      build_alternative_timeseries(pp_subdiv_r, 'subdivision_r_mid',
+                                    imports = imports, policy_params = pp_subdiv_r)
+    }, error = function(e) {
+      message('  FAILED (subdivision_r_mid): ', conditionMessage(e))
     })
   }
 
