@@ -14,8 +14,8 @@
 #                            country_group / product_set / from_date. Currently
 #                            supports the `floor` action (sets all-in rate to a
 #                            target value). See the PATCH DSL block below for
-#                            the full filter + action vocabulary, or
-#                            docs/scenarios.md for an authoring guide.
+#                            the full filter + action vocabulary; see
+#                            docs/scenarios.md for the authoring guide.
 #
 # Both formats may appear in the same scenario; patches are applied AFTER
 # disable. Works on any tibble with the standard rate schema — a single

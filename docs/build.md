@@ -202,8 +202,28 @@ Pass `--with-artifacts` to include the heavier artifact-dependent integration ch
 |---|---|
 | `output/etr/` | weighted ETR tables and plots |
 | `output/comparisons/` | benchmark comparison artifacts |
-| `output/alternative/` | sensitivity / counterfactual variants (per scenario; includes `by_category_<variant>.csv`); see [Scenarios](#scenarios-and-counterfactuals) |
+| `output/alternative/` | counterfactual variants — one file per scenario × output type (`daily_overall_<variant>.csv`, `by_authority_<variant>.csv`, `by_country_<variant>.csv`, `by_category_<variant>.csv`). See [docs/scenarios.md](scenarios.md). |
 | `output/etrs_config/{date}/` | ETRs-compatible config directories (from `generate_etrs_config.R`) |
+
+## Scenarios and counterfactuals
+
+The build runs the baseline and any number of counterfactual scenarios defined
+in [`config/scenarios.yaml`](../config/scenarios.yaml). Scenarios produce
+companion outputs in `output/alternative/`. They support two formats:
+
+- `disable:` — zero out one or more authority columns wholesale.
+- `patches:` — date-bounded targeted overrides selected by country group and
+  product set; currently supports the `floor` action.
+
+See [docs/scenarios.md](scenarios.md) for the authoring guide (filter and
+action vocabulary, output schemas, and how to extend the DSL).
+
+To run only scenarios without re-building the main series (e.g. after editing
+`config/scenarios.yaml`):
+
+```bash
+Rscript src/00_build_timeseries.R --alternatives-only
+```
 
 ## Comparison workflows
 
