@@ -3,7 +3,7 @@
 ## Active priorities (updated 2026-05-19)
 
 1. **Sync published rev_5 artifacts with current code**: rebuild `2026_rev_5`, `rate_timeseries.rds`, and `metadata.rds` so the saved release outputs reflect the landed Russia fix and `tests/test_rate_calculation.R` stops failing against stale artifacts (3 failures in Test 12 "Annex-era country surcharges (rev_5)" trace to this).
-2. **Close the live USMCA annex gap**: check annex-era `s232_usmca_eligible` coverage, then refresh 2026 monthly USMCA files once DataWeb stops returning HTTP 503, and rebuild `usmca_monthly` snapshots from the refreshed monthly inputs.
+2. **Rebuild `usmca_monthly` snapshots.** Annex-era `s232_usmca_eligible` refresh (`35542ea`) and the 2026 monthly USMCA file refresh (2026-05-03) both landed; the only remaining USMCA piece is regenerating `data/timeseries/usmca_monthly/` and `output/alternative/*usmca_monthly*` with the new files. Single command: `Rscript src/build_usmca_scenarios.R --scenarios usmca_monthly`.
 3. **Finish the biggest post-annex modeling gaps**: Russia clause (8) full smelter/cast origin logic, UK 95% qualifying-content blending, Annex IV exception buckets, and product-condition exemptions like 9903.81.92 are still approximated or unmodeled. (9903.82.01 zero-metal-content is now scaffolded but dormant — calibration is its own line item below.)
 4. **Then clear secondary rebuild/calibration debt**: rerun the OOM-failed post-build alternatives, calibrate semi/annex/zmc assumptions, and tackle the remaining low-priority performance and cleanup items.
 
@@ -107,11 +107,9 @@ Net: tracker gives the right answer (0 s122 on semi) for two independent reasons
 
 Legal effective date is **Jan 15, 2026 (12:01 am EST)** per the Jan 14 proclamation. `config/revision_dates.csv` has `2026_rev_1 = 2026-01-16` (HTS JSON publication date). Pre-existing tracker convention — same as Budget Lab Yale's Tariff-ETRs historical config. Not fixed here; would be a separate revision_dates cleanup.
 
-## USMCA scenario and share-loading (2026-04-20)
+## USMCA scenario and share-loading (2026-04-20, last audited 2026-05-19)
 
-Investigation of `usmca_2024` / `usmca_monthly` alternatives and their behavior in the post-SCOTUS / post-annex regime. Fix applied for the monthly scenario; two follow-ups remain.
-
-Priority order within this section: check annex-era `s232_usmca_eligible` first, refresh the 2026 monthly files once DataWeb is available, then rebuild `usmca_monthly` outputs from the refreshed monthly inputs.
+Investigation of `usmca_2024` / `usmca_monthly` alternatives and their behavior in the post-SCOTUS / post-annex regime. Originally three open items; two have since resolved silently (see "Completed" below). Only the snapshot rebuild remains.
 
 ### Findings
 
@@ -125,12 +123,12 @@ Priority order within this section: check annex-era `s232_usmca_eligible` first,
 - [x] Rewrote monthly branch of `load_usmca_product_shares()` (`src/data_loaders.R:240-267`) to derive target year/month from `effective_date` and walk backward one calendar month at a time until a file is found. Caps at 120 steps; falls through to annual if nothing matches. Verified across 11 test dates from 2024 through 2026-10.
 - [x] Removed hardcoded `year = 2025L` from `usmca_monthly` scenario spec (`src/build_usmca_scenarios.R:42`) and from the legacy `--with-alternatives` block in `src/09_daily_series.R:1005-1013`.
 - [x] Patched `src/download_usmca_dataweb.R` so current-year queries use a Year-to-Date date range (`timeframeSelectType = 'specificDateRange'`, Jan-through-current-month) instead of `fullYears`, matching DataWeb support guidance for incomplete years.
+- [x] **Annex-era `s232_usmca_eligible` refresh — landed in commit `35542ea` (2026-04-28).** `06_calculate_rates.R:2574-2583` re-derives the flag after the annex restructuring override: any annex_1a/1b/3 product that is USMCA-eligible (S/S+ in HTS) and NOT in steel/aluminum chapters (72/73/76) gets `s232_usmca_eligible = TRUE`. Existing passing test in `tests/test_rate_calculation.R` ("Annex-era s232_usmca_eligible refresh: CA/MX rate_232 reduced vs non-USMCA partner"). Re-audited 2026-05-19 against snapshot_2026_rev_5.rds: bulk of annex-era CA/MX S/S+ products correctly get rate_232 reduced; the residual cases that aren't reduced trace to legitimately zero `h2_average` USMCA share (months 7-12 2025 value-weighted), not a refresh bug.
+- [x] **2026 monthly USMCA files refreshed (2026-05-03).** `resources/usmca_product_shares_2026_01.csv` and `_02.csv` now present (587KB / 590KB). DataWeb 503 resolved at some point between 2026-04-23 and 2026-05-03; downloader fix from `src/download_usmca_dataweb.R` worked once DataWeb returned. Per Hugh@DataWeb the latest available data is February 2026, so monthly walk-back from later dates correctly freezes at the 2026-02 file.
 
 ### Open work
 
-- [ ] **Rebuild `usmca_monthly` snapshots under the new logic.** `data/timeseries/usmca_monthly/` and `output/alternative/*usmca_monthly*` were produced under the old clamp. Run `Rscript src/build_usmca_scenarios.R --scenarios usmca_monthly` (or the full `--with-alternatives` pass) to regenerate. Expected: Jan–Apr 2025 line at ~40–45% utilization (close to `usmca_2024`), step-up mid-2025 to ~85%, then flat at the latest available 2026 monthly file level. Per DataWeb support email on 2026-04-23, the latest published 2026 monthly data is February, so the refreshed 2026 line should freeze at the 2026-02 level until newer monthly files land.
-- [ ] **Check annex-era `s232_usmca_eligible` coverage.** Diff the set of products with `s232_usmca_eligible = TRUE` against products classified as annex_1b with USMCA `special = S/S+` at `2026_rev_5`. If there are annex_1b products that should be eligible but are not, either (a) refresh the flag from `usmca` after the annex override in step 5c, or (b) add annex-level `usmca_exempt` config to `section_232_annexes.annexes.annex_1b` and apply it in step 5c alongside the rate override.
-- [ ] **Refresh 2026 monthly USMCA files.** DataWeb support (Hugh, 2026-04-23) says current-year queries should use **Year-to-Date** rather than **Annual**, because full-year annual data does not populate for an incomplete year; he also confirmed that the latest available 2026 monthly data is **February**, so April 2026 should return no results until that data is published. That downloader fix is now in place, but both a current-month retry and a February-capped retry (`--end-date 02/2026`) still returned **HTTP 503** on **2026-04-23** at the first chapter batch. Retry once DataWeb is available: `Rscript src/download_usmca_dataweb.R --year 2026 --monthly`. Expected post-refresh state: `resources/usmca_product_shares_2026_01.csv` and `resources/usmca_product_shares_2026_02.csv` present, with the monthly scenario freezing at February 2026 until newer files land.
+- [ ] **Rebuild `usmca_monthly` snapshots under the new logic.** `data/timeseries/usmca_monthly/` snapshots and `output/alternative/*usmca_monthly*` outputs are dated 2026-04-28, predating the 2026_01/02 monthly file refresh (2026-05-03). Re-run `Rscript src/build_usmca_scenarios.R --scenarios usmca_monthly` to regenerate. Expected: Jan–Apr 2025 line at ~40–45% utilization (close to `usmca_2024`), step-up mid-2025 to ~85%, then flat at the 2026-02 level until newer monthly files land.
 
 ## Code review findings (2026-04-15)
 
