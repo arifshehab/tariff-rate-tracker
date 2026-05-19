@@ -1,26 +1,39 @@
 # =============================================================================
 # Local Paths — User-Specific File Locations
 # =============================================================================
-# This file is OPTIONAL. The core tariff build runs without it.
-# It provides paths for files not shipped in the repo (private data,
-# external import weights, comparison repo locations).
+# This file is OPTIONAL for a --core-only build but REQUIRED if you want
+# weighted outputs (Weighted ETRs, daily weighted series, alternatives).
 #
-# Copy this template and fill in paths relevant to your setup.
-# Paths can be absolute or relative to the project root.
-# Set a value to null to skip that input.
+# Copy this template to config/local_paths.yaml and fill in paths for your
+# setup. Paths can be absolute or relative to the project root.
 # =============================================================================
 
-# 2024 Census import weights (HS10 x country x GTAP sector RDS)
-# Required for: weighted ETR (08_weighted_etr.R), weighted daily series (09_daily_series.R)
-# Without this: unweighted means only; weighted outputs skipped
+# 2024 Census import weights (HS10 x country x GTAP sector RDS).
+# Required by: src/08_weighted_etr.R, src/09_daily_series.R, src/apply_scenarios.R.
+#
+# How to obtain:
+#   1. Download Census IMDByymm.ZIP files (monthly imports) — see docs/weights.md.
+#   2. Run: Rscript src/build_import_weights.R --year 2024 \
+#                  --raw-dir /path/to/IMDByymm.ZIPs \
+#                  --out resources/hs10_by_country_gtap_2024_con.rds
+#   3. Point this key at the resulting RDS.
+#
+# Behavior when this file is missing is controlled by `weight_mode` below.
 import_weights: null
 
-# TPC benchmark data (CSV with HTS10 x country tariff rates)
-# Required for: validation (07_validate_tpc.R), ETR comparison overlay
-# Without this: TPC comparison skipped; core tariff series unaffected
+# Failure mode for weighted outputs when `import_weights` is missing or unset.
+#   required   — (DEFAULT) the build errors out loudly. Use this on production
+#                runs where weighted outputs are expected.
+#   unweighted — explicit opt-out. The build runs but skips weighted outputs.
+#                Equivalent to passing --unweighted on the CLI.
+weight_mode: required
+
+# TPC benchmark data (CSV with HTS10 x country tariff rates).
+# Required by: src/07_validate_tpc.R, ETR comparison overlay.
+# Without this: TPC comparison skipped; core tariff series unaffected.
 tpc_benchmark: data/tpc/tariff_by_flow_day.csv
 
-# Tariff-ETRs repo location (for cross-repo comparison only)
-# Required for: comparison workflows
-# Without this: comparison skipped; core build unaffected
+# Tariff-ETRs repo location (for cross-repo comparison only).
+# Required by: src/compare_etrs.R.
+# Without this: comparison skipped; core build unaffected.
 tariff_etrs_repo: null

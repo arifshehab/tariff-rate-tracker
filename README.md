@@ -74,5 +74,5 @@ The repo currently models 39 HTS revisions from January 1, 2025 through April 6,
 ## Notes
 
 - The core build does not require TPC or Tariff-ETRs inputs.
-- Weighted outputs require local import weights configured in `config/local_paths.yaml`.
+- Weighted outputs require local import weights configured in `config/local_paths.yaml`. The build fails loudly if the file is missing and you have not opted out — see [docs/weights.md](docs/weights.md) for how to regenerate the file from Census Bureau monthly imports, or set `weight_mode: unweighted` (or pass `--unweighted`) to skip weighted outputs.
 - Some modeling questions remain open, especially around residual floor-country differences versus TPC and the treatment of legacy non-China tariff branches. Those are documented in [docs/methodology.md](docs/methodology.md).

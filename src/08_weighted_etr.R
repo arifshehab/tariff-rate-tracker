@@ -107,7 +107,7 @@ load_data <- function(products_path, ieepa_path, usmca_path,
                       imports_path, partner_path) {
 
   # --- Import weights (2024 Census) ---
-  message('Loading 2024 Census import weights...')
+  message('Loading import weights from: ', imports_path)
   imports <- readRDS(imports_path)
   message('  ', nrow(imports), ' import flows, ',
           length(unique(imports$cty_code)), ' countries, $',
@@ -757,13 +757,28 @@ run_weighted_etr <- function(ts = NULL, policy_params = NULL) {
   # Resolve import weights path from local_paths config
   local_paths <- if (!is.null(policy_params)) policy_params$LOCAL_PATHS else load_local_paths()
   imports_path <- local_paths$import_weights
-  if (is.null(imports_path)) {
-    message('Import weights not configured in config/local_paths.yaml — skipping weighted ETR.')
-    return(invisible(NULL))
+  weight_mode <- local_paths$weight_mode %||% 'required'
+
+  if (is.null(imports_path) || !nzchar(imports_path)) {
+    if (weight_mode == 'unweighted') {
+      message('weight_mode = "unweighted" — skipping weighted ETR.')
+      return(invisible(NULL))
+    }
+    stop(weight_resolution_error(
+      'config/local_paths.yaml has no `import_weights:` path set',
+      context = 'etr'
+    ))
   }
   if (!file.exists(imports_path)) {
-    message('Import weights file not found: ', imports_path, ' — skipping weighted ETR.')
-    return(invisible(NULL))
+    if (weight_mode == 'unweighted') {
+      message('weight_mode = "unweighted" — import weights file not found at ',
+              imports_path, '; skipping weighted ETR.')
+      return(invisible(NULL))
+    }
+    stop(weight_resolution_error(
+      paste0('the configured file does not exist: ', imports_path),
+      context = 'etr'
+    ))
   }
 
   data <- load_data(

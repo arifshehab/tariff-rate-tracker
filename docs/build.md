@@ -15,13 +15,15 @@ The repo is designed to run in progressively richer modes depending on what loca
 
 | Mode | Requires | Produces |
 |---|---|---|
-| `core` | repo resources, config files, HTS JSON archives, required R packages | tariff timeseries, unweighted daily outputs, quality report |
-| `core_plus_weights` | core + import weights in `config/local_paths.yaml` | core outputs + weighted daily fields + weighted ETR outputs |
+| `core_plus_weights` (default) | core + import weights at `data/weights/hs10_by_country_gtap_<year>_con.rds` (or path set in `config/local_paths.yaml`) | core outputs + weighted daily fields + weighted ETR outputs |
+| `core` (opt-in via `--unweighted` or `weight_mode: unweighted`) | repo resources, config files, HTS JSON archives, required R packages | tariff timeseries, unweighted daily outputs, quality report |
 | `compare_tpc` | core + TPC benchmark CSV | comparison outputs against TPC |
 | `compare_etrs` | core + Tariff-ETRs repo path | standalone script (`src/compare_etrs.R`); wrapper in `run_comparisons.R` not yet complete |
 | `generate_etrs_config` | core (built timeseries) | ETRs-compatible config: `statutory_rates.csv.gz` + `other_params.yaml` per revision date |
 
 The core series is the production dataset. Comparison inputs are optional.
+
+> **Weights are required by default.** If neither `config/local_paths.yaml:import_weights` is set nor a file is found at `data/weights/hs10_by_country_gtap_<year>_con.rds`, the build errors out. Either run `src/build_import_weights.R` (see step 3 below) or opt out with `--unweighted` / `weight_mode: unweighted`.
 
 ## First-run checklist
 
@@ -53,21 +55,41 @@ Rscript src/02_download_hts.R --dry-run
 Rscript src/02_download_hts.R
 ```
 
-### 3. Configure optional local paths
+### 3. Build the import weights (or opt out)
 
-If you want weighted outputs or benchmark comparisons:
+Weighted outputs are required by default. Build the HS10 × country × GTAP weight
+file from Census Bureau monthly imports:
+
+```bash
+Rscript src/build_import_weights.R --year 2024
+```
+
+This writes `data/weights/hs10_by_country_gtap_2024_con.rds`, which the build
+auto-detects on the next run. See [docs/weights.md](weights.md) for details
+and override options.
+
+If you do not need weighted outputs, opt out instead:
+
+```bash
+copy config\\local_paths.yaml.example config\\local_paths.yaml
+# then edit local_paths.yaml and set: weight_mode: unweighted
+```
+
+Or pass `--unweighted` to a single build invocation.
+
+### 3b. Configure other optional local paths
+
+For TPC validation or Tariff-ETRs comparison, create `config/local_paths.yaml`
+from the example and set whichever paths you have:
 
 ```bash
 copy config\\local_paths.yaml.example config\\local_paths.yaml
 ```
 
-Set whichever paths you have:
-
-- `import_weights`
-- `tpc_benchmark`
-- `tariff_etrs_repo`
-
-The core build does not require this file.
+- `import_weights` — override the auto-detected weight file
+- `tpc_benchmark` — TPC validation input
+- `tariff_etrs_repo` — Tariff-ETRs cross-repo comparison
+- `weight_mode` — `required` (default) or `unweighted` (opt out)
 
 ### 4. Verify the environment
 
@@ -80,7 +102,14 @@ This checks packages, config files, committed resources, HTS JSON availability, 
 ### 5. Run the build
 
 ```bash
-Rscript src/00_build_timeseries.R --full --core-only
+Rscript src/00_build_timeseries.R --full
+```
+
+For an unweighted run (no weight file built):
+
+```bash
+Rscript src/00_build_timeseries.R --full --unweighted
+# or equivalently --core-only
 ```
 
 Useful variants:
@@ -90,9 +119,12 @@ Rscript src/00_build_timeseries.R
 Rscript src/00_build_timeseries.R --full
 Rscript src/00_build_timeseries.R --build-only
 Rscript src/00_build_timeseries.R --with-alternatives
+Rscript src/00_build_timeseries.R --with-alternatives --rebuild-alts metal_flat,usmca_2024
 Rscript src/00_build_timeseries.R --full --use-hts-dates
 Rscript src/00_build_timeseries.R --full --refresh-usmca
 ```
+
+The `--rebuild-alts` flag subsets the slow rebuild alternatives (each is roughly comparable to a full daily-series build). Available scenario names: `usmca_annual`, `usmca_monthly`, `usmca_2024`, `usmca_dec2025`, `metal_flat`, `dutyfree_nonzero`, `subdivision_r_mid`. Pass a comma-separated list. Omit the flag to run all of them (default). Has no effect without `--with-alternatives` or `--alternatives-only`.
 
 The `--refresh-usmca` flag re-downloads USMCA utilization shares from the USITC DataWeb API before building. This updates the monthly and annual share CSVs in `resources/` with the latest available data. Requires a DataWeb API token in `.env` (see `src/download_usmca_dataweb.R` for setup). The flag is optional — without it, the build uses the committed share files.
 
@@ -204,7 +236,7 @@ To generate configs for all revision dates at once, use `generate_etrs_configs_a
 ## Troubleshooting
 
 - If `preflight.R` reports missing packages, run `src/install_dependencies.R --all`.
-- If weighted outputs are skipped, check `config/local_paths.yaml`.
+- If the build errors with "Import weights are required", run `src/build_import_weights.R` or set `weight_mode: unweighted` (see [docs/weights.md](weights.md)).
 - If benchmark comparisons are skipped, confirm the configured TPC path exists.
 - If no HTS JSON archives are found, run `src/02_download_hts.R`.
 

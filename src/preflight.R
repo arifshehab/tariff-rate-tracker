@@ -196,41 +196,87 @@ if (sys.nframe() == 0) {
   # --- 6. Optional External Files (from local_paths.yaml) ---
   cat('OPTIONAL EXTERNAL FILES (from config/local_paths.yaml)\n')
   local_paths_file <- file.path(base_dir, 'config', 'local_paths.yaml')
+
+  # Helper: find the auto-detect target.
+  # NOTE: Mirrors policy_params.R::autodetect_import_weights(). Duplicated here
+  # so preflight.R can run without sourcing the full helpers chain (which would
+  # require the tidyverse to be installed before we get to report on it).
+  # Keep in sync.
+  autodetect <- function() {
+    wd <- file.path(base_dir, 'data', 'weights')
+    if (!dir.exists(wd)) return(NULL)
+    matches <- list.files(wd, pattern = '^hs10_by_country_gtap_\\d{4}_(con|gen)\\.rds$',
+                          full.names = TRUE)
+    if (length(matches) == 0) return(NULL)
+    con_matches <- grep('_con\\.rds$', matches, value = TRUE)
+    pool <- if (length(con_matches) > 0) con_matches else matches
+    info <- file.info(pool)
+    pool[order(info$mtime, decreasing = TRUE)][1]
+  }
+  autodetected <- autodetect()
+
   if (file.exists(local_paths_file)) {
     lp <- yaml::read_yaml(local_paths_file)
+  } else {
+    lp <- list()
+    cat('  [--] config/local_paths.yaml not found — using defaults (weight_mode=required)\n')
+  }
 
-    # Import weights
-    iw <- lp$import_weights
-    if (is.null(iw)) {
-      cat('  [--] import_weights: not configured (weighted outputs will be skipped)\n')
-    } else {
-      iw_path <- if (startsWith(iw, '/') || grepl('^[A-Za-z]:', iw)) iw else file.path(base_dir, iw)
-      exists <- file.exists(iw_path)
-      cat(sprintf('  [%s] import_weights: %s\n', if (exists) 'OK' else '--', iw))
-    }
+  # weight_mode (controls behavior of missing import weights)
+  wm <- lp$weight_mode
+  if (is.null(wm)) wm <- 'required'
+  cat(sprintf('  [..] weight_mode: %s\n', wm))
 
-    # TPC benchmark
-    tpc <- lp$tpc_benchmark
-    if (is.null(tpc)) {
-      cat('  [--] tpc_benchmark: not configured (TPC validation skipped)\n')
-    } else {
-      tpc_path <- if (startsWith(tpc, '/') || grepl('^[A-Za-z]:', tpc)) tpc else file.path(base_dir, tpc)
-      exists <- file.exists(tpc_path)
-      cat(sprintf('  [%s] tpc_benchmark: %s\n', if (exists) 'OK' else '--', tpc))
-    }
+  # Import weights: explicit config first, then auto-detect from data/weights/
+  iw <- lp$import_weights
+  iw_resolved <- iw
+  iw_source <- 'config'
+  if (is.null(iw_resolved) && !is.null(autodetected)) {
+    iw_resolved <- autodetected
+    iw_source <- 'auto-detect (data/weights/)'
+  }
 
-    # Tariff-ETRs repo
-    etrs <- lp$tariff_etrs_repo
-    if (is.null(etrs)) {
-      cat('  [--] tariff_etrs_repo: not configured (comparison skipped)\n')
+  if (is.null(iw_resolved)) {
+    if (identical(wm, 'unweighted')) {
+      cat('  [--] import_weights: not configured (weight_mode=unweighted; weighted outputs will be skipped)\n')
     } else {
-      exists <- dir.exists(etrs)
-      cat(sprintf('  [%s] tariff_etrs_repo: %s\n', if (exists) 'OK' else '--', etrs))
+      cat('  [!!] import_weights: not configured and no file in data/weights/\n')
+      cat('       Build will ERROR. Either:\n')
+      cat('         - run: Rscript src/build_import_weights.R --year 2024\n')
+      cat('         - set import_weights in config/local_paths.yaml, or\n')
+      cat('         - set weight_mode: unweighted to opt out.\n')
+      any_required_missing <- TRUE
     }
   } else {
-    cat('  [--] config/local_paths.yaml not found — using defaults\n')
-    cat('       Copy config/local_paths.yaml.example to config/local_paths.yaml\n')
-    cat('       and set import_weights path for weighted ETR outputs.\n')
+    iw_path <- if (startsWith(iw_resolved, '/') || grepl('^[A-Za-z]:', iw_resolved)) iw_resolved else file.path(base_dir, iw_resolved)
+    exists <- file.exists(iw_path)
+    if (!exists && identical(wm, 'required')) {
+      cat(sprintf('  [!!] import_weights: %s (NOT FOUND via %s, weight_mode=required → build will ERROR)\n',
+                  iw_resolved, iw_source))
+      any_required_missing <- TRUE
+    } else {
+      cat(sprintf('  [%s] import_weights: %s  (%s)\n',
+                  if (exists) 'OK' else '--', iw_resolved, iw_source))
+    }
+  }
+
+  # TPC benchmark
+  tpc <- lp$tpc_benchmark
+  if (is.null(tpc)) {
+    cat('  [--] tpc_benchmark: not configured (TPC validation skipped)\n')
+  } else {
+    tpc_path <- if (startsWith(tpc, '/') || grepl('^[A-Za-z]:', tpc)) tpc else file.path(base_dir, tpc)
+    exists <- file.exists(tpc_path)
+    cat(sprintf('  [%s] tpc_benchmark: %s\n', if (exists) 'OK' else '--', tpc))
+  }
+
+  # Tariff-ETRs repo
+  etrs <- lp$tariff_etrs_repo
+  if (is.null(etrs)) {
+    cat('  [--] tariff_etrs_repo: not configured (comparison skipped)\n')
+  } else {
+    exists <- dir.exists(etrs)
+    cat(sprintf('  [%s] tariff_etrs_repo: %s\n', if (exists) 'OK' else '--', etrs))
   }
   cat('\n')
 
@@ -240,14 +286,16 @@ if (sys.nframe() == 0) {
   cat(strrep('-', 70), '\n')
 
   has_json <- dir.exists(json_dir) && length(list.files(json_dir, '\\.json$')) > 0
-  has_weights <- !is.null(tryCatch({
-    lp <- yaml::read_yaml(local_paths_file)
-    iw <- lp$import_weights
-    if (!is.null(iw)) {
-      iw_full <- if (startsWith(iw, '/') || grepl('^[A-Za-z]:', iw)) iw else file.path(base_dir, iw)
-      if (file.exists(iw_full)) iw_full else NULL
-    } else NULL
-  }, error = function(e) NULL))
+  has_weights <- {
+    explicit <- if (file.exists(local_paths_file)) {
+      iw_cfg <- yaml::read_yaml(local_paths_file)$import_weights
+      if (!is.null(iw_cfg)) {
+        p <- if (startsWith(iw_cfg, '/') || grepl('^[A-Za-z]:', iw_cfg)) iw_cfg else file.path(base_dir, iw_cfg)
+        file.exists(p)
+      } else FALSE
+    } else FALSE
+    explicit || !is.null(autodetected)
+  }
   has_tpc <- file.exists(file.path(base_dir, 'data', 'tpc', 'tariff_by_flow_day.csv'))
 
   modes <- c(

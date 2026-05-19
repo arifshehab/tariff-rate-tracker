@@ -226,19 +226,100 @@ load_local_paths <- function(yaml_path = here('config', 'local_paths.yaml')) {
   defaults <- list(
     import_weights = NULL,
     tpc_benchmark = 'data/tpc/tariff_by_flow_day.csv',
-    tariff_etrs_repo = NULL
+    tariff_etrs_repo = NULL,
+    # weight_mode controls behavior when import_weights is missing or unset.
+    #   'required'   (default) — pipeline errors out loudly
+    #   'unweighted' — user has explicitly opted out; weighted outputs are skipped
+    weight_mode = 'required'
   )
 
-  if (!file.exists(yaml_path)) return(defaults)
+  if (file.exists(yaml_path)) {
+    raw <- tryCatch(read_yaml(yaml_path), error = function(e) {
+      warning('Failed to parse local_paths.yaml: ', conditionMessage(e))
+      return(list())
+    })
 
-  raw <- tryCatch(read_yaml(yaml_path), error = function(e) {
-    warning('Failed to parse local_paths.yaml: ', conditionMessage(e))
-    return(list())
-  })
-
-  # Merge with defaults (YAML nulls become R NULLs)
-  for (nm in names(defaults)) {
-    if (!is.null(raw[[nm]])) defaults[[nm]] <- raw[[nm]]
+    # Merge with defaults (YAML nulls become R NULLs)
+    for (nm in names(defaults)) {
+      if (!is.null(raw[[nm]])) defaults[[nm]] <- raw[[nm]]
+    }
   }
+
+  # Auto-detect: if no `import_weights` was set, look for a freshly-built file
+  # in data/weights/. This lets a fresh clone + `src/build_import_weights.R`
+  # work without any manual config edit. Setting import_weights explicitly
+  # (or weight_mode: unweighted) always wins.
+  if (is.null(defaults$import_weights) || !nzchar(defaults$import_weights)) {
+    autodetected <- autodetect_import_weights()
+    if (!is.null(autodetected)) {
+      defaults$import_weights <- autodetected
+    }
+  }
+
+  # Validate weight_mode
+  valid_modes <- c('required', 'unweighted')
+  if (!defaults$weight_mode %in% valid_modes) {
+    stop('Invalid weight_mode in ', yaml_path, ': "', defaults$weight_mode,
+         '". Must be one of: ', paste(valid_modes, collapse = ', '), '.')
+  }
+
   return(defaults)
+}
+
+
+#' Build the standard "import weights missing" error message.
+#'
+#' Used by load_import_weights() and run_weighted_etr() so the diagnostic stays
+#' in sync between the two strict-mode callers.
+#'
+#' @param reason Short clause describing why the weight file isn't usable,
+#'   e.g. "the configured file does not exist: /foo.rds".
+#' @param context Either 'load' (generic weight-loader context) or 'etr'
+#'   (weighted-ETR-specific). Only changes the opening sentence.
+#' @return Character — multi-line error message ready for stop().
+weight_resolution_error <- function(reason, context = c('load', 'etr')) {
+  context <- match.arg(context)
+  opener <- switch(context,
+    load = 'Import weights are required but ',
+    etr  = 'Weighted ETR requires import weights but '
+  )
+  paste0(
+    opener, reason, '.\n',
+    '  - Configure: set `import_weights:` in config/local_paths.yaml to point\n',
+    '    at an HS10 x country x GTAP RDS file.\n',
+    '  - Build the file from scratch:\n',
+    '      Rscript src/build_import_weights.R --year 2024\n',
+    '    Output goes to data/weights/ and is auto-detected on the next build.\n',
+    '    See docs/weights.md for details and override options.\n',
+    '  - Opt out: set `weight_mode: unweighted` in config/local_paths.yaml\n',
+    '    (or pass --unweighted to src/00_build_timeseries.R) to skip weighted outputs.'
+  )
+}
+
+
+#' Look for a build_import_weights.R output in data/weights/.
+#'
+#' Returns the most-recently-modified file matching the canonical naming pattern,
+#' or NULL if none is present. Preserves consumption-import (`_con`) preference
+#' over general-import (`_gen`) when both exist.
+#'
+#' NOTE: src/preflight.R duplicates this logic so it can run without sourcing
+#' the full helpers chain. Keep the two in sync if you change the pattern or
+#' tie-break rules.
+autodetect_import_weights <- function(weights_dir = here('data', 'weights')) {
+  if (!dir.exists(weights_dir)) return(NULL)
+
+  matches <- list.files(
+    weights_dir,
+    pattern = '^hs10_by_country_gtap_\\d{4}_(con|gen)\\.rds$',
+    full.names = TRUE
+  )
+  if (length(matches) == 0) return(NULL)
+
+  # Prefer consumption imports; among those, prefer the most recent year.
+  con_matches <- grep('_con\\.rds$', matches, value = TRUE)
+  pool <- if (length(con_matches) > 0) con_matches else matches
+
+  info <- file.info(pool)
+  pool[order(info$mtime, decreasing = TRUE)][1]
 }
