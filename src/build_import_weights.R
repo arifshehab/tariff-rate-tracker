@@ -320,6 +320,81 @@ read_imdb_zip <- function(zip_path, target_year, type = c('con', 'gen')) {
 
 
 # =============================================================================
+# Pre-build orchestration helper
+# =============================================================================
+
+#' Ensure import weights are present before a downstream build needs them.
+#'
+#' Called from `src/00_build_timeseries.R` as a pre-build step. Resolves the
+#' weight file via the same path that `load_import_weights()` uses
+#' (explicit `config/local_paths.yaml::import_weights`, then auto-detect of
+#' `data/weights/hs10_by_country_gtap_<year>_con.rds`). If the file is found,
+#' returns its path silently. If it's missing and the user hasn't opted out,
+#' invokes `build_import_weights()` to fetch + parse Census imports
+#' (15-20 min one-time download). Honors `weight_mode = 'unweighted'` as an
+#' opt-out (returns NULL).
+#'
+#' @param weight_mode Optional override; defaults to `local_paths.yaml::weight_mode`.
+#' @param year Target year for the build (default 2024).
+#' @return Character path to the resolved weight file, or NULL if opted out.
+ensure_import_weights <- function(weight_mode = NULL, year = 2024L) {
+  local_paths <- tryCatch(load_local_paths(), error = function(e) NULL)
+  if (is.null(local_paths)) {
+    # load_local_paths() should never error since it returns defaults on a
+    # missing yaml. If something exotic happened, default to safe behavior.
+    local_paths <- list(import_weights = NULL, weight_mode = 'required')
+  }
+
+  if (is.null(weight_mode)) {
+    weight_mode <- local_paths$weight_mode %||% 'required'
+  }
+
+  if (identical(weight_mode, 'unweighted')) {
+    message('Pre-build: weight_mode = "unweighted" — skipping import-weights check.')
+    return(invisible(NULL))
+  }
+
+  # Explicit config path wins. Otherwise rely on the same auto-detect that
+  # load_local_paths() uses.
+  resolved <- local_paths$import_weights
+  if (!is.null(resolved) && nzchar(resolved) && file.exists(resolved)) {
+    message('Pre-build: import weights present at ', resolved)
+    return(invisible(resolved))
+  }
+
+  autodetected <- tryCatch(autodetect_import_weights(),
+                           error = function(e) NULL)
+  if (!is.null(autodetected) && file.exists(autodetected)) {
+    message('Pre-build: import weights auto-detected at ', autodetected)
+    return(invisible(autodetected))
+  }
+
+  # No file found — build it. This is the fresh-clone path. Document loudly:
+  # the download + parse takes ~15-20 min, and the user can opt out via
+  # --unweighted or weight_mode: unweighted.
+  default_out <- here::here('data', 'weights',
+                            sprintf('hs10_by_country_gtap_%d_con.rds', year))
+  default_raw <- here::here('data', 'weights', 'raw', as.character(year))
+
+  message('\n', strrep('=', 70))
+  message('PRE-BUILD: import weights file not found.')
+  message('Auto-building from Census Bureau monthly imports — ~15-20 min one-time.')
+  message('  Target: ', default_out)
+  message('To skip (and run unweighted): pass --unweighted to 00_build_timeseries.R')
+  message('or set weight_mode: unweighted in config/local_paths.yaml.')
+  message(strrep('=', 70), '\n')
+
+  build_import_weights(
+    year         = year,
+    raw_dir      = default_raw,
+    out_path     = default_out
+  )
+
+  invisible(default_out)
+}
+
+
+# =============================================================================
 # Main
 # =============================================================================
 

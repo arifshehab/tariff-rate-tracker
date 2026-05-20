@@ -572,8 +572,20 @@ if (sys.nframe() == 0) {
 
     source(here('src', '09_daily_series.R'))
     source(here('src', 'apply_scenarios.R'))
+    source(here('src', 'build_import_weights.R'))
 
     pp <- load_policy_params(use_policy_dates = use_policy_dates)
+
+    # Pre-flight: auto-build weights if missing (alternatives need them).
+    if (!unweighted) {
+      tryCatch(
+        ensure_import_weights(weight_mode = cli_weight_mode),
+        error = function(e) stop(
+          'Pre-build: import-weights ensure step failed: ', conditionMessage(e),
+          '\nPass --unweighted to skip.', call. = FALSE
+        )
+      )
+    }
     imports <- load_import_weights(weight_mode = cli_weight_mode)
 
     capture_messages({
@@ -599,6 +611,22 @@ if (sys.nframe() == 0) {
     download_missing_revisions(),
     error = function(e) message('Download check failed: ', conditionMessage(e))
   )
+
+  # --- Step B1: Ensure import weights are present (auto-build if missing) ---
+  # Skipped when --build-only / --core-only / --unweighted (no downstream
+  # consumer) or when weight_mode = 'unweighted'. Auto-build runs once on a
+  # fresh clone; subsequent builds find the cached file via auto-detect.
+  if (!build_only && !core_only && !unweighted) {
+    source(here('src', 'build_import_weights.R'))
+    tryCatch(
+      ensure_import_weights(weight_mode = cli_weight_mode),
+      error = function(e) stop(
+        'Pre-build: import-weights ensure step failed: ', conditionMessage(e),
+        '\nPass --unweighted to skip, or set weight_mode: unweighted in ',
+        'config/local_paths.yaml.', call. = FALSE
+      )
+    )
+  }
 
   # --- Step B2: Refresh USMCA shares from DataWeb API (if requested) ---
   if (refresh_usmca) {

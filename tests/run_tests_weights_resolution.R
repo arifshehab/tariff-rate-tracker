@@ -200,6 +200,40 @@ run_test('loads a real RDS when path is valid', {
 
 
 # =============================================================================
+# ensure_import_weights() — pre-build orchestration
+# =============================================================================
+
+message('\n=== ensure_import_weights() ===')
+
+# Source the helper (kept in build_import_weights.R so this file doesn't pull
+# in the full builder unless needed). load_local_paths()/autodetect already
+# came from helpers.R above.
+source(here('src', 'build_import_weights.R'))
+
+run_test('weight_mode = unweighted is a no-op (returns NULL)', {
+  result <- suppressMessages(ensure_import_weights(weight_mode = 'unweighted'))
+  stopifnot(is.null(result))
+})
+
+run_test('returns config-resolved path when file exists', {
+  # Stage a fake weight file and point a temp yaml at it via the autodetect path.
+  # (Bypasses load_local_paths()'s yaml parsing — ensure_import_weights() falls
+  # through to autodetect_import_weights() when the config path is null.)
+  d <- make_weights_dir('hs10_by_country_gtap_2024_con.rds')
+  # autodetect_import_weights() looks at data/weights/ by default; override
+  # via an environment-style indirection. Simpler: shadow it temporarily.
+  old <- autodetect_import_weights
+  assign('autodetect_import_weights',
+         function(weights_dir = NULL) file.path(d, 'hs10_by_country_gtap_2024_con.rds'),
+         envir = .GlobalEnv)
+  on.exit(assign('autodetect_import_weights', old, envir = .GlobalEnv), add = TRUE)
+
+  result <- suppressMessages(ensure_import_weights(weight_mode = 'required'))
+  stopifnot(!is.null(result), file.exists(result))
+})
+
+
+# =============================================================================
 # Summary
 # =============================================================================
 

@@ -19,18 +19,31 @@ For the 2024 build the file has ~334k rows, 18.6k HS10 codes, 233 countries,
 
 ## Failure mode
 
-The pipeline treats a missing weight file as a hard failure by default. This
-means you must either:
+The build pipeline checks for the weight file as a pre-run step. Behavior on
+a missing file:
 
-1. **Provide the file** — set `import_weights:` in `config/local_paths.yaml` to
-   a real path and run the build, or
-2. **Opt out explicitly** — set `weight_mode: unweighted` in
-   `config/local_paths.yaml`, or pass `--unweighted` to
-   `src/00_build_timeseries.R`. Weighted outputs are skipped; the core series
-   still builds.
+1. **Default (`weight_mode: required`)** — `00_build_timeseries.R` auto-builds
+   the weight file at startup by invoking `src/build_import_weights.R`. This
+   takes 15-20 minutes one-time (downloads 12 monthly Census ZIPs, parses,
+   aggregates). Subsequent builds find the cached file via auto-detect and
+   skip this step.
+2. **Opt out (`weight_mode: unweighted`, or `--unweighted` CLI flag)** — the
+   pre-run step is skipped, weighted outputs are skipped, and the core
+   series still builds.
 
-The old "silently skip weighted outputs when the file is missing" behavior is
-gone — a missing file now produces a clear error directing you here.
+The pre-run step is wired in `src/00_build_timeseries.R` right after the HTS
+JSON download step. It also runs at the top of `--alternatives-only` mode
+(which needs weights). Skipped under `--build-only` and `--core-only` since
+neither uses weighted outputs.
+
+If the pre-run auto-build fails (e.g., Census Bureau URL changed), the error
+is loud and directs you here. Manual fallback:
+
+```bash
+Rscript src/build_import_weights.R --year 2024
+```
+
+…then re-run the build.
 
 ## Building the file from scratch
 

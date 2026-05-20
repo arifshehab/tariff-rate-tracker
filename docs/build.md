@@ -23,7 +23,7 @@ The repo is designed to run in progressively richer modes depending on what loca
 
 The core series is the production dataset. Comparison inputs are optional.
 
-> **Weights are required by default.** If neither `config/local_paths.yaml:import_weights` is set nor a file is found at `data/weights/hs10_by_country_gtap_<year>_con.rds`, the build errors out. Either run `src/build_import_weights.R` (see step 3 below) or opt out with `--unweighted` / `weight_mode: unweighted`.
+> **Weights are required by default and auto-built when missing.** If neither `config/local_paths.yaml:import_weights` is set nor a file is found at `data/weights/hs10_by_country_gtap_<year>_con.rds`, `00_build_timeseries.R` invokes `src/build_import_weights.R` as a pre-run step (~15-20 min one-time download from the Census Bureau). Skip with `--unweighted` or `weight_mode: unweighted`.
 
 ## First-run checklist
 
@@ -55,20 +55,22 @@ Rscript src/02_download_hts.R --dry-run
 Rscript src/02_download_hts.R
 ```
 
-### 3. Build the import weights (or opt out)
+### 3. Import weights — automatic on first build
 
-Weighted outputs are required by default. Build the HS10 × country × GTAP weight
-file from Census Bureau monthly imports:
+Weighted outputs are required by default, but you don't need to fetch them
+manually. The first `Rscript src/00_build_timeseries.R` invocation runs a
+pre-run step that checks for `data/weights/hs10_by_country_gtap_<year>_con.rds`
+and, if missing, invokes `src/build_import_weights.R` to fetch and parse
+Census Bureau monthly imports (~15-20 min one-time). Subsequent builds find
+the cached file via auto-detect and skip this step.
+
+If you want to build the file ahead of time:
 
 ```bash
 Rscript src/build_import_weights.R --year 2024
 ```
 
-This writes `data/weights/hs10_by_country_gtap_2024_con.rds`, which the build
-auto-detects on the next run. See [docs/weights.md](weights.md) for details
-and override options.
-
-If you do not need weighted outputs, opt out instead:
+If you do not need weighted outputs, opt out:
 
 ```bash
 copy config\\local_paths.yaml.example config\\local_paths.yaml
@@ -177,7 +179,7 @@ Pass `--with-artifacts` to include the heavier artifact-dependent integration ch
 
 | Scenario | Build runs? | Timeseries | Daily aggregates | Weighted ETR | By-category aggregates | TPC comparison |
 |---|---|---|---|---|---|---|
-| No weights, default `weight_mode: required` | **No** — preflight + build error out | — | — | — | — | — |
+| No weights, default `weight_mode: required` | Yes — pre-run auto-builds weights (~15-20 min one-time) | Yes | weighted | Yes | weighted | No |
 | No weights, `--unweighted` (or `weight_mode: unweighted`) | Yes | Yes | unweighted only | No | unweighted only | No |
 | Weights + no TPC (default) | Yes | Yes | weighted | Yes | weighted | No |
 | Weights + TPC | Yes | Yes | weighted | Yes | weighted | Yes |
@@ -260,7 +262,7 @@ To generate configs for all revision dates at once, use `generate_etrs_configs_a
 ## Troubleshooting
 
 - If `preflight.R` reports missing packages, run `src/install_dependencies.R --all`.
-- If the build errors with "Import weights are required", run `src/build_import_weights.R` or set `weight_mode: unweighted` (see [docs/weights.md](weights.md)).
+- If the pre-run import-weights auto-build fails (Census URL change, network issues), run `src/build_import_weights.R` manually with override flags or set `weight_mode: unweighted` (see [docs/weights.md](weights.md)).
 - If benchmark comparisons are skipped, confirm the configured TPC path exists.
 - If no HTS JSON archives are found, run `src/02_download_hts.R`.
 
