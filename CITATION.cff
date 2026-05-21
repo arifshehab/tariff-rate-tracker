@@ -5,15 +5,41 @@ type: software
 license: MIT
 repository-code: "https://github.com/Budget-Lab-Yale/tariff-rate-tracker"
 url: "https://github.com/Budget-Lab-Yale/tariff-rate-tracker"
+version: "2026.05.20"
+date-released: "2026-05-20"
 abstract: >-
   Statutory U.S. tariff rates at the HTS-10 x country level, built from
   USITC Harmonized Tariff Schedule archives and related policy resources.
+  Tracks the full revision history of Chapter 99 (special tariff programs)
+  including Section 232, Section 301, IEEPA reciprocal, IEEPA fentanyl,
+  Section 122, and the April 2026 metals annex restructuring.
 authors:
   - name: "The Budget Lab at Yale"
     email: "budgetlab@yale.edu"
+    website: "https://budgetlab.yale.edu/"
 keywords:
   - tariffs
   - trade policy
   - HTS
   - Harmonized Tariff Schedule
   - United States
+  - Section 232
+  - Section 301
+  - IEEPA
+# To enable a DOI per release: link this repo to Zenodo via
+# https://zenodo.org/account/settings/github/ , then uncomment the
+# identifiers block below and replace the placeholder with the concept DOI.
+# identifiers:
+#   - type: doi
+#     value: "10.5281/zenodo.XXXXXXX"
+#     description: "All-versions concept DOI"
+preferred-citation:
+  type: software
+  title: "Tariff Rate Tracker"
+  authors:
+    - name: "The Budget Lab at Yale"
+  year: 2026
+  url: "https://github.com/Budget-Lab-Yale/tariff-rate-tracker"
+  notes: >-
+    For a specific dated release (e.g. v2026-05-20), reference the release
+    tag on the GitHub releases page.

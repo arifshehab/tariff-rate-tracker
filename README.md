@@ -25,6 +25,32 @@ Additional outputs:
 
 See [docs/build.md](docs/build.md) for the full output inventory and more query examples.
 
+## Citing this work
+
+If you use this data or build on the methodology, please cite as:
+
+> The Budget Lab at Yale. (2026). *Tariff Rate Tracker*. https://github.com/Budget-Lab-Yale/tariff-rate-tracker
+
+BibTeX:
+
+```bibtex
+@software{budget_lab_tariff_tracker_2026,
+  author       = {{The Budget Lab at Yale}},
+  title        = {Tariff Rate Tracker},
+  year         = {2026},
+  url          = {https://github.com/Budget-Lab-Yale/tariff-rate-tracker},
+  version      = {2026.05.20}
+}
+```
+
+GitHub's "Cite this repository" widget (top of the repo page) reads
+[`CITATION.cff`](CITATION.cff) and offers both APA and BibTeX. Once
+Zenodo integration is enabled, each dated release will also have a
+permanent DOI.
+
+If you build on this data we'd appreciate hearing about it — open an
+issue or email [budgetlab@yale.edu](mailto:budgetlab@yale.edu).
+
 ## Start here
 
 - Data sources and provenance: [DATA_SOURCES.md](DATA_SOURCES.md)

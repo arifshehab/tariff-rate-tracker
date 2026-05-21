@@ -801,6 +801,15 @@ save_daily_outputs <- function(daily, out_dir = here('output', 'daily')) {
   }
   saveRDS(daily, file.path(out_dir, 'daily_aggregates.rds'))
 
+  # Parquet siblings for cross-language consumers (skipped silently when
+  # arrow isn't installed). See helpers.R::write_parquet_if_arrow.
+  write_parquet_if_arrow(daily$daily_overall,    file.path(out_dir, 'daily_overall.csv'))
+  write_parquet_if_arrow(daily$daily_by_country, file.path(out_dir, 'daily_by_country.csv'))
+  write_parquet_if_arrow(daily$daily_by_authority, file.path(out_dir, 'daily_by_authority.csv'))
+  if (has_category) {
+    write_parquet_if_arrow(daily$daily_by_category, file.path(out_dir, 'daily_by_category.csv'))
+  }
+
   # --- Excel workbook (overwrite individual sheets, preserve workbook) ---
   xlsx_path <- file.path(out_dir, 'daily_workbook.xlsx')
   if (requireNamespace('openxlsx', quietly = TRUE)) {

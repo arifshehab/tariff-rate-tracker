@@ -16,6 +16,40 @@ source(here('src', 'rate_schema.R'))
 source(here('src', 'data_loaders.R'))
 
 # =============================================================================
+# Output helpers
+# =============================================================================
+
+#' Write a parquet sibling next to a CSV / RDS output if `arrow` is installed.
+#'
+#' Cross-language-friendly companion to write_csv() / saveRDS(). Cheap no-op
+#' if the `arrow` package isn't available — this lets downstream consumers
+#' (Python, DuckDB, JS) read tracker outputs without R, while keeping `arrow`
+#' an optional dependency for tracker maintainers.
+#'
+#' The output path is derived from the input by swapping `.csv` or `.rds` for
+#' `.parquet`. Compression: zstd level 5 (good size/speed trade-off — ~3x
+#' smaller than CSV for the daily outputs, ~5x smaller than RDS for the full
+#' rate panel).
+#'
+#' @param df Data frame to write
+#' @param path Path to the companion CSV / RDS (the parquet path is derived)
+#' @return Invisible character path to the written parquet file, or NULL if
+#'   arrow isn't installed.
+write_parquet_if_arrow <- function(df, path) {
+  if (!requireNamespace('arrow', quietly = TRUE)) return(invisible(NULL))
+  parquet_path <- sub('\\.(csv|rds)$', '.parquet', path, ignore.case = TRUE)
+  if (identical(parquet_path, path)) {
+    # Path didn't have a recognized extension — fall back to appending.
+    parquet_path <- paste0(path, '.parquet')
+  }
+  arrow::write_parquet(df, parquet_path,
+                       compression       = 'zstd',
+                       compression_level = 5L)
+  invisible(parquet_path)
+}
+
+
+# =============================================================================
 # Rate Parsing Functions
 # =============================================================================
 

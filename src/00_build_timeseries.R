@@ -380,6 +380,14 @@ build_full_timeseries <- function(
     warning('Timeseries is empty — all revisions may have failed')
   }
 
+  # Parquet sibling for cross-language consumers (skipped silently when
+  # arrow isn't installed). The full panel at production scale is ~195M rows
+  # in RDS at ~200 MB; zstd-compressed parquet is typically 30-60 MB.
+  parquet_path <- write_parquet_if_arrow(timeseries, ts_path)
+  if (!is.null(parquet_path)) {
+    message('Saved parquet sibling: ', parquet_path)
+  }
+
   # ---- Save metadata ----
   metadata <- list(
     last_revision = last_successful_rev,
