@@ -26,9 +26,8 @@ keywords:
   - Section 232
   - Section 301
   - IEEPA
-# To enable a DOI per release: link this repo to Zenodo via
-# https://zenodo.org/account/settings/github/ , then uncomment the
-# identifiers block below and replace the placeholder with the concept DOI.
+# DOI per release is deferred. To turn it on later, follow the steps in
+# docs/zenodo_setup.md and uncomment the block below with the concept DOI.
 # identifiers:
 #   - type: doi
 #     value: "10.5281/zenodo.XXXXXXX"
