@@ -83,13 +83,18 @@ Rscript src/00_build_timeseries.R --full --core-only
 
 That sequence builds the core series without requiring private benchmark data or optional weighting inputs.
 
-To also mirror the build outputs to the shared model-data tree (`/nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/<vintage>/`), append `--publish`:
+There are two ways to publish a build's outputs (both off by default):
+
+- **`--publish-internal`** mirrors a curated subset of outputs to the Budget Lab shared model-data tree (`/nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/<vintage>/`) as an immutable, dated vintage. Internal — for downstream Budget Lab models.
+- **`--publish-git`** writes a curated subset of outputs to [`release/`](release/) inside the repo, with publication-date suffixes (e.g. `daily_overall_2026-05-21.csv`). Only the latest publication's files are on disk; history is browsable via `git log -- release/`. Public — for downstream consumers reading from GitHub.
 
 ```bash
-Rscript src/00_build_timeseries.R --full --core-only --publish
+Rscript src/00_build_timeseries.R --full --core-only --publish-internal
+Rscript src/00_build_timeseries.R --full --core-only --publish-git
+Rscript src/00_build_timeseries.R --full --core-only --publish-internal --publish-git   # both
 ```
 
-See [docs/build.md](docs/build.md#publishing-to-shared-model-data) for the shared layout, vintage rules, and manifest contents.
+See [docs/build.md](docs/build.md#publishing) for layout, vintage rules, and manifest contents for each mode.
 
 ## Repository structure
 

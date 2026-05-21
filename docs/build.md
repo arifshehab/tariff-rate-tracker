@@ -252,30 +252,43 @@ This writes `statutory_rates.csv.gz` (dense per-authority statutory rates at HTS
 
 To generate configs for all revision dates at once, use `generate_etrs_configs_all_revisions()` from R.
 
-## Publishing to shared model data
+## Publishing
 
-Build outputs can be mirrored to the Budget Lab shared model-data tree at `/nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/`. Each publish writes an immutable, dated vintage; a `latest` symlink points at the most recent one.
+There are two publication modes, each off by default and independently
+toggleable. Pick whichever fits the audience; they can also run together.
 
-### Trigger
+| Mode | Flag | Destination | Audience | History |
+|------|------|-------------|----------|---------|
+| Internal | `--publish-internal` | Shared NFS tree (`/nfs/.../shared/model_data/Tariff-Rate-Tracker/<vintage>/`) | Other Budget Lab models on the same NFS share | Immutable dated vintages, all preserved on disk |
+| Git | `--publish-git` | `release/` in the repo | Public consumers reading via GitHub | Only latest on disk; history via `git log -- release/` |
 
-Append `--publish` to a build:
+Both modes share the same staleness guard: they refuse to ship a
+`rate_timeseries.rds` whose mtime is older than the build start, so they
+can't accidentally mirror a panel from an earlier run. Both require the
+`arrow` and `digest` packages (optional set; `Rscript src/install_dependencies.R --all` covers them). A failed publish logs a warning but does not fail the build.
+
+---
+
+### `--publish-internal` (shared NFS vintage)
+
+Each publish writes an immutable, dated vintage; a `latest` symlink points at the most recent one.
+
+#### Trigger
 
 ```bash
-Rscript src/00_build_timeseries.R --full --core-only --publish
-Rscript src/00_build_timeseries.R --full --with-alternatives --publish
-Rscript src/00_build_timeseries.R --alternatives-only --publish
+Rscript src/00_build_timeseries.R --full --core-only --publish-internal
+Rscript src/00_build_timeseries.R --full --with-alternatives --publish-internal
+Rscript src/00_build_timeseries.R --alternatives-only --publish-internal
 ```
 
 Or publish whatever is on disk in a separate step:
 
 ```bash
-Rscript src/publish.R              # publish current local outputs
-Rscript src/publish.R --dry-run    # plan only, no writes
+Rscript src/publish_internal.R              # publish current local outputs
+Rscript src/publish_internal.R --dry-run    # plan only, no writes
 ```
 
-A failed publish logs a warning but does not fail the build. The `arrow` and `digest` packages are required (both in the optional set; `Rscript src/install_dependencies.R --all` covers them).
-
-### Shared layout
+#### Shared layout
 
 ```
 Tariff-Rate-Tracker/
@@ -295,14 +308,14 @@ Tariff-Rate-Tracker/
   latest -> 2026-05-09
 ```
 
-### Vintage rules
+#### Vintage rules
 
 - Default vintage is today's date (`YYYY-MM-DD`). A second publish on the same day uses `_2`, then `_3`, etc.
-- Vintages are immutable. `--alternatives-only --publish` writes a new vintage with the panel re-copied (each vintage is self-contained).
+- Vintages are immutable. `--alternatives-only --publish-internal` writes a new vintage with the panel re-copied (each vintage is self-contained).
 - Files older than the build start are not copied — a vintage only contains files written during the build that produced it.
 - The `latest` symlink is updated atomically (write `.latest.tmp`, then rename).
 
-### What gets published
+#### What gets published (internal)
 
 The shared tree is for downstream consumers, so only canonical products are mirrored — not intermediates:
 
@@ -312,9 +325,60 @@ The shared tree is for downstream consumers, so only canonical products are mirr
 - ❌ `data/processed/`, `data/hts_archives/` (intermediates / re-downloadable raw inputs)
 - ❌ `output/comparisons/` (validation, not a product)
 
-### Manifest
+#### Manifest (internal)
 
 Every vintage includes `manifest.json` recording: vintage id, build start + publish timestamps, git commit + branch + dirty bit, the build flags actually used, R + key package versions, and `{path, size_bytes, sha256}` for every published file.
+
+---
+
+### `--publish-git` (in-repo release/)
+
+Writes a smaller, public-facing subset of outputs into `release/` with publication-date suffixes on every filename. Each `--publish-git` run replaces the previous publication's files; historical publications are recoverable via `git log -- release/`.
+
+#### Trigger
+
+```bash
+Rscript src/00_build_timeseries.R --full --core-only --publish-git
+Rscript src/00_build_timeseries.R --full --core-only --publish-internal --publish-git   # both
+```
+
+Or publish whatever is on disk in a separate step:
+
+```bash
+Rscript src/publish_git.R                   # publish current local outputs
+Rscript src/publish_git.R --dry-run         # plan only, no writes
+Rscript src/publish_git.R --date 2026-05-21 # override the publication date in filenames
+```
+
+After a successful `--publish-git`, the new `release/` files are written to disk but **not auto-committed**. Review with `git status release/`, then commit deliberately so each publication is a reviewable git commit.
+
+#### Release layout
+
+```
+release/
+  README.md                                    # tracked, hand-written
+  MANIFEST.json                                # overwritten each run
+  data/
+    rate_timeseries_2026-05-21.parquet         # parquet for the big panel
+    daily_overall_2026-05-21.csv               # csv for small daily aggregates
+    daily_by_country_2026-05-21.csv
+    daily_by_authority_2026-05-21.csv
+    daily_by_category_2026-05-21.csv
+```
+
+#### What gets published (git)
+
+A deliberately narrow, public-facing subset — defined explicitly in `RELEASE_OUTPUTS` at the top of `src/publish_git.R`:
+
+- ✅ `data/timeseries/rate_timeseries.rds` → `rate_timeseries_<date>.parquet`
+- ✅ `output/daily/daily_overall.csv`, `daily_by_country.csv`, `daily_by_authority.csv`, `daily_by_category.csv` → `<name>_<date>.csv`
+- ❌ Quality, ETR, ETRs config, alternatives — internal tree only for now
+
+CSV vs parquet is decided per output: parquet for the rate panel (CSV would be hundreds of MB), CSV for the small daily aggregates (grep-friendly, diff-readable).
+
+#### Manifest (git)
+
+`release/MANIFEST.json` records: publication date, `published_at` timestamp, `data_as_of` (last revision id + last build time from `metadata.rds`), git commit + branch + dirty bit, build flags actually used, R + key package versions, and `{name, source, path, format, n_rows, size_bytes, sha256}` for every published file.
 
 ## Updating when a new HTS revision is published
 

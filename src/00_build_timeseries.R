@@ -18,7 +18,8 @@
 #   Rscript src/00_build_timeseries.R --alternatives-only  # Run only alternatives (requires existing timeseries)
 #   Rscript src/00_build_timeseries.R --rebuild-alts metal_flat,usmca_2024  # Subset rebuild alternatives (used with --with-alternatives or --alternatives-only)
 #   Rscript src/00_build_timeseries.R --refresh-usmca     # Re-download USMCA shares from DataWeb API
-#   Rscript src/00_build_timeseries.R --publish          # After build, mirror outputs to shared model_data tree
+#   Rscript src/00_build_timeseries.R --publish-internal # After build, mirror outputs to shared model_data tree (internal NFS)
+#   Rscript src/00_build_timeseries.R --publish-git      # After build, write dated public outputs to release/ in the repo
 #
 # Available rebuild-alts names (passed comma-separated): usmca_annual,
 #   usmca_monthly, usmca_2024, usmca_dec2025, metal_flat, dutyfree_nonzero,
@@ -567,7 +568,8 @@ if (sys.nframe() == 0) {
   with_alternatives <- '--with-alternatives' %in% args
   alternatives_only <- '--alternatives-only' %in% args
   refresh_usmca <- '--refresh-usmca' %in% args
-  do_publish <- '--publish' %in% args
+  do_publish_internal <- '--publish-internal' %in% args
+  do_publish_git      <- '--publish-git' %in% args
   use_policy_dates <- !('--use-hts-dates' %in% args)  # default: policy dates
   unweighted <- '--unweighted' %in% args
   start_from <- NULL
@@ -590,8 +592,8 @@ if (sys.nframe() == 0) {
   # branches re-log via log_parallel_config() once init_logging() has run.
   log_parallel_config(parallel_cfg)
 
-  # Capture overall build start so publish can detect a stale rate_timeseries.rds
-  # (i.e. one written by an earlier run) and refuse to mirror it.
+  # Capture overall build start so both publish modes can detect a stale
+  # rate_timeseries.rds (i.e. one written by an earlier run) and refuse to ship it.
   build_started_at <- Sys.time()
   build_flags <- list(
     full = full_rebuild,
@@ -652,14 +654,25 @@ if (sys.nframe() == 0) {
                               alt_workers = parallel_cfg$alt_workers)
     })
 
-    if (do_publish) {
+    if (do_publish_internal) {
       tryCatch({
-        source(here('src', 'publish.R'))
-        publish_to_shared(build_flags = build_flags,
-                          build_started_at = build_started_at)
+        source(here('src', 'publish_internal.R'))
+        publish_internal(build_flags = build_flags,
+                         build_started_at = build_started_at)
       }, error = function(e) {
-        log_warn('Publish failed: ', conditionMessage(e))
-        message('WARNING: --publish failed: ', conditionMessage(e))
+        log_warn('publish-internal failed: ', conditionMessage(e))
+        message('WARNING: --publish-internal failed: ', conditionMessage(e))
+      })
+    }
+
+    if (do_publish_git) {
+      tryCatch({
+        source(here('src', 'publish_git.R'))
+        publish_git(build_flags = build_flags,
+                    build_started_at = build_started_at)
+      }, error = function(e) {
+        log_warn('publish-git failed: ', conditionMessage(e))
+        message('WARNING: --publish-git failed: ', conditionMessage(e))
       })
     }
 
@@ -823,17 +836,30 @@ if (sys.nframe() == 0) {
     }) # end capture_messages
   }
 
-  if (do_publish && !is.null(result)) {
+  if (do_publish_internal && !is.null(result)) {
     tryCatch({
-      source(here('src', 'publish.R'))
-      publish_to_shared(build_flags = build_flags,
-                        build_started_at = build_started_at)
+      source(here('src', 'publish_internal.R'))
+      publish_internal(build_flags = build_flags,
+                       build_started_at = build_started_at)
     }, error = function(e) {
-      log_warn('Publish failed: ', conditionMessage(e))
-      message('WARNING: --publish failed: ', conditionMessage(e))
+      log_warn('publish-internal failed: ', conditionMessage(e))
+      message('WARNING: --publish-internal failed: ', conditionMessage(e))
     })
-  } else if (do_publish && is.null(result)) {
-    message('WARNING: --publish skipped (build did not produce a result).')
+  } else if (do_publish_internal && is.null(result)) {
+    message('WARNING: --publish-internal skipped (build did not produce a result).')
+  }
+
+  if (do_publish_git && !is.null(result)) {
+    tryCatch({
+      source(here('src', 'publish_git.R'))
+      publish_git(build_flags = build_flags,
+                  build_started_at = build_started_at)
+    }, error = function(e) {
+      log_warn('publish-git failed: ', conditionMessage(e))
+      message('WARNING: --publish-git failed: ', conditionMessage(e))
+    })
+  } else if (do_publish_git && is.null(result)) {
+    message('WARNING: --publish-git skipped (build did not produce a result).')
   }
   } # end else (main build path)
 }

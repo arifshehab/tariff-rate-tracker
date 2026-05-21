@@ -1,10 +1,12 @@
 # =============================================================================
-# Publish Build Outputs to Shared Model-Data Tree
+# Publish (Internal): Build Outputs to Shared Model-Data Tree
 # =============================================================================
 #
-# Mirrors a curated subset of build outputs from the local repo into the
-# Budget Lab shared model-data tree as an immutable, dated vintage. A `latest`
-# symlink in the shared root points at the most recent vintage.
+# Internal counterpart to src/publish_git.R. This module mirrors a curated
+# subset of build outputs from the local repo into the Budget Lab shared
+# model-data tree as an immutable, dated vintage. A `latest` symlink in the
+# shared root points at the most recent vintage. Audience: other Budget Lab
+# models on the same NFS share — not public.
 #
 # Layout (under <shared_root>):
 #
@@ -25,13 +27,13 @@
 #     latest -> 2026-05-09
 #
 # Vintages are immutable. Re-running on the same calendar day appends `_2`,
-# `_3`, ... . `--alternatives-only --publish` produces a new vintage with the
-# panel re-copied (cheap immutability over hardlink dedup).
+# `_3`, ... . `--alternatives-only --publish-internal` produces a new vintage
+# with the panel re-copied (cheap immutability over hardlink dedup).
 #
 # Usage (programmatic):
 #
-#   source(here('src', 'publish.R'))
-#   publish_to_shared(
+#   source(here('src', 'publish_internal.R'))
+#   publish_internal(
 #     build_flags = list(full = TRUE, core_only = TRUE, with_alternatives = FALSE),
 #     build_started_at = Sys.time()
 #   )
@@ -58,19 +60,19 @@ SHARED_ROOT_DEFAULT <- '/nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-R
 #'   touching the shared tree.
 #' @return Invisibly, a list with `vintage`, `vintage_dir`, `manifest`, and
 #'   `n_files` on success; NULL on dry-run.
-publish_to_shared <- function(shared_root = SHARED_ROOT_DEFAULT,
-                              vintage = NULL,
-                              repo_root = here(),
-                              build_flags = list(),
-                              build_started_at = Sys.time(),
-                              dry_run = FALSE) {
+publish_internal <- function(shared_root = SHARED_ROOT_DEFAULT,
+                             vintage = NULL,
+                             repo_root = here(),
+                             build_flags = list(),
+                             build_started_at = Sys.time(),
+                             dry_run = FALSE) {
 
   if (!requireNamespace('arrow', quietly = TRUE)) {
-    stop('publish_to_shared requires the arrow package (parquet conversion). ',
+    stop('publish_internal requires the arrow package (parquet conversion). ',
          'Install with: Rscript src/install_dependencies.R --all')
   }
   if (!requireNamespace('digest', quietly = TRUE)) {
-    stop('publish_to_shared requires the digest package (manifest sha256). ',
+    stop('publish_internal requires the digest package (manifest sha256). ',
          'Install with: Rscript src/install_dependencies.R --all')
   }
 
@@ -81,7 +83,7 @@ publish_to_shared <- function(shared_root = SHARED_ROOT_DEFAULT,
   }
   # Staleness guard: when called from a build run, refuse to publish a panel
   # produced by an earlier build. Skipped when build_started_at is NULL
-  # (standalone `Rscript src/publish.R` operates on whatever is on disk).
+  # (standalone `Rscript src/publish_internal.R` operates on whatever is on disk).
   if (!is.null(build_started_at) &&
       file.info(ts_rds)$mtime < build_started_at) {
     stop('Cannot publish: rate_timeseries.rds (mtime ', file.info(ts_rds)$mtime,
@@ -216,7 +218,8 @@ publish_timeseries <- function(repo_root, vintage_dir, dry_run = FALSE) {
 #'
 #' When `min_mtime` is non-NULL, files older than that timestamp are skipped.
 #' This prevents stale outputs from a previous build leaking into a new vintage
-#' (e.g. `--build-only --publish` should not bundle daily/ from an earlier run).
+#' (e.g. `--build-only --publish-internal` should not bundle daily/ from an
+#' earlier run).
 #'
 #' @keywords internal
 publish_dir <- function(src_dir, dest_dir, min_mtime = NULL, dry_run = FALSE) {
@@ -363,13 +366,13 @@ update_latest_symlink <- function(shared_root, vintage) {
 # =============================================================================
 #
 # Standalone publish (after a build has already been run):
-#   Rscript src/publish.R
-#   Rscript src/publish.R --dry-run
-#   Rscript src/publish.R --vintage 2026-05-08_manual
+#   Rscript src/publish_internal.R
+#   Rscript src/publish_internal.R --dry-run
+#   Rscript src/publish_internal.R --vintage 2026-05-08_manual
 #
 # This mode does NOT know which build flags produced the outputs; it records
 # `manual = TRUE` in the manifest. For full provenance, prefer publishing
-# via `--publish` on src/00_build_timeseries.R.
+# via `--publish-internal` on src/00_build_timeseries.R.
 
 if (sys.nframe() == 0) {
   args <- commandArgs(trailingOnly = TRUE)
@@ -379,7 +382,7 @@ if (sys.nframe() == 0) {
     if (args[i] == '--vintage' && i < length(args)) vintage <- args[i + 1]
   }
 
-  publish_to_shared(
+  publish_internal(
     vintage = vintage,
     build_flags = list(manual = TRUE),
     build_started_at = NULL,  # skip staleness guard for standalone runs
