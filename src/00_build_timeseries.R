@@ -61,6 +61,7 @@ source(here('src', '05_parse_policy_params.R'))
 source(here('src', '06_calculate_rates.R'))
 source(here('src', 'authority_spec.R'))      # AuthoritySpec datatype
 source(here('src', 'authority_adapter.R'))   # build_authority_specs() (Phase 1)
+source(here('src', 'scenario_ops.R'))        # apply_operations() (Phase 2e)
 source(here('src', '07_validate_tpc.R'))
 
 
@@ -86,7 +87,8 @@ build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
                                     country_lookup, countries, census_codes,
                                     pp_build,
                                     stacking_method = 'mutual_exclusion',
-                                    tpc_path = NULL) {
+                                    tpc_path = NULL,
+                                    operations = NULL) {
   # a. Resolve JSON path
   json_path <- resolve_json_path(rev_id, archive_dir)
 
@@ -113,12 +115,19 @@ build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
   #    re-package the bespoke objects into a spec set; the calculator pulls the
   #    embedded raw objects back out and runs the identical body (Phase 1 parity).
   specs <- if (use_specs_enabled()) {
-    build_authority_specs(
+    s <- build_authority_specs(
       products, ch99_data, ieepa_rates, usmca,
       countries, rev_id, eff_date,
       s232_rates = s232_rates, fentanyl_rates = fentanyl_rates,
       policy_params = pp_build
     )
+    # Phase 2e: a scenario applies its operations to the specs before the calc.
+    # No operations => baseline (the empty scenario).
+    if (!is.null(operations) && length(operations) > 0) {
+      message('  Applying ', length(operations), ' scenario operation(s) to specs')
+      s <- apply_operations(s, operations)
+    }
+    s
   } else NULL
 
   # g. Calculate rates for this revision

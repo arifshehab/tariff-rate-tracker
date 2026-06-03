@@ -2346,33 +2346,28 @@ calculate_rates_for_revision <- function(
           ) %>%
           select(-hts8, -blanket_301)
 
-        # Add 301-only rows for China products NOT yet in rates
-        # (products with no other Ch99 duties but subject to 301).
-        # TODO(Phase 2e/Gate 3): generalize the new-row creation to every country
-        # in scope_301 (not just China) so a re-scope scenario seeds 301-only rows
-        # for the new countries too. Existing in-scope rows are already covered by
-        # the update above; only the no-other-duty products need this. Baseline
-        # scope is {China}, so this stays identical until an ops scenario widens it.
+        # Add 301-only rows for in-scope products NOT yet in rates (products with
+        # no other Ch99 duties but subject to 301). Phase 2e: generalized to every
+        # country in scope_301. Looping per-country keeps the baseline ({China})
+        # result BYTE-IDENTICAL (one iteration, original setdiff order) while a
+        # re-scope scenario (301 -> Vietnam) seeds 301-only rows for new countries.
         s301_hts8_codes <- s301_lookup$hts8
         s301_hts10 <- products %>%
           mutate(hts8 = substr(hts10, 1, 8)) %>%
           filter(hts8 %in% s301_hts8_codes) %>%
           pull(hts10)
 
-        existing_china <- rates %>%
-          filter(country == CTY_CHINA) %>%
-          pull(hts10)
-
-        new_301_products <- setdiff(s301_hts10, existing_china)
-
-        if (length(new_301_products) > 0) {
-          new_301_pairs <- products %>%
-            filter(hts10 %in% new_301_products) %>%
+        new_301_pairs <- bind_rows(lapply(scope_301, function(.ctry) {
+          existing_ctry <- rates %>% filter(country == .ctry) %>% pull(hts10)
+          new_products <- setdiff(s301_hts10, existing_ctry)
+          if (length(new_products) == 0) return(NULL)
+          products %>%
+            filter(hts10 %in% new_products) %>%
             select(hts10, base_rate) %>%
             mutate(
               base_rate = coalesce(base_rate, 0),
               hts8 = substr(hts10, 1, 8),
-              country = CTY_CHINA
+              country = .ctry
             ) %>%
             left_join(s301_lookup, by = 'hts8', relationship = 'many-to-one') %>%
             mutate(
@@ -2382,17 +2377,17 @@ calculate_rates_for_revision <- function(
             ) %>%
             filter(rate_301 > 0) %>%
             select(-hts8, -blanket_301)
+        }))
 
-          if (nrow(new_301_pairs) > 0) {
-            message('  Adding ', nrow(new_301_pairs),
-                    ' product-country pairs for 301-only duties')
-            rates <- bind_rows(rates, new_301_pairs)
-          }
+        if (nrow(new_301_pairs) > 0) {
+          message('  Adding ', nrow(new_301_pairs),
+                  ' product-country pairs for 301-only duties')
+          rates <- bind_rows(rates, new_301_pairs)
         }
 
-        n_301_total <- sum(rates$country == CTY_CHINA & rates$rate_301 > 0)
+        n_301_total <- sum(rates$rate_301 > 0)
         message('  Section 301 blanket: ', nrow(s301_lookup), ' HTS8 codes, ',
-                n_301_total, ' China product-country pairs with 301 rate')
+                n_301_total, ' product-country pairs with 301 rate')
       }
     }
 

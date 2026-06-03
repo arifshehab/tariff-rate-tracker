@@ -60,12 +60,23 @@ countries      <- census_codes$Code
 country_lookup <- build_country_lookup(here('resources', 'census_codes.csv'))
 tpc_path       <- load_local_paths()$tpc_benchmark
 
+# Phase 2e: optional scenario operations — TARIFF_SCENARIO_OPS points at an RDS
+# holding a list of ops (see src/scenario_ops.R). Unset => baseline (empty scenario).
+ops <- NULL
+ops_path <- Sys.getenv('TARIFF_SCENARIO_OPS')
+if (nzchar(ops_path)) {
+  if (!file.exists(ops_path)) stop('TARIFF_SCENARIO_OPS not found: ', ops_path, call. = FALSE)
+  ops <- readRDS(ops_path)
+  message('Loaded ', length(ops), ' scenario operation(s) from ', ops_path)
+}
+
 message('Building revision ', rev_id, ' (effective ', ri$effective_date, ') on ', Sys.info()[['nodename']])
 res <- build_revision_snapshot(
   rev_id = rev_id, eff_date = ri$effective_date, tpc_date = ri$tpc_date,
   archive_dir = archive_dir, output_dir = output_dir,
   country_lookup = country_lookup, countries = countries,
   census_codes = census_codes, pp_build = pp_build,
-  stacking_method = 'mutual_exclusion', tpc_path = tpc_path
+  stacking_method = 'mutual_exclusion', tpc_path = tpc_path,
+  operations = ops
 )
 message('OK: ', rev_id, ' -> ', res$snapshot_path, ' (', res$n_rates, ' rows)')
