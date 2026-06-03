@@ -566,6 +566,58 @@ JSON archives ──parse(03/04/05)──▶ [AuthoritySpec × authorities]  ◀
 scenario layer's job becomes "apply operations to specs." Both hand the
 calculator the identical shape.
 
+## Output layout: vintages, `actual`, and named scenarios
+
+Two independent version axes — keep them separate:
+
+- **Vintage** = *when the model was built* (provenance): a dated, immutable directory with a
+  `latest` symlink to the newest. Unchanged by this migration.
+- **`base:` pin** = a counterfactual's *branch point on the policy timeline* (an effective-date
+  cut into the content, decision 6) — a field **inside** a scenario, **not** a directory level.
+
+Within a vintage every series has the **identical schema** (the migration is parity-gated on
+exactly this), so a consumer reads `actual` and any scenario the same way:
+
+```
+<shared root>/Tariff-Rate-Tracker/
+  <vintage = YYYY-MM-DD>/                  # immutable build snapshot
+    actual/                                # current-law series = output of the empty-scenario run
+      timeseries/rate_timeseries.parquet   #   (realized past + scheduled future, through the horizon)
+      daily/daily_*.csv
+      metadata.rds
+    scenarios/
+      <scenario-name>/                     # name supplied at run time (or a named scenario file)
+        timeseries/rate_timeseries.parquet
+        daily/daily_*.csv
+        manifest.json                      # base:, baseline_mode, operations, adjustment_params, parent vintage
+    manifest.json
+  latest -> <newest vintage>               # atomic symlink
+```
+
+- **`actual`** (deliberately *not* "baseline") is the current-law time path — realized history
+  **plus** scheduled future through `series_horizon`. It is literally the output of the
+  empty-scenario run ("baseline = empty scenario"); we publish it under `actual/` because
+  "baseline" is overloaded across Budget Lab models (it can mean *pre-2025 policy*). The doc's
+  internal "baseline" still means the empty-scenario computation; `actual/` is its published
+  series.
+- **`scenarios/<name>/`** — each counterfactual is a first-class, vintage-scoped series with a
+  **run-time name**, replacing today's flat `alternative/daily_*_<variant>.csv` suffix
+  convention (where names were fixed in `config/scenarios.yaml`). Its `manifest.json` records
+  the full recipe (`base:`, `baseline_mode`, the operations, the `adjustment_params` overrides,
+  and the parent vintage) so the run is reproducible.
+
+A downstream consumer points at exactly one of:
+
+```
+…/latest/actual/…                       # current-law, newest build
+…/latest/scenarios/<name>/…             # a named counterfactual, newest build
+…/<pinned-vintage>/scenarios/<name>/…   # fully reproducible (specific build × specific scenario)
+```
+
+This is a **breaking path change** from today's layout (current-law at the vintage root;
+scenarios as suffixed files in `alternative/`); migrate `publish_internal.R` / `publish_git.R`
+and every consumer in lockstep (migration step 5 below).
+
 ## Implementation requirements surfaced in review
 
 Three things the schema implies but the current code does not yet support:
@@ -677,6 +729,14 @@ tolerance** (refactors reorder float ops, so byte-identity is the wrong bar).
    per-authority step blocks can merge into a generic "apply each spec" loop.
    Optional polish, not a prerequisite.
 
+5. **Restructure published output so scenarios are first-class on disk** (depends on 1–3,
+   independent of 4). Adopt the `actual/` + `scenarios/<name>/` layout (see "Output layout"
+   above): move the current-law series from the vintage root into `actual/`, promote scenarios
+   from flat `alternative/<kind>_<variant>.csv` suffixes to named `scenarios/<name>/`
+   subdirectories each carrying a `manifest.json` recipe, and migrate `publish_internal.R` /
+   `publish_git.R` plus every downstream consumer in lockstep — a **breaking path change**, so
+   land it as one coordinated cut.
+
 USMCA is the one authority left as-is: its `{Canada, Mexico}` scope is
 definitional, not a policy choice.
 
@@ -730,8 +790,9 @@ not lost):
 - **Backward-compatibility** with the existing `disable:` / `patches:` format — 8 live
   scenarios in `config/scenarios.yaml` + `docs/scenarios.md` +
   `run_post_build_scenarios_per_revision`. Translate, dual-support, or hard-cut?
-- **Multi-scenario composition.** How the `policy × assumptions × baseline_mode × base`
-  cross-product is enumerated, named, and written to `output/alternative/<variant>.csv`.
+- **Multi-scenario composition.** The on-disk layout is now settled (see "Output layout":
+  `scenarios/<name>/`); what remains is how the `policy × assumptions × baseline_mode × base`
+  cross-product is *enumerated and named* (one scenario name per combination, or nested?).
 - **Results / reporting.** A policy user needs the revenue/ETR-delta decomposition, not a raw
   `hts10 × country` rate diff — specify the scenario output.
 - **Recompute cost.** A synthetic revision recomputed forward is not free; the existing alt
