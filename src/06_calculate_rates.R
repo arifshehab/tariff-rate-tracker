@@ -194,6 +194,34 @@ calculate_rates_fast <- function(products, ch99_data, countries,
 }
 
 
+#' Compute Section 232 heading-program activation gates for a revision.
+#'
+#' Each heading program (autos, copper, wood, MHD, semiconductors) is active only
+#' when its Ch99 entries exist in this revision. Centralized so the calculator and
+#' the AuthoritySpec adapter compute the gates from one source — no drift. Keyed
+#' by the `section_232_headings` config names (NOT spec program ids).
+#'
+#' @param s232_rates extract_section232_rates() output
+#' @param ch99_data the DATE-GATED Chapter 99 data (filter_active_ch99 already applied)
+#' @return named logical list, one entry per known heading program
+compute_heading_gates <- function(s232_rates, ch99_data) {
+  has_auto_parts_ch99 <- any(grepl('^9903\\.94\\.0[5-9]', ch99_data$ch99_code))
+  list(
+    autos_passenger    = s232_rates$auto_rate > 0 || s232_rates$auto_has_deals,
+    autos_light_trucks = s232_rates$auto_rate > 0 || s232_rates$auto_has_deals,
+    auto_parts         = has_auto_parts_ch99,
+    copper             = s232_rates$copper_rate > 0,
+    softwood           = s232_rates$wood_rate > 0 || s232_rates$wood_furniture_rate > 0,
+    wood_furniture     = s232_rates$wood_rate > 0 || s232_rates$wood_furniture_rate > 0,
+    kitchen_cabinets   = s232_rates$wood_rate > 0 || s232_rates$wood_furniture_rate > 0,
+    mhd_vehicles       = s232_rates$mhd_rate > 0,
+    mhd_parts          = s232_rates$mhd_rate > 0,
+    buses              = s232_rates$mhd_rate > 0,
+    semiconductors     = s232_rates$semi_rate > 0
+  )
+}
+
+
 #' Check if country applies to a Chapter 99 entry
 #'
 #' @param country Census country code
@@ -773,7 +801,16 @@ calculate_rates_for_revision <- function(
   # 1b. Check IEEPA invalidation (SCOTUS ruling in Learning Resources v. Trump)
   #     If this revision's effective_date is on or after the invalidation date,
   #     IEEPA tariff authority is void — zero out reciprocal and fentanyl.
-  ieepa_invalidation <- pp$IEEPA_INVALIDATION_DATE
+  # Phase 2d: the invalidation date is the IEEPA specs' active.until (a scenario
+  # can move it via set_active). The adapter mirrors pp$IEEPA_INVALIDATION_DATE
+  # verbatim, so baseline is identical. Both IEEPA specs share the date (the
+  # `ieepa` group), so reciprocal's until governs the joint kill switch below
+  # AND the grid densification at the matching site downstream.
+  ieepa_invalidation <- if (!is.null(specs)) {
+    specs[['ieepa_reciprocal']]$active$until
+  } else {
+    pp$IEEPA_INVALIDATION_DATE
+  }
   if (!is.null(ieepa_invalidation) && as.Date(effective_date) >= ieepa_invalidation) {
     message('  IEEPA invalidated as of ', ieepa_invalidation,
             ' — zeroing reciprocal and fentanyl for ', revision_id)
@@ -1335,20 +1372,12 @@ calculate_rates_for_revision <- function(
       # Gate each heading config on whether its Ch99 program exists in this revision.
       # Programs added progressively: assembled autos at rev_6, parts at rev_11,
       # copper at rev_17, MHD/wood later. Check extracted rates + specific Ch99 codes.
-      has_auto_parts_ch99 <- any(grepl('^9903\\.94\\.0[5-9]', ch99_data$ch99_code))
-      heading_gates <- list(
-        autos_passenger  = s232_rates$auto_rate > 0 || s232_rates$auto_has_deals,
-        autos_light_trucks = s232_rates$auto_rate > 0 || s232_rates$auto_has_deals,
-        auto_parts       = has_auto_parts_ch99,
-        copper           = s232_rates$copper_rate > 0,
-        softwood         = s232_rates$wood_rate > 0 || s232_rates$wood_furniture_rate > 0,
-        wood_furniture   = s232_rates$wood_rate > 0 || s232_rates$wood_furniture_rate > 0,
-        kitchen_cabinets = s232_rates$wood_rate > 0 || s232_rates$wood_furniture_rate > 0,
-        mhd_vehicles     = s232_rates$mhd_rate > 0,
-        mhd_parts        = s232_rates$mhd_rate > 0,
-        buses            = s232_rates$mhd_rate > 0,
-        semiconductors   = s232_rates$semi_rate > 0
-      )
+      # Phase 2c: heading activation comes from the spec when it drives the calc
+      # (the adapter precomputes it via compute_heading_gates() with the same
+      # date-gated ch99 + authoritative s232 value), else compute inline. One
+      # source ⇒ byte-identical baseline.
+      heading_gates <- attr(specs[['section_232']], 'heading_gates', exact = TRUE) %||%
+        compute_heading_gates(s232_rates, ch99_data)
 
       # Adding a heading to policy_params.yaml without registering its gate here
       # would silently activate the heading on every revision (gate_val = NULL →

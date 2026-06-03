@@ -15,10 +15,14 @@
 suppressPackageStartupMessages(library(here))
 source(here('src', 'authority_spec.R'))
 
-# --- stubs (stand in for 05_parse_policy_params.R; resolved at call time) -----
+# --- stubs (stand in for 05_parse_policy_params.R / rate_schema.R / 06; resolved
+#     at call time in the global env) ----------------------------------------
 load_policy_params    <- function() list()
 get_country_constants <- function(pp) list(CTY_CHINA = '5700', CTY_CANADA = '1220',
                                             CTY_MEXICO = '2010')
+filter_active_ch99    <- function(ch99_data, effective_date) ch99_data
+HEADING_GATES_SENTINEL <- list(autos_passenger = TRUE, copper = FALSE)
+compute_heading_gates <- function(s232_rates, ch99_data) HEADING_GATES_SENTINEL
 
 source(here('src', 'authority_adapter.R'))
 
@@ -77,6 +81,9 @@ check(identical(specs[['section_201']]$programs[[1]]$country_scope$exclude, '122
       '201 Canada exemption captured as country_scope exclude')
 check(identical(specs[['section_232']]$stacking$class, 'primary_metal'),
       '232 authority stacking.class = primary_metal')
+check(identical(attr(specs[['section_232']], 'heading_gates', exact = TRUE),
+                HEADING_GATES_SENTINEL),
+      '232 heading_gates precomputed onto the spec (Phase 2c)')
 
 cat('\n--- serialization round-trip preserves embeds + nested attrs ---\n')
 tmp <- tempfile(fileext = '.rds')

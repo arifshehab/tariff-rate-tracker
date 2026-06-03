@@ -83,7 +83,10 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
 
   # IEEPA invalidation → ieepa programs' `active.until` (first inactive day,
   # exclusive — matches the calculator's `effective_date >= until` kill switch).
-  ieepa_until <- pp$IEEPA_INVALIDATION_DATE %||% NA
+  # Mirror pp$IEEPA_INVALIDATION_DATE VERBATIM (incl. NULL when unset) so the
+  # calc's `if (!is.null(until) && ...)` behaves identically — coercing NULL to
+  # NA here would make the calc's `if (NA)` error (Phase 2d).
+  ieepa_until <- pp$IEEPA_INVALIDATION_DATE
 
   # --- section_232 — the genuinely multi-program authority ------------------
   # Programs are a Phase-2 scaffold (rates/active derived authoritatively from
@@ -110,6 +113,14 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
     )
   )
   attr(section_232, 'raw_s232') <- s232_rates
+  # Phase 2c: precompute the heading-program activation gates from the SAME
+  # date-gated ch99 + authoritative s232 value the calc uses, so the calc reads
+  # them off the spec instead of recomputing (compute_heading_gates is the single
+  # source). Adapter owns the filter_active_ch99 gate (mirrors 06:738).
+  if (!is.null(s232_rates)) {
+    ch99_active <- filter_active_ch99(ch99_data, as.Date(effective_date))
+    attr(section_232, 'heading_gates') <- compute_heading_gates(s232_rates, ch99_active)
+  }
 
   # --- ieepa_reciprocal — blanket, country-level ----------------------------
   ieepa_reciprocal <- authority_spec(
