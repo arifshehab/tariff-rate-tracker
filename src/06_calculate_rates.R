@@ -2696,9 +2696,16 @@ calculate_rates_for_revision <- function(
       '9903.96.03' %in% ch99_data$ch99_code) {
     tw_aircraft <- load_232_aircraft_exempt_taiwan()
     cty_tw <- pp$country_codes$CTY_TAIWAN
+    # Note 35(c) exempts ONLY the Section 232 metals annex (9903.82.xx). Gate on
+    # s232_annex being set so the exemption can only remove a rate_232 that came
+    # from the metals annex — never one written by a non-metals 232 program (wood
+    # 9903.76, auto parts 9903.94, MHD 9903.74), which note 35(c) does not touch.
+    # This also fails safe if a non-metals hts8 ever slips into the product list.
+    annex_232_mask <- if ('s232_annex' %in% names(rates)) !is.na(rates$s232_annex) else FALSE
     air_mask <- rates$country == cty_tw &
       substr(rates$hts10, 1, 8) %in% tw_aircraft &
-      rates$rate_232 > 0
+      rates$rate_232 > 0 &
+      annex_232_mask
     n_air <- sum(air_mask)
     if (n_air > 0) {
       rates$rate_232[air_mask] <- 0
