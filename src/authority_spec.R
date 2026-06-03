@@ -93,6 +93,26 @@ authority_spec_set <- function(...) {
   structure(specs, class = 'authority_spec_set')
 }
 
+# ---- accessors --------------------------------------------------------------
+
+#' Resolve a program's country_scope to an explicit vector of census codes.
+#'
+#' @param scope list `{include: 'all' | <codes>, exclude: <codes>/<file>}`. A NULL
+#'   or 'all' include means every country; exclude is removed afterwards.
+#' @param all_countries full census-code universe (used when include is 'all')
+#' @return character vector of census codes
+resolve_country_scope <- function(scope, all_countries) {
+  inc <- scope$include
+  base <- if (is.null(inc) || identical(inc, 'all')) {
+    as.character(all_countries)
+  } else {
+    as.character(unlist(inc))
+  }
+  exc <- scope$exclude
+  if (!is.null(exc) && length(exc) > 0) base <- setdiff(base, as.character(unlist(exc)))
+  base
+}
+
 # ---- predicates -------------------------------------------------------------
 
 is_authority_spec      <- function(x) inherits(x, 'authority_spec')

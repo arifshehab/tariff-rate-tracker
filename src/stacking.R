@@ -157,6 +157,10 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
   df <- df %>%
     mutate(
       total_additional = case_when(
+        # Phase 2e: rate_301 is added in EVERY branch now (301 is additive). It is
+        # 0 outside section_301's country_scope (the calc zeros out-of-scope), so
+        # this is identical to the old China-only treatment — and re-scoping 301
+        # (e.g. 301 -> Vietnam) then "just works" without touching this math.
         # China with 232: 232 + recip*nonmetal + fentanyl + 301 + s122*nonmetal + s201 + other
         country == cty_china & rate_232 > 0 ~
           rate_232 + rate_ieepa_recip * nonmetal_share + rate_ieepa_fent + rate_301 +
@@ -175,10 +179,10 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
         # governs CA/MX behavior on 232 products.
         rate_232 > 0 ~
           rate_232 + rate_ieepa_recip * nonmetal_share + rate_ieepa_fent * nonmetal_share +
-          rate_s122 * nonmetal_share + rate_section_201 + rate_other,
+          rate_s122 * nonmetal_share + rate_section_201 + rate_other + rate_301,
 
-        # Others without 232: reciprocal + fentanyl + s122 + s201 + other
-        TRUE ~ rate_ieepa_recip + rate_ieepa_fent + rate_s122 + rate_section_201 + rate_other
+        # Others without 232: reciprocal + fentanyl + s122 + s201 + other + 301
+        TRUE ~ rate_ieepa_recip + rate_ieepa_fent + rate_s122 + rate_section_201 + rate_other + rate_301
       ),
       total_rate = base_rate + total_additional
     ) %>%
@@ -236,7 +240,11 @@ compute_net_authority_contributions <- function(df, cty_china = '5700',
         rate_232 > 0 ~ rate_ieepa_fent * nonmetal_share,
         TRUE ~ rate_ieepa_fent
       ),
-      net_301 = if_else(country == cty_china, rate_301, 0),
+      # Phase 2e: rate_301 is scoped to section_301's country_scope upstream (the
+      # calc zeros it out of scope), so net_301 is simply rate_301 — identical to
+      # the old `if_else(country == cty_china, rate_301, 0)` since rate_301 was 0
+      # off-China. Keys on the rate, not the country, so re-scoping flows through.
+      net_301 = rate_301,
       net_s122 = if_else(rate_232 > 0, rate_s122 * nonmetal_share, rate_s122),
       net_section_201 = rate_section_201,
       net_other = rate_other

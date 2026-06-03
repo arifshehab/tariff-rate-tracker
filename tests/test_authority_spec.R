@@ -90,6 +90,20 @@ mixed <- authority_spec('section_232',
     rate = list(default = 0.25))))
 check(isTRUE(validate_authority_spec(mixed)), 'primary_full program with metal.type=none is valid')
 
+cat('\n--- resolve_country_scope ---\n')
+all_c <- c('5700', '1220', '2010', '5520')
+check(identical(resolve_country_scope(list(include = '5700'), all_c), '5700'),
+      'include single code')
+check(identical(resolve_country_scope(list(include = c('5700', '5520')), all_c), c('5700', '5520')),
+      'include code list')
+check(setequal(resolve_country_scope(list(include = 'all'), all_c), all_c),
+      'include all = full universe')
+check(setequal(resolve_country_scope(list(include = 'all', exclude = '1220'), all_c),
+               c('5700', '2010', '5520')),
+      'all except exclude (the Section 201 / Canada shape)')
+check(identical(resolve_country_scope(list(include = '5700', exclude = list()), all_c), '5700'),
+      'empty exclude is a no-op')
+
 cat('\n--- serialization round-trip (must survive RDS / future workers) ---\n')
 tmp <- tempfile(fileext = '.rds')
 saveRDS(specs, tmp)

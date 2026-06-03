@@ -2320,22 +2320,39 @@ calculate_rates_for_revision <- function(
         summarise(blanket_301 = max(s301_rate), .groups = 'drop')
 
       if (nrow(s301_lookup) > 0) {
-        # Update rate_301 for existing China product-country pairs
+        # Phase 2e: Section 301 country scope is data, not a China hardcode.
+        # scope_301 comes from the spec (defaults to {China} → byte-identical to
+        # the old `country == CTY_CHINA`); a scenario can re-scope it (301 → VN).
+        scope_301 <- if (!is.null(specs)) {
+          resolve_country_scope(specs[['section_301']]$programs[[1]]$country_scope, countries)
+        } else {
+          CTY_CHINA
+        }
+
+        # Update rate_301 for in-scope product-country pairs; ZERO it out of scope.
+        # Out-of-scope was already 0 (no non-China seed), so baseline is unchanged
+        # — and the explicit zero lets the stacker key on rate_301 > 0 instead of
+        # `country == china` (see stacking.R), which is what makes re-scoping work.
         rates <- rates %>%
           mutate(hts8 = substr(hts10, 1, 8)) %>%
           left_join(s301_lookup, by = 'hts8', relationship = 'many-to-one') %>%
           mutate(
             blanket_301 = coalesce(blanket_301, 0),
             rate_301 = if_else(
-              country == CTY_CHINA,
+              country %in% scope_301,
               pmax(rate_301, blanket_301),
-              rate_301
+              0
             )
           ) %>%
           select(-hts8, -blanket_301)
 
         # Add 301-only rows for China products NOT yet in rates
-        # (products with no other Ch99 duties but subject to 301)
+        # (products with no other Ch99 duties but subject to 301).
+        # TODO(Phase 2e/Gate 3): generalize the new-row creation to every country
+        # in scope_301 (not just China) so a re-scope scenario seeds 301-only rows
+        # for the new countries too. Existing in-scope rows are already covered by
+        # the update above; only the no-other-duty products need this. Baseline
+        # scope is {China}, so this stays identical until an ops scenario widens it.
         s301_hts8_codes <- s301_lookup$hts8
         s301_hts10 <- products %>%
           mutate(hts8 = substr(hts10, 1, 8)) %>%
@@ -2452,7 +2469,13 @@ calculate_rates_for_revision <- function(
       s201_products <- read_csv(s201_path,
                                  col_types = cols(hts10 = col_character()))
       solar_rate <- s201_results$solar_rate
-      s201_country_codes <- setdiff(countries, pp$country_codes$CTY_CANADA)
+      # Phase 2e: Section 201 country scope from the spec (defaults to
+      # {all except Canada} → identical to the old setdiff); re-scopable.
+      s201_country_codes <- if (!is.null(specs)) {
+        resolve_country_scope(specs[['section_201']]$programs[[1]]$country_scope, countries)
+      } else {
+        setdiff(countries, pp$country_codes$CTY_CANADA)
+      }
 
       # Set rate_section_201 for existing rows
       rates <- rates %>%
