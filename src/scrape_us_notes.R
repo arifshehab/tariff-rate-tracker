@@ -105,6 +105,13 @@ CH99_TO_LIST <- tribble(
 #   swiss — Switzerland + Liechtenstein
 #   japan — Japan (civil aircraft only, via Note 3)
 #
+# NOTE: 9903.96.03 (Taiwan civil aircraft, U.S. note 35(c)) is NOT a floor/reciprocal
+# exemption — note 35(c) exempts those products from the SECTION 232 metals annex
+# (9903.82.xx). It is handled in 06_calculate_rates.R via the section_232_aircraft_exemption
+# path + resources/s232_aircraft_exempt_taiwan.csv, not here. (The 9903.96.01/.02 UK/Japan
+# entries below are the analogous 232 carve-outs but remain mis-bucketed here as a
+# pre-existing, low-impact issue — see todo.md.)
+#
 FLOOR_EXEMPTIONS <- tribble(
   ~ch99_code,    ~category,         ~country_group,
   '9903.02.74',  'ptaap',           'eu',

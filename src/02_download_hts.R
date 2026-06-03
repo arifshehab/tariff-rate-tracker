@@ -6,6 +6,21 @@
 # Compares local inventory (list_available_revisions()) against
 # revision_dates.csv and downloads any missing files.
 #
+# IMPORTANT — retrospective (archived) revisions cannot be auto-downloaded:
+#   The static archive host (www.usitc.gov/.../hts_*_json.json) began returning
+#   Akamai 403 for ALL revisions in June 2026. The only working JSON source is
+#   the reststop export endpoint (hts.usitc.gov/reststop/exportList), which
+#   serves ONLY the current release. So this script can fetch the CURRENT
+#   revision (via the export fallback) but NOT older/superseded ones.
+#
+#   Archived revisions are instead preserved IN THIS REPO, committed gzipped as
+#   data/hts_archives/hts_<year>_<rev>.json.gz (~0.7 MB each vs ~13 MB raw).
+#   fromJSON() reads .json.gz transparently; path resolution is gz-aware
+#   (resolve_json_path / list_available_revisions). New downloads are gzipped
+#   on success. If a genuinely-missing archived revision is reported below,
+#   obtain its JSON manually from hts.usitc.gov and place it (raw or .gz) in
+#   data/hts_archives/.
+#
 # Usage:
 #   Rscript src/02_download_hts.R                # Download missing for 2025
 #   Rscript src/02_download_hts.R --year 2026    # Download missing for 2026
@@ -14,11 +29,124 @@
 # =============================================================================
 
 library(tidyverse)
+library(jsonlite)
 
 
 # =============================================================================
 # Download Functions
 # =============================================================================
+
+# --- Export-endpoint fallback (for when the static archive host is blocked) ---
+#
+# The primary source (www.usitc.gov/sites/default/files/tata/hts/hts_*_json.json)
+# began returning Akamai "Access Denied" (HTTP 403) for all revisions in
+# June 2026, including ones that downloaded fine weeks earlier — i.e. a blanket
+# bot block, not a missing-file issue. The reststop export host (hts.usitc.gov)
+# is still reachable and returns the same JSON schema.
+#
+# IMPORTANT LIMITATION: exportList only ever serves the CURRENT release. It
+# cannot fetch archived/superseded revisions. The caller must confirm the
+# requested revision IS the current release before using this path, otherwise
+# it would save current-revision data under an older revision's filename.
+#
+# Endpoint quirks: from/to must be real dotted leaf HTS numbers and styles=true
+# is required, or the endpoint returns HTTP 400. from=0101.21.00 / to=9999.00.00
+# spans the full schedule including all of Chapter 99 (~13 MB, ~35.5k records).
+
+EXPORT_FULL_URL <- paste0(
+  'https://hts.usitc.gov/reststop/exportList',
+  '?from=0101.21.00&to=9999.00.00&format=JSON&styles=true'
+)
+
+# The reststop host rejects the default R/libcurl user agent.
+EXPORT_USER_AGENT <- paste0(
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ',
+  '(KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+)
+
+#' Get the name of the current USITC HTS release (status == "current")
+#'
+#' @param api_url releaseList endpoint
+#' @return Character release name (e.g., "2026HTSRev9") or NA on failure
+get_current_release_name <- function(
+  api_url = 'https://hts.usitc.gov/reststop/releaseList'
+) {
+  tryCatch({
+    old_ua <- getOption('HTTPUserAgent')
+    options(HTTPUserAgent = EXPORT_USER_AGENT)
+    on.exit(options(HTTPUserAgent = old_ua), add = TRUE)
+    releases <- jsonlite::fromJSON(api_url, simplifyDataFrame = TRUE)
+    current <- releases$name[releases$status == 'current']
+    if (length(current) == 0) return(NA_character_)
+    current[1]
+  }, error = function(e) {
+    message('  Could not fetch current release name: ', conditionMessage(e))
+    NA_character_
+  })
+}
+
+#' Download the current-revision full HTS via the reststop export endpoint
+#'
+#' @param dest_path Destination file path
+#' @param min_size_mb Minimum valid size (default 5; full HTS is ~13 MB)
+#' @return TRUE on success, FALSE otherwise
+download_hts_via_export <- function(dest_path, min_size_mb = 5) {
+  message('  Export fallback: ', EXPORT_FULL_URL)
+  message('  Destination: ', dest_path)
+  dir.create(dirname(dest_path), recursive = TRUE, showWarnings = FALSE)
+
+  old_ua <- getOption('HTTPUserAgent')
+  options(HTTPUserAgent = EXPORT_USER_AGENT)
+  on.exit(options(HTTPUserAgent = old_ua), add = TRUE)
+
+  tryCatch({
+    download.file(EXPORT_FULL_URL, dest_path, mode = 'wb', quiet = FALSE)
+
+    file_size_mb <- file.info(dest_path)$size / (1024 * 1024)
+    message('  File size: ', round(file_size_mb, 1), ' MB')
+    if (file_size_mb < min_size_mb) {
+      warning('Export download suspiciously small (', round(file_size_mb, 2),
+              ' MB < ', min_size_mb, ' MB). May be an error page.')
+      return(FALSE)
+    }
+
+    con <- file(dest_path, 'r')
+    first_char <- readChar(con, 1)
+    close(con)
+    if (!first_char %in% c('{', '[')) {
+      warning('Export file does not start with JSON: ', first_char)
+      return(FALSE)
+    }
+
+    message('  Success (export endpoint)!')
+    TRUE
+  }, error = function(e) {
+    message('  Export download failed: ', conditionMessage(e))
+    if (file.exists(dest_path)) file.remove(dest_path)
+    FALSE
+  })
+}
+
+#' Gzip a file in place: src -> src.gz (removing the original on success)
+#'
+#' Archives are committed to git gzipped (~20:1). Uses base-R connections so
+#' there is no R.utils dependency. Reads the whole file into memory (~13 MB,
+#' fine for HTS JSON).
+#'
+#' @param src Path to the raw file
+#' @param remove If TRUE, delete the raw file after compressing
+#' @return Path to the .gz file
+gzip_file <- function(src, remove = TRUE) {
+  dst <- paste0(src, '.gz')
+  con_in <- file(src, 'rb')
+  raw_bytes <- readBin(con_in, what = 'raw', n = file.info(src)$size)
+  close(con_in)
+  con_out <- gzfile(dst, 'wb')
+  writeBin(raw_bytes, con_out)
+  close(con_out)
+  if (remove && file.exists(dst)) file.remove(src)
+  dst
+}
 
 #' Build USITC download URL for an HTS revision
 #'
@@ -156,6 +284,10 @@ download_missing_revisions <- function(
   # Download each missing revision
   results <- tibble(revision = missing, status = NA_character_)
 
+  # Resolved lazily on first static failure (one releaseList call per run).
+  current_release <- NA_character_
+  current_checked <- FALSE
+
   for (i in seq_along(missing)) {
     rev <- missing[i]
     message('\n[', i, '/', length(missing), '] Downloading ', rev, '...')
@@ -166,6 +298,38 @@ download_missing_revisions <- function(
     dest <- file.path(archive_dir, paste0('hts_', parsed$year, '_', parsed$rev, '.json'))
 
     success <- download_hts_json(url, dest)
+
+    # Fallback: the static archive host (www.usitc.gov) is intermittently
+    # Akamai-blocked (403). The reststop export endpoint still works but ONLY
+    # serves the current release, so use it only when this revision IS current.
+    if (!success) {
+      if (!current_checked) {
+        current_release <- get_current_release_name()
+        current_checked <- TRUE
+      }
+      this_release <- build_release_name(rev)
+      if (!is.na(current_release) && identical(this_release, current_release)) {
+        message('  Static download failed; ', rev, ' is the current release (',
+                current_release, ') — trying reststop export endpoint.')
+        success <- download_hts_via_export(dest)
+      } else {
+        cur_label <- if (is.na(current_release)) 'unknown' else current_release
+        message('  Static download failed and ', rev, ' is not the current ',
+                'release (current: ', cur_label, '). The export endpoint cannot ',
+                'serve archived revisions — download this file manually from ',
+                'hts.usitc.gov and place it at ', dest, '.')
+      }
+    }
+
+    # Store gzipped to match the committed archive format. fromJSON() reads
+    # .json.gz transparently, so keeping only the .gz keeps the repo lean.
+    if (success && file.exists(dest)) {
+      gz <- tryCatch(gzip_file(dest), error = function(e) {
+        message('  (kept raw .json; gzip failed: ', conditionMessage(e), ')'); dest
+      })
+      message('  Stored: ', gz)
+    }
+
     results$status[i] <- if (success) 'downloaded' else 'failed'
 
     # Rate-limit: 2-second pause between downloads

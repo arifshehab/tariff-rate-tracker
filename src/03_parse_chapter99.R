@@ -97,7 +97,8 @@ parse_countries <- function(description) {
   #        "...products of South Korea..."
   country_specific_map <- c(
     'united kingdom' = 'UK', 'japan' = 'JP',
-    'european union' = 'EU', 'south korea' = 'KR', 'korea' = 'KR'
+    'european union' = 'EU', 'south korea' = 'KR', 'korea' = 'KR',
+    'taiwan' = 'TW'   # 2026 rev_8/rev_9: Taiwan 15% floor on 232 auto parts / wood
   )
   for (name in names(country_specific_map)) {
     if (str_detect(desc_lower, paste0('\\bof\\s+(the\\s+)?', name))) {
