@@ -43,6 +43,56 @@ possible: a single per-authority parameter structure (`AuthoritySpec`) that the
 baseline parser *produces* from the HTS JSON and the scenario layer *mutates*,
 so that **baseline is literally the empty scenario.**
 
+## Pipeline shape: what "params" means and where AuthoritySpec sits
+
+The word *params* is overloaded in this repo; disambiguate before reading on:
+
+- **parsed params (per-authority data)** — `products`, `ch99_data`, `ieepa_rates`,
+  `s232_rates`, `fentanyl_rates`, `usmca`. Produced by the `03/04/05` parsers from
+  the HTS JSON. Each authority's object is **a different shape**: `s232_rates` is a
+  21-field named list (`05:1033`); `ieepa_rates` is a tibble (`05:214`);
+  `fentanyl_rates` is yet another tibble.
+- **`policy_params.yaml`** — hand-authored constants (country codes, floor rates,
+  232 heading definitions). **Not** parsed from JSON; you edit it directly.
+
+AuthoritySpec normalizes the *parsed per-authority params* (plus the relevant slices
+of `policy_params.yaml`) into **one uniform shape**. It does **not** change the
+parsing, and it does **not** change the calculator's math — only the calculator's
+input interface. The translation runs on **every** build; a scenario is just the
+same path with one extra step (apply operations to the specs). That is what
+"baseline = empty scenario" means literally.
+
+```
+BEFORE
+  JSON ──parse(03/04/05)──▶ {ieepa_rates(tibble), s232_rates(list),     ──▶ calculate_rates_for_revision(
+        (unchanged regex)    fentanyl_rates(tibble), products, …}            products, ieepa_rates, s232_rates, …)
+                                                                              └ each authority = its own block/shape
+                                                                         ──▶ RATE PANEL (RATE_SCHEMA, 19 cols)
+
+AFTER (baseline)
+  JSON ──parse(03/04/05)──▶ same bespoke structs ──★adapter/normalize──▶ [AuthoritySpec × authorities]
+        (UNCHANGED)                                 (NEW)                        │ (no operations)
+                                                                                 ▼
+                                                    calculate_rates_for_revision(specs, products, countries)
+                                                    └ ★NEW signature; reads fields off specs; SAME math/output
+                                                                                 ▼  RATE PANEL — identical (parity-gated)
+
+AFTER (scenario)  …specs ──★apply operations──▶ specs′ ──▶ calculate_rates_for_revision(specs′, …) ──▶ counterfactual panel
+```
+
+What changes / what does not:
+
+| Layer | Changes? |
+|---|---|
+| Parsing logic (regex / JSON reading, `03/04/05`) | **No** — untouched |
+| `param-obj-1 → AuthoritySpec` adapter | **New** |
+| Calculator *input interface* (signature + how it reads inputs) | **Yes** — re-plumbed |
+| Calculator *math* and *output* (the RATE_SCHEMA panel) | **No** — preserved, parity-gated |
+
+The brittle prose-parsing in `03/04/05` is a real but **separate** concern; folding a
+parser rewrite into this migration would conflate two jobs and inflate parity risk.
+The adapter wraps the existing parser output as-is (`step 1` below).
+
 ## The core idea: a scenario is a synthetic future revision
 
 The repo's spine is already "on date *D*, the rate panel changes to *X*" — that
@@ -56,13 +106,22 @@ layered on the tip of the baseline panel and recomputed forward from its
 `effective_from` (dates before are reused baseline, untouched).
 
 **The tip is itself a time path, not a flat rate.** Current law as of any date
-already encodes scheduled future changes — `effective_date_offset` step-ins
-(`filter_active_ch99`, `06:714`), the s122 sunset, the Swiss-framework expiry
-(2026-03-31), the Annex III sunset (2027-12-31). The baseline already bends at
-these via the expiry split points in `09_daily_series.R` (`get_expiry_split_points`).
-A scenario therefore *composes* with a multi-interval scheduled path; it does not
-overlay a single carried-forward rate. This keeps baseline and counterfactual
-symmetric: all downstream derivations work unchanged.
+already encodes scheduled future changes — but they reach the timeline through
+**two different mechanisms today**, which the new engine must unify:
+
+- **Expiries** (s122 sunset, Swiss-framework expiry 2026-03-31) are split into
+  sub-intervals *after* the panel is built, by `get_expiry_split_points` /
+  `collect_expiry_adjustments` in `09_daily_series.R` (`09:46`).
+- **Activation offsets** (`effective_date_offset`) are handled *earlier and
+  differently* — `filter_active_ch99` (`06:714`) gates them per revision at calc
+  time. The expiry splitter does **not** create a sub-interval at a mid-interval
+  Ch99 activation offset.
+
+So the baseline path *is* multi-interval, but it is **not** one unified splitter
+today (an overstatement to avoid). A scenario must therefore *compose* with this
+scheduled path, and the synthetic-revision timeline must **explicitly collect every
+schedule boundary** into one splitter (see implementation requirements below). This
+keeps baseline and counterfactual symmetric: all downstream derivations work unchanged.
 
 ### Where the scenario injects: the parameter layer (not JSON, not the panel)
 
@@ -149,9 +208,16 @@ ieepa_fentanyl:
                                                     # `ieepa` group alias (recip + fentanyl together)
   programs:
     - id: fentanyl
-      product_scope: { include: all, exclude_file: resources/fentanyl_carveout_products.csv }
+      product_scope: { include: all }
       country_scope: { include: ['5700','1220','2010'] }   # CN/CA/MX; freely extendable
-      rate: { by_country: { '5700': 0.20, '1220': 0.25, '2010': 0.25 } }
+      rate:
+        by_country: { '5700': 0.20, '1220': 0.25, '2010': 0.25 }
+        product_overrides_file: resources/fentanyl_carveout_products.csv
+        # NOT an exclusion list — these are per-product LOWER/higher rates (e.g. potash
+        # +10%): the engine does coalesce(carveout_rate, fent_rate, 0) (`06:1195`).
+        # Modeling it as exclude_file would zero them and understate the rate.
+      # True exemptions (Ch98 9802.00.40/50/60/80) are separate — they zero the rate
+      # (`06:1230`) and belong in an exempt_file, not here.
 ```
 
 ### Field reference
@@ -190,7 +256,12 @@ will not reproduce:
 - **Floor-product exemptions** — `floor_exempt_products` zero the reciprocal rate
   for exempt HS8×country-group pairs. `06:997`.
 - **Ch98 fentanyl carve-out** — US Note 2(v)(i): the 9802.00.40/50/60/80 set zeros
-  `rate_ieepa_fent`. `06:1230`.
+  `rate_ieepa_fent`. `06:1230`. This is a *true exemption* (→ `exempt_file`).
+- **Fentanyl product carve-outs** — `fentanyl_carveout_products.csv` is a per-product
+  **rate-override** list (potash/energy at a *lower* rate), `coalesce(carveout_rate,
+  fent_rate, 0)` (`06:1195`) — **not** an exclusion. It belongs under `rate`
+  (`product_overrides_file`), never `exclude_file`. Two different file roles —
+  rate-override vs scope-exclusion — must stay distinct in the schema.
 - **Annex overrides** (April 2026) — `annex_1a/1b/2/3` rates with a guard that
   preserves separate heading-program rates (EU cars under 9903.94.51). `06:1982`.
 - **Auto rebate / US-content shares**, **subdivision-r blends**, **de-minimis** →
@@ -359,6 +430,38 @@ JSON archives ──parse(03/04/05)──▶ [AuthoritySpec × authorities]  ◀
 scenario layer's job becomes "apply operations to specs." Both hand the
 calculator the identical shape.
 
+## Implementation requirements surfaced in review
+
+Three things the schema implies but the current code does not yet support:
+
+1. **Per-revision spec persistence (for `base: <date>`).** `policy_params.yaml` is
+   *current-only* — it is not versioned as "what we knew on 2026-02-24" (IEEPA
+   invalidation date, s122 expiry, Swiss/Annex settings, horizon all live in the
+   single current file). A past pin would otherwise leak *today's* future knowledge
+   into a historical baseline. Requirement: each baseline revision **saves its
+   normalized `AuthoritySpec` + `adjustment_params`**; a pinned `base:` loads the
+   saved state at-or-before the pin; a scheduled future event continues only if it
+   was already encoded in that saved state. Without this, "past base" is reproducible
+   only by `git checkout`, not by scenario config.
+
+2. **A resolved-program intermediate table (before collapsing to `rate_*`).** The
+   output panel collapses 232 down to `rate_232` + `metal_share`, which is *not
+   enough* for a generic stacker: two rows can both have `rate_232 > 0` yet need
+   different stacking (steel owns only the metal-content fraction; autos/drones own
+   full customs value; semis/annex have special overlap rules). The stacker cannot
+   infer this from `rate_232` alone. Build an intermediate
+   `(hts10, country, authority, program_id, rate, stacking_class, metal_type,
+   usmca_treatment)` table at resolution time, then collapse to the `rate_*` columns
+   *after* stacking. This is what makes the `stacking.class` generalization (step 3)
+   actually reliable.
+
+3. **A unified timeline splitter.** The synthetic-revision builder must collect **all**
+   schedule boundaries into one splitter — `active.from` / `active.until`, policy
+   expiries (s122/Swiss/Annex), Ch99 `effective_date_offset` activations, scenario
+   `effective_from`, and the horizon — rather than relying on today's two separate
+   mechanisms (`filter_active_ch99` + `get_expiry_split_points`), which do not cover
+   mid-interval Ch99 activations.
+
 ## Migration plan (incremental, not a rewrite)
 
 Each step is independently shippable and leaves the panel output **within numeric
@@ -400,6 +503,27 @@ tolerance** (refactors reorder float ops, so byte-identity is the wrong bar).
 
 USMCA is the one authority left as-is: its `{Canada, Mexico}` scope is
 definitional, not a policy choice.
+
+### End-state (future, not part of the initial migration)
+
+Once steps 1–4 hold parity and per-revision spec persistence is in place, the
+**adapter and the bespoke `param-object-1` structs can be removed entirely**: the
+parser emits `AuthoritySpec` directly ("normalize JSON into specs"). This is a *fold*,
+not a deletion — the extraction logic moves into the parser rather than disappearing,
+so the performance win is modest (the saved cost is the reshape, not the parsing). The
+real wins are a single source of truth and removing the redundant re-extraction that
+`00_build_timeseries.R:233`, `09_daily_series.R:1156`, and `06` (internally) each do
+independently today. Why it is a *later* step, not the first one:
+
+- It must follow parity lock-in — emitting specs directly changes parsing, shape, and
+  the calculator interface at once, which is unbisectable if parity breaks.
+- All five build/read sites (`00`, `09`, `06`, `generate_etrs_config.R`) must migrate
+  together, consolidating the three independent pre-extractions into one.
+- The spec is assembled from JSON **plus** `policy_params.yaml`, so "parser emits spec"
+  is really "parser + config-merge emits spec"; some `object-1` fields (`has_232`,
+  `auto_has_deals`) are gating scratch and need triage, not a 1:1 copy.
+- It composes with per-revision persistence: the persisted spec then becomes the
+  canonical per-revision artifact, and `param-object-1` has no remaining consumer.
 
 ## Open questions
 
