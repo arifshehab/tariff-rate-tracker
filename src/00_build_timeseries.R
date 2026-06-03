@@ -63,6 +63,219 @@ source(here('src', '07_validate_tpc.R'))
 
 
 # =============================================================================
+# Per-revision unit
+# =============================================================================
+
+#' Build a single revision's rate snapshot (the unit of parallel work).
+#'
+#' Resolves the revision's JSON, parses it, extracts authority params, runs the
+#' calculator, and writes the *revision-scoped* artifacts: snapshot_<rev>.rds,
+#' ch99_<rev>.rds, products_<rev>.rds (+ validation_<rev>.rds if a tpc_date is
+#' present). It deliberately does NOT compute the cross-revision delta or write
+#' the shared data/processed/products_raw.csv — those depend on neighbouring
+#' revisions / are single-writer, so they live in the orchestration layer (the
+#' serial loop, or the array gather step). Errors propagate to the caller, which
+#' decides whether to isolate (serial loop) or fail the task (array).
+#'
+#' @return list(rates, ch99_data, products, snapshot_path, n_rates)
+build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
+                                    archive_dir = 'data/hts_archives',
+                                    output_dir = 'data/timeseries',
+                                    country_lookup, countries, census_codes,
+                                    pp_build,
+                                    stacking_method = 'mutual_exclusion',
+                                    tpc_path = NULL) {
+  # a. Resolve JSON path
+  json_path <- resolve_json_path(rev_id, archive_dir)
+
+  # b. Read raw JSON (needed for IEEPA/USMCA extraction)
+  hts_raw <- fromJSON(json_path, simplifyDataFrame = FALSE)
+
+  # c. Parse Chapter 99 entries
+  ch99_data <- parse_chapter99(json_path)
+
+  # d. Parse products
+  products <- parse_products(json_path)
+
+  # e. Extract IEEPA rates, fentanyl rates, Section 232 rates, and USMCA eligibility.
+  #    Pass eff_date so IEEPA & fentanyl extractors gate entries whose legal
+  #    effective date in their description is after this revision (mirrors
+  #    the filter_active_ch99() gate inside calculate_rates_for_revision).
+  ieepa_rates <- extract_ieepa_rates(hts_raw, country_lookup, effective_date = eff_date)
+  fentanyl_rates <- extract_ieepa_fentanyl_rates(hts_raw, country_lookup, effective_date = eff_date)
+  ch99_data_active <- filter_active_ch99(ch99_data, as.Date(eff_date))
+  s232_rates <- extract_section232_rates(ch99_data_active)
+  usmca <- extract_usmca_eligibility(hts_raw)
+
+  # g. Calculate rates for this revision
+  rates <- calculate_rates_for_revision(
+    products, ch99_data, ieepa_rates, usmca,
+    countries, rev_id, eff_date,
+    s232_rates = s232_rates,
+    fentanyl_rates = fentanyl_rates,
+    stacking_method = stacking_method,
+    policy_params = pp_build
+  )
+
+  # h. Save snapshot
+  snapshot_path <- file.path(output_dir, paste0('snapshot_', rev_id, '.rds'))
+  saveRDS(rates, snapshot_path)
+
+  # i. Cache parse results (for incremental + the array gather's delta step)
+  saveRDS(ch99_data, file.path(output_dir, paste0('ch99_', rev_id, '.rds')))
+  saveRDS(products, file.path(output_dir, paste0('products_', rev_id, '.rds')))
+
+  # j. TPC validation if this revision has a tpc_date
+  if (!is.na(tpc_date) && !is.null(tpc_path) && file.exists(tpc_path)) {
+    message('  Running TPC validation for date: ', tpc_date)
+    tryCatch({
+      validation <- validate_revision_against_tpc(
+        revision_rates = rates,
+        tpc_path = tpc_path,
+        tpc_date = tpc_date,
+        census_codes = census_codes
+      )
+      val_path <- file.path(output_dir, paste0('validation_', rev_id, '.rds'))
+      saveRDS(validation, val_path)
+      message('  TPC match rate: ', round(validation$match_rate * 100, 1), '%')
+    }, error = function(e) {
+      message('  TPC validation failed: ', conditionMessage(e))
+    })
+  }
+
+  # k. Log summary
+  if (nrow(rates) > 0) {
+    ieepa_summary <- rates %>%
+      filter(rate_ieepa_recip > 0) %>%
+      summarise(
+        n_countries = n_distinct(country),
+        mean_rate = mean(rate_ieepa_recip)
+      )
+    message('  IEEPA active in ', ieepa_summary$n_countries, ' countries, ',
+            'mean rate: ', round(ieepa_summary$mean_rate * 100, 1), '%')
+  }
+
+  list(rates = rates, ch99_data = ch99_data, products = products,
+       snapshot_path = snapshot_path, n_rates = nrow(rates))
+}
+
+
+#' Assemble per-revision snapshots into the combined timeseries.
+#'
+#' Binds every snapshot_<rev>.rds in `output_dir`, enforces the schema, adds the
+#' valid_from/valid_until intervals from revision ordering, and writes
+#' rate_timeseries.rds (+ parquet sibling) and metadata.rds. Shared by the serial
+#' build (build_full_timeseries) and the array gather step so both produce a
+#' byte-for-byte equivalent timeseries from the same snapshots.
+#'
+#' @param last_successful_rev metadata's last_revision; if NULL, derived from the
+#'   latest revision present in the snapshots (by effective_date).
+#' @return list(metadata, timeseries_path, output_dir)
+assemble_timeseries <- function(output_dir, rev_dates, pp_build,
+                                last_successful_rev = NULL, scenario = 'baseline') {
+  message('\n', strrep('=', 60))
+  message('Combining snapshots into time series...')
+
+  # Load all snapshot files (including pre-existing from incremental)
+  all_snapshot_files <- list.files(output_dir, pattern = '^snapshot_.*\\.rds$', full.names = TRUE)
+
+  # Use data.table::rbindlist instead of purrr::map_dfr — at full scale
+  # (~195M rows) map_dfr peaks at ~2x memory and OOMs around 10 GB. rbindlist
+  # binds in place and handles schema mismatches with fill = TRUE.
+  timeseries <- tibble::as_tibble(
+    data.table::rbindlist(
+      lapply(all_snapshot_files, function(f) {
+        tryCatch(readRDS(f), error = function(e) {
+          warning('Failed to read snapshot: ', f, ' -- ', e$message)
+          NULL
+        })
+      }),
+      fill = TRUE
+    )
+  )
+
+  # Enforce schema consistency (old snapshots may lack newer columns)
+  timeseries <- enforce_rate_schema(timeseries)
+
+  # Sort by effective_date, then revision
+  timeseries <- timeseries %>%
+    arrange(effective_date, revision, country, hts10)
+
+  # Add temporal intervals (valid_from / valid_until) from revision ordering
+  # Final revision extends to configurable horizon (default: 2026-12-31), not Sys.Date()
+  horizon_end <- pp_build$SERIES_HORIZON_END %||% Sys.Date()
+  # Guard: horizon cannot be earlier than the final revision's effective_date
+  last_eff <- max(rev_dates$effective_date[rev_dates$revision %in% unique(timeseries$revision)])
+  if (horizon_end < last_eff) {
+    warning('series_horizon.end_date (', horizon_end,
+            ') is earlier than last revision (', last_eff, '). Using last revision date.')
+    horizon_end <- last_eff
+  }
+
+  rev_intervals <- rev_dates %>%
+    filter(revision %in% unique(timeseries$revision)) %>%
+    arrange(effective_date) %>%
+    mutate(
+      valid_from = effective_date,
+      valid_until = lead(effective_date) - 1
+    ) %>%
+    mutate(valid_until = if_else(is.na(valid_until), horizon_end, valid_until)) %>%
+    select(revision, valid_from, valid_until)
+
+  timeseries <- timeseries %>%
+    select(-any_of(c('valid_from', 'valid_until'))) %>%
+    left_join(rev_intervals, by = 'revision')
+
+  message('  Added interval columns: valid_from / valid_until')
+
+  if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+  ts_path <- file.path(output_dir, 'rate_timeseries.rds')
+  saveRDS(timeseries, ts_path)
+  message('Saved time series: ', ts_path)
+  message('  Total rows: ', nrow(timeseries))
+  message('  Revisions: ', n_distinct(timeseries$revision))
+  if (nrow(timeseries) > 0) {
+    message('  Date range: ', min(timeseries$effective_date), ' to ', max(timeseries$effective_date))
+  } else {
+    warning('Timeseries is empty — all revisions may have failed')
+  }
+
+  # Parquet sibling for cross-language consumers (skipped silently when
+  # arrow isn't installed). The full panel at production scale is ~195M rows
+  # in RDS at ~200 MB; zstd-compressed parquet is typically 30-60 MB.
+  parquet_path <- write_parquet_if_arrow(timeseries, ts_path)
+  if (!is.null(parquet_path)) {
+    message('Saved parquet sibling: ', parquet_path)
+  }
+
+  # Derive last_revision from the snapshots when the caller doesn't track it
+  # (e.g. the array gather step, which has no in-loop last_successful_rev).
+  if (is.null(last_successful_rev)) {
+    present <- rev_dates %>%
+      filter(revision %in% unique(timeseries$revision)) %>%
+      arrange(effective_date)
+    last_successful_rev <- if (nrow(present) > 0) present$revision[nrow(present)] else NA_character_
+  }
+
+  # ---- Save metadata ----
+  metadata <- list(
+    last_revision = last_successful_rev,
+    last_build_time = Sys.time(),
+    n_revisions = n_distinct(timeseries$revision),
+    n_rows = nrow(timeseries),
+    scenario = scenario
+  )
+  saveRDS(metadata, file.path(output_dir, 'metadata.rds'))
+
+  return(list(
+    metadata = metadata,
+    timeseries_path = ts_path,
+    output_dir = output_dir
+  ))
+}
+
+
+# =============================================================================
 # Main Orchestrator
 # =============================================================================
 
@@ -214,29 +427,19 @@ build_full_timeseries <- function(
              ' (', eff_date, ')')
 
     tryCatch({
-      # a. Resolve JSON path
-      json_path <- resolve_json_path(rev_id, archive_dir)
+      # Build this revision's snapshot (parse -> extract -> calc -> save).
+      res <- build_revision_snapshot(
+        rev_id = rev_id, eff_date = eff_date, tpc_date = tpc_date,
+        archive_dir = archive_dir, output_dir = output_dir,
+        country_lookup = country_lookup, countries = countries,
+        census_codes = census_codes, pp_build = pp_build,
+        stacking_method = stacking_method, tpc_path = tpc_path
+      )
+      ch99_data <- res$ch99_data
+      products  <- res$products
 
-      # b. Read raw JSON (needed for IEEPA/USMCA extraction)
-      hts_raw <- fromJSON(json_path, simplifyDataFrame = FALSE)
-
-      # c. Parse Chapter 99 entries
-      ch99_data <- parse_chapter99(json_path)
-
-      # d. Parse products
-      products <- parse_products(json_path)
-
-      # e. Extract IEEPA rates, fentanyl rates, Section 232 rates, and USMCA eligibility.
-      #    Pass eff_date so IEEPA & fentanyl extractors gate entries whose legal
-      #    effective date in their description is after this revision (mirrors
-      #    the filter_active_ch99() gate inside calculate_rates_for_revision).
-      ieepa_rates <- extract_ieepa_rates(hts_raw, country_lookup, effective_date = eff_date)
-      fentanyl_rates <- extract_ieepa_fentanyl_rates(hts_raw, country_lookup, effective_date = eff_date)
-      ch99_data_active <- filter_active_ch99(ch99_data, as.Date(eff_date))
-      s232_rates <- extract_section232_rates(ch99_data_active)
-      usmca <- extract_usmca_eligibility(hts_raw)
-
-      # f. Compute delta from previous revision
+      # f. Compute delta from previous revision (serial-only: needs the prior
+      #    revision's parse in memory; the array path computes deltas in gather).
       if (!is.null(prev_ch99)) {
         delta <- list(
           ch99 = compare_chapter99(prev_ch99, ch99_data),
@@ -250,24 +453,7 @@ build_full_timeseries <- function(
                 delta$ch99$n_rate_changes, ' rate changes')
       }
 
-      # g. Calculate rates for this revision
-      rates <- calculate_rates_for_revision(
-        products, ch99_data, ieepa_rates, usmca,
-        countries, rev_id, eff_date,
-        s232_rates = s232_rates,
-        fentanyl_rates = fentanyl_rates,
-        stacking_method = stacking_method,
-        policy_params = pp_build
-      )
-
-      # h. Save snapshot
-      snapshot_path <- file.path(output_dir, paste0('snapshot_', rev_id, '.rds'))
-      saveRDS(rates, snapshot_path)
-      snapshot_paths <- c(snapshot_paths, snapshot_path)
-
-      # i. Cache parse results (for incremental)
-      saveRDS(ch99_data, file.path(output_dir, paste0('ch99_', rev_id, '.rds')))
-      saveRDS(products, file.path(output_dir, paste0('products_', rev_id, '.rds')))
+      snapshot_paths <- c(snapshot_paths, res$snapshot_path)
 
       # Flat CSV consumed by run_weighted_etr (08_weighted_etr.R) and the
       # tariff-rate-tracker-blog repo. Loop iterates oldest -> newest, so the
@@ -282,42 +468,12 @@ build_full_timeseries <- function(
                n_ch99_refs, description) %>%
         write_csv('data/processed/products_raw.csv')
 
-      # j. TPC validation if this revision has a tpc_date
-      if (!is.na(tpc_date) && file.exists(tpc_path)) {
-        message('  Running TPC validation for date: ', tpc_date)
-        tryCatch({
-          validation <- validate_revision_against_tpc(
-            revision_rates = rates,
-            tpc_path = tpc_path,
-            tpc_date = tpc_date,
-            census_codes = census_codes
-          )
-          val_path <- file.path(output_dir, paste0('validation_', rev_id, '.rds'))
-          saveRDS(validation, val_path)
-          message('  TPC match rate: ', round(validation$match_rate * 100, 1), '%')
-        }, error = function(e) {
-          message('  TPC validation failed: ', conditionMessage(e))
-        })
-      }
-
-      # k. Log summary
-      if (nrow(rates) > 0) {
-        ieepa_summary <- rates %>%
-          filter(rate_ieepa_recip > 0) %>%
-          summarise(
-            n_countries = n_distinct(country),
-            mean_rate = mean(rate_ieepa_recip)
-          )
-        message('  IEEPA active in ', ieepa_summary$n_countries, ' countries, ',
-                'mean rate: ', round(ieepa_summary$mean_rate * 100, 1), '%')
-      }
-
       # l. Update previous state
       prev_ch99 <- ch99_data
       prev_products <- products
 
       last_successful_rev <- rev_id
-      log_info('  OK: ', nrow(rates), ' product-country rates')
+      log_info('  OK: ', res$n_rates, ' product-country rates')
 
     }, error = function(e) {
       log_error('FAILED: ', rev_id, ' — ', conditionMessage(e))
@@ -336,91 +492,10 @@ build_full_timeseries <- function(
             paste(failed_revisions, collapse = ', '))
   }
 
-  # ---- Bind all snapshots ----
-  message('\n', strrep('=', 60))
-  message('Combining snapshots into time series...')
-
-  # Load all snapshot files (including pre-existing from incremental)
-  all_snapshot_files <- list.files(output_dir, pattern = '^snapshot_.*\\.rds$', full.names = TRUE)
-
-  # Use data.table::rbindlist instead of purrr::map_dfr — at full scale
-  # (~195M rows) map_dfr peaks at ~2x memory and OOMs around 10 GB. rbindlist
-  # binds in place and handles schema mismatches with fill = TRUE.
-  timeseries <- tibble::as_tibble(
-    data.table::rbindlist(
-      lapply(all_snapshot_files, function(f) {
-        tryCatch(readRDS(f), error = function(e) {
-          warning('Failed to read snapshot: ', f, ' -- ', e$message)
-          NULL
-        })
-      }),
-      fill = TRUE
-    )
-  )
-
-  # Enforce schema consistency (old snapshots may lack newer columns)
-  timeseries <- enforce_rate_schema(timeseries)
-
-  # Sort by effective_date, then revision
-  timeseries <- timeseries %>%
-    arrange(effective_date, revision, country, hts10)
-
-  # Add temporal intervals (valid_from / valid_until) from revision ordering
-  # Final revision extends to configurable horizon (default: 2026-12-31), not Sys.Date()
-  horizon_end <- pp_build$SERIES_HORIZON_END %||% Sys.Date()
-  # Guard: horizon cannot be earlier than the final revision's effective_date
-  last_eff <- max(rev_dates$effective_date[rev_dates$revision %in% unique(timeseries$revision)])
-  if (horizon_end < last_eff) {
-    warning('series_horizon.end_date (', horizon_end,
-            ') is earlier than last revision (', last_eff, '). Using last revision date.')
-    horizon_end <- last_eff
-  }
-
-  rev_intervals <- rev_dates %>%
-    filter(revision %in% unique(timeseries$revision)) %>%
-    arrange(effective_date) %>%
-    mutate(
-      valid_from = effective_date,
-      valid_until = lead(effective_date) - 1
-    ) %>%
-    mutate(valid_until = if_else(is.na(valid_until), horizon_end, valid_until)) %>%
-    select(revision, valid_from, valid_until)
-
-  timeseries <- timeseries %>%
-    select(-any_of(c('valid_from', 'valid_until'))) %>%
-    left_join(rev_intervals, by = 'revision')
-
-  message('  Added interval columns: valid_from / valid_until')
-
-  if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
-  ts_path <- file.path(output_dir, 'rate_timeseries.rds')
-  saveRDS(timeseries, ts_path)
-  message('Saved time series: ', ts_path)
-  message('  Total rows: ', nrow(timeseries))
-  message('  Revisions: ', n_distinct(timeseries$revision))
-  if (nrow(timeseries) > 0) {
-    message('  Date range: ', min(timeseries$effective_date), ' to ', max(timeseries$effective_date))
-  } else {
-    warning('Timeseries is empty — all revisions may have failed')
-  }
-
-  # Parquet sibling for cross-language consumers (skipped silently when
-  # arrow isn't installed). The full panel at production scale is ~195M rows
-  # in RDS at ~200 MB; zstd-compressed parquet is typically 30-60 MB.
-  parquet_path <- write_parquet_if_arrow(timeseries, ts_path)
-  if (!is.null(parquet_path)) {
-    message('Saved parquet sibling: ', parquet_path)
-  }
-
-  # ---- Save metadata ----
-  metadata <- list(
-    last_revision = last_successful_rev,
-    last_build_time = Sys.time(),
-    n_revisions = n_distinct(timeseries$revision),
-    n_rows = nrow(timeseries),
-    scenario = scenario
-  )
-  saveRDS(metadata, file.path(output_dir, 'metadata.rds'))
+  # ---- Bind snapshots -> timeseries (+ intervals, parquet, metadata) ----
+  result <- assemble_timeseries(output_dir, rev_dates, pp_build,
+                                last_successful_rev = last_successful_rev,
+                                scenario = scenario)
 
   # ---- Summary ----
   end_time <- Sys.time()
@@ -431,14 +506,10 @@ build_full_timeseries <- function(
   message(strrep('=', 70))
   message('Elapsed: ', elapsed, ' minutes')
   message('Revisions processed: ', length(revisions_to_process))
-  message('Output: ', ts_path)
+  message('Output: ', result$timeseries_path)
   message(strrep('=', 70), '\n')
 
-  return(list(
-    metadata = metadata,
-    timeseries_path = ts_path,
-    output_dir = output_dir
-  ))
+  return(result)
 }
 
 

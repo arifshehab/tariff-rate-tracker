@@ -456,16 +456,54 @@ alt_runner <- function(alt_specs, alt_workers = 1L, log_dir = NULL,
 # Phase 3 stub
 # -----------------------------------------------------------------------------
 
-#' (Stub) Per-revision parallelism for the main build
+#' Per-revision parallelism for within-node builds.
 #'
-#' Phase 3 will replace the body. For now this is a serial lapply so that
-#' code added at Phase 0/1 can already call through this seam without
-#' branching on backend availability. Calling with workers > 1 emits a
-#' one-line notice and runs serially.
-parallel_lapply_revisions <- function(rev_ids, fn, workers = 1L, ...) {
-  if (workers > 1L) {
-    message('parallel_lapply_revisions: per-revision parallelism is a Phase 3 ',
-            'feature; running serially for this build.')
+#' Applies `fn` to each revision id, concurrently when `workers > 1` and a
+#' future backend is available, serially otherwise (byte-identical to a plain
+#' lapply). Revisions are independent, so this is a clean fan-out.
+#'
+#' Backend note: on Linux we prefer `multicore` (fork) — forked workers inherit
+#' the parent's already-sourced pipeline, so `fn` (e.g. build_revision_snapshot)
+#' and all its helpers are available with no globals export. `multisession`
+#' (PSOCK) workers do NOT inherit the pipeline and would need to re-source it;
+#' for the full cluster build prefer the Slurm **array** path
+#' (scripts/submit_build_array.sh), which runs each revision as its own process
+#' that sources the pipeline itself and sidesteps the single-node memory ceiling.
+#'
+#' @param rev_ids character vector of revision ids
+#' @param fn function(rev_id, ...) -> result; side-effects (snapshot writes) are fine
+#' @param workers integer worker cap (1 = serial)
+#' @param backend 'multicore' (Linux fork, default) or 'multisession'
+#' @return list of fn() results, one per rev_id (order preserved)
+parallel_lapply_revisions <- function(rev_ids, fn, workers = 1L,
+                                      backend = 'multicore', ...) {
+  workers <- max(1L, as.integer(workers))
+  if (workers <= 1L || !parallel_backend_available()) {
+    if (workers > 1L) {
+      message('parallel_lapply_revisions: future/future.apply not installed; ',
+              'running ', length(rev_ids), ' revisions serially.')
+    }
+    return(lapply(rev_ids, function(r) fn(r, ...)))
   }
-  lapply(rev_ids, function(r) fn(r, ...))
+
+  use_fork <- backend == 'multicore' && .Platform$OS.type == 'unix'
+  if (!use_fork) {
+    message('parallel_lapply_revisions: multisession workers do not inherit the ',
+            'sourced pipeline; prefer --backend multicore (Linux) or the Slurm array.')
+  }
+  plan_fn <- if (use_fork) future::multicore else future::multisession
+  old_plan <- future::plan(plan_fn, workers = workers)
+  on.exit(future::plan(old_plan), add = TRUE)
+
+  message(sprintf('parallel_lapply_revisions: %d revisions across %d %s worker(s)...',
+                  length(rev_ids), workers, if (use_fork) 'fork' else 'PSOCK'))
+  future.apply::future_lapply(
+    rev_ids,
+    function(r) {
+      # Keep each worker single-threaded so concurrent workers don't oversubscribe.
+      Sys.setenv(OPENBLAS_NUM_THREADS = '1', OMP_NUM_THREADS = '1', MKL_NUM_THREADS = '1')
+      fn(r, ...)
+    },
+    future.seed = TRUE
+  )
 }

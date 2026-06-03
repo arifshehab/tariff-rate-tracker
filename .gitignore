@@ -13,9 +13,11 @@ config/.chapter99_pending
 
 # Data files (large)
 data/hts_archives/*.json
+data/hts_archives/*.json.gz
 data/hts_archives/_archive/
 data/processed/
 data/timeseries/
+data/timeseries_parallel/
 data/tpc/*.csv
 data/tpc/*.png
 data/us_notes/*.pdf

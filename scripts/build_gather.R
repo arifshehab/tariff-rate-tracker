@@ -1,0 +1,111 @@
+#!/usr/bin/env Rscript
+# =============================================================================
+# build_gather.R — gather step for the array build
+# =============================================================================
+#
+# Run AFTER all array tasks (scripts/build_revision.R) have written their
+# snapshot_<rev>.rds + ch99_/products_ caches. Does the cross-revision work the
+# per-revision tasks deliberately skip, then the downstream:
+#   1. deltas        — compare consecutive cached parses -> delta_<rev>.rds
+#   2. products_raw  — data/processed/products_raw.csv from the latest revision
+#                      (matches the serial loop's "last write wins")
+#   3. assemble      — bind snapshots -> rate_timeseries.rds (+ parquet, metadata)
+#   4. downstream    — daily series, weighted ETR, quality report
+#
+# Mirrors the serial build's post-loop + downstream so the array build's outputs
+# match a serial build within parity tolerance.
+#
+# Usage:
+#   Rscript scripts/build_gather.R [--unweighted] [--use-hts-dates]
+# =============================================================================
+
+suppressPackageStartupMessages({
+  library(here)
+  library(tidyverse)
+  library(jsonlite)
+})
+suppressMessages({
+  source(here('src', '00_build_timeseries.R'))   # build helpers + assemble_timeseries()
+  source(here('src', 'revisions.R'))
+  source(here('src', 'policy_params.R'))
+  source(here('src', '09_daily_series.R'))
+  source(here('src', '08_weighted_etr.R'))
+  source(here('src', 'quality_report.R'))
+  source(here('src', 'build_import_weights.R'))
+})
+
+args <- commandArgs(trailingOnly = TRUE)
+use_policy_dates <- !('--use-hts-dates' %in% args)
+unweighted <- '--unweighted' %in% args
+output_dir <- here('data', 'timeseries')
+
+init_logging(
+  log_file = file.path(ensure_dir(here('output', 'logs')),
+                       paste0('gather_', format(Sys.time(), '%Y%m%d_%H%M%S'), '.log')),
+  level = 'info'
+)
+
+rev_dates <- load_revision_dates(use_policy_dates = use_policy_dates)
+pp <- load_policy_params(use_policy_dates = use_policy_dates)
+
+# Ordered list of revisions that actually have a snapshot on disk.
+all_revs <- rev_dates$revision
+have_snap <- file.exists(file.path(output_dir, paste0('snapshot_', all_revs, '.rds')))
+ordered <- rev_dates %>%
+  filter(revision %in% all_revs[have_snap]) %>%
+  arrange(effective_date) %>%
+  pull(revision)
+if (length(ordered) == 0) stop('No snapshots found in ', output_dir, ' — run the array build first.')
+message('Gathering ', length(ordered), ' revisions: ', ordered[1], ' .. ', ordered[length(ordered)])
+
+# ---- 1. Deltas from cached parses (consecutive revisions) ----
+message('Computing deltas from cached parses...')
+prev_ch99 <- NULL; prev_products <- NULL
+for (rev_id in ordered) {
+  ch99_p <- file.path(output_dir, paste0('ch99_', rev_id, '.rds'))
+  prod_p <- file.path(output_dir, paste0('products_', rev_id, '.rds'))
+  if (!file.exists(ch99_p) || !file.exists(prod_p)) {
+    warning('missing parse cache for ', rev_id, ' — skipping its delta'); next
+  }
+  ch99_data <- readRDS(ch99_p); products <- readRDS(prod_p)
+  if (!is.null(prev_ch99)) {
+    delta <- list(
+      ch99 = compare_chapter99(prev_ch99, ch99_data),
+      products = compare_products(prev_products, products)
+    )
+    saveRDS(delta, file.path(output_dir, paste0('delta_', rev_id, '.rds')))
+  }
+  prev_ch99 <- ch99_data; prev_products <- products
+}
+
+# ---- 2. products_raw.csv from the latest revision (serial "last write wins") ----
+last_rev <- ordered[length(ordered)]
+products_last <- readRDS(file.path(output_dir, paste0('products_', last_rev, '.rds')))
+dir.create(here('data', 'processed'), recursive = TRUE, showWarnings = FALSE)
+products_last %>%
+  mutate(ch99_refs = vapply(ch99_refs, paste, FUN.VALUE = character(1), collapse = ';')) %>%
+  select(hts10, base_rate, base_rate_raw, ch99_refs, n_ch99_refs, description) %>%
+  write_csv(here('data', 'processed', 'products_raw.csv'))
+
+# ---- 3. Assemble timeseries ----
+result <- assemble_timeseries(output_dir, rev_dates, pp, scenario = 'baseline')
+
+# ---- 4. Downstream (mirrors 00_build_timeseries.R main block) ----
+ts <- readRDS(result$timeseries_path)
+if (unweighted) {
+  tryCatch(run_daily_series(ts, imports = NULL, policy_params = pp),
+           error = function(e) message('Daily series failed: ', conditionMessage(e)))
+  tryCatch(run_quality_report(result$timeseries_path),
+           error = function(e) message('Quality report failed: ', conditionMessage(e)))
+} else {
+  ensure_import_weights()
+  imports <- load_import_weights()
+  tryCatch(run_daily_series(ts, imports = imports, policy_params = pp),
+           error = function(e) message('Daily series failed: ', conditionMessage(e)))
+  tryCatch(run_weighted_etr(ts, policy_params = pp),
+           error = function(e) message('Weighted ETR failed: ', conditionMessage(e)))
+  tryCatch(run_quality_report(ts = ts, timeseries_path = result$timeseries_path),
+           error = function(e) message('Quality report failed: ', conditionMessage(e)))
+}
+
+message('Gather complete: ', result$timeseries_path)
