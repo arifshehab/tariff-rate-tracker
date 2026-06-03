@@ -1983,11 +1983,18 @@ calculate_rates_for_revision <- function(
       annex_pattern_map <- annex_map %>%
         mutate(pattern = paste0('^', hts_prefix)) %>%
         arrange(desc(nchar(hts_prefix)))
-      rates$s232_annex <- NA_character_
+      # Classify on the DISTINCT hts10 codes (~19.8K) then join back, instead of
+      # scanning all ~954 prefixes over the full product x country panel (~4.76M
+      # rows = 240x redundant — annex membership depends only on hts10). Same
+      # loop, same longest-prefix-first first-match-wins order, ~240x fewer rows;
+      # provably identical. (Was ~7 min on annex-era revisions; now seconds.)
+      annex_keys <- data.frame(hts10 = unique(rates$hts10), stringsAsFactors = FALSE)
+      annex_keys$s232_annex <- NA_character_
       for (i in seq_len(nrow(annex_pattern_map))) {
-        mask <- grepl(annex_pattern_map$pattern[i], rates$hts10)
-        rates$s232_annex[mask & is.na(rates$s232_annex)] <- annex_pattern_map$s232_annex[i]
+        mask <- grepl(annex_pattern_map$pattern[i], annex_keys$hts10)
+        annex_keys$s232_annex[mask & is.na(annex_keys$s232_annex)] <- annex_pattern_map$s232_annex[i]
       }
+      rates$s232_annex <- annex_keys$s232_annex[match(rates$hts10, annex_keys$hts10)]
 
       # Infer annex for products not matched by the prefix CSV.
       # Primary chapters (72/73/76/74) → annex_1a unconditionally: the proclamation
