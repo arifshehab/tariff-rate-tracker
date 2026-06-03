@@ -1,6 +1,25 @@
 # AuthoritySpec — a unified authority parameter schema for counterfactual scenarios
 
-**Status:** design proposal · **Date:** 2026-06-03
+**Status:** design proposal (revised) · **Date:** 2026-06-03
+
+> **Resolved design decisions** (see also the review that produced them):
+> 1. Supports all four scenario kinds — disable, rate bump/floor, **re-scope to new
+>    countries**, and **add new coverage**. The last two require recompute, not panel edits.
+> 2. A scenario is a **synthetic future revision**; only intervals at/after its
+>    `effective_from` are recomputed (dates before are reused baseline unchanged).
+> 3. **Statutory scope only.** ETR adjustment knobs (USMCA utilization, auto rebate,
+>    metal-content method, subdivision-r, de-minimis) live in a separate
+>    `adjustment_params` dimension. A scenario = `{policy} × {assumptions}`.
+> 4. Migration parity is **numeric tolerance**, not byte-identical.
+> 5. Scenario files use **Census codes** (validated; fail loud on unknown), with
+>    group aliases (`ieepa`, `swiss`, `eu27`) resolved to code sets.
+> 6. **Current law is a time path** (it embeds scheduled future changes). Baseline
+>    defaults to **current-law**; **current-policy** is a canned scenario that cancels
+>    scheduled expiries. A past `base:` keeps changes scheduled as of the pin and
+>    suppresses only newly-enacted post-pin revisions.
+> 7. IEEPA invalidation stays a per-authority `until`, with an `ieepa` group alias so
+>    one operation flips reciprocal + fentanyl together.
+> 8. Authored 232 programs that overlap existing coverage resolve **highest-rate-wins**.
 
 ## Motivation
 
@@ -33,9 +52,17 @@ than computed specially.
 
 A presidential announcement effective end of July is functionally **a revision
 that USITC has not published yet.** So a scenario is a *hypothetical revision*
-layered on the tip of the baseline panel (the latest revision, carried forward
-to `series_horizon`). This keeps baseline and counterfactual symmetric: all
-downstream derivations work unchanged.
+layered on the tip of the baseline panel and recomputed forward from its
+`effective_from` (dates before are reused baseline, untouched).
+
+**The tip is itself a time path, not a flat rate.** Current law as of any date
+already encodes scheduled future changes — `effective_date_offset` step-ins
+(`filter_active_ch99`, `06:714`), the s122 sunset, the Swiss-framework expiry
+(2026-03-31), the Annex III sunset (2027-12-31). The baseline already bends at
+these via the expiry split points in `09_daily_series.R` (`get_expiry_split_points`).
+A scenario therefore *composes* with a multi-interval scheduled path; it does not
+overlay a single carried-forward rate. This keeps baseline and counterfactual
+symmetric: all downstream derivations work unchanged.
 
 ### Where the scenario injects: the parameter layer (not JSON, not the panel)
 
@@ -70,7 +97,7 @@ authorities (301, s122, s201) are an authority with exactly one program.
 ```yaml
 section_232:
   stacking:
-    class: primary_metal          # owns metal content (see "stacking classes")
+    class: primary_metal          # default; overridable per program (autos use primary_full)
   usmca_treatment: per_program    # 232 varies by program; others set it here
   active: { from: 2025-03-12, until: null }   # null = open-ended
   programs:
@@ -79,7 +106,7 @@ section_232:
       country_scope: { include: all, exclude: [] }    # country exemptions here
       rate:
         default: 0.50
-        by_country: { uk: 0.25 }                      # deals / overrides
+        overrides: { '4120': 0.25 }                   # UK deal — plain SET (not a floor)
       metal: { type: steel, content: full }           # 232-only block
       active: { from: 2025-03-12 }
     - id: autos_passenger
@@ -87,8 +114,10 @@ section_232:
       country_scope: { include: all }
       rate:
         default: 0.25
-        floors: { eu: 0.15, japan: 0.15 }             # target_total: cap all-in at value
-      usmca_treatment: content_scaled                 # auto content-share scaling
+        target_total: { eu27: 0.15, '5880': 0.15 }    # all-in FLOOR: max(value-base,0); JP=5880
+      usmca_treatment: eligible                        # statutory eligibility only;
+                                                       # content-share scaling → adjustment_params
+      stacking: { class: primary_full }                # full customs value, not metal-content split
       metal: { type: none }
       active: { from: 2025-04-03 }
 ```
@@ -104,7 +133,7 @@ section_301:
   programs:
     - id: s301
       product_scope: { list_file: resources/s301_product_lists.csv }
-      country_scope: { include: [china] }     # was `if (country == cty_china)`
+      country_scope: { include: ['5700'] }    # China; was `if (country == cty_china)`
       rate: { by_product_tier: from_list }    # 7.5% / 25% carried by the list file
 ```
 
@@ -116,12 +145,13 @@ ieepa_fentanyl:
     class: content_split            # scaled by nonmetal_share on 232 products...
     exceptions: { china: additive } # ...except China, which passes through full
   usmca_treatment: exempt
-  active: { from: 2025-02-04, until: 2026-02-24 }   # IEEPA invalidation = the `until`
+  active: { from: 2025-02-04, until: 2026-02-24 }   # IEEPA invalidation; flip via the
+                                                    # `ieepa` group alias (recip + fentanyl together)
   programs:
     - id: fentanyl
       product_scope: { include: all, exclude_file: resources/fentanyl_carveout_products.csv }
-      country_scope: { include: [china, canada, mexico] }   # freely extendable
-      rate: { by_country: { china: 0.20, canada: 0.25, mexico: 0.25 } }
+      country_scope: { include: ['5700','1220','2010'] }   # CN/CA/MX; freely extendable
+      rate: { by_country: { '5700': 0.20, '1220': 0.25, '2010': 0.25 } }
 ```
 
 ### Field reference
@@ -131,12 +161,12 @@ Every field maps to something the current engine already does — this is a
 
 | Field | Purpose | Where it lives today |
 |---|---|---|
-| `stacking.class` | `primary_metal` (232, owns metal value) / `content_split` (scaled by `nonmetal_share` on 232 products — IEEPA recip, s122, CA-MX fentanyl) / `additive` (full rate always — 301, s201, other, China fentanyl) | the `case_when` branches in `src/stacking.R` |
+| `stacking.class` | `primary_metal` (232, owns the metal-content fraction — **requires a real `metal.type`**) / `primary_full` (232 owns the **full** customs value, IEEPA excluded — for non-metal 232 like autos/drones; no metal block) / `content_split` (scaled by `nonmetal_share` on 232 products — IEEPA recip, s122, CA-MX fentanyl) / `additive` (full rate always — 301, s201, other, China fentanyl) | the `case_when` branches in `src/stacking.R` |
 | `stacking.exceptions` | per-country-group override of the class — captures "China fentanyl is additive while others content-split" **as data, not a branch** | hardcoded `country == cty_china` in the fentanyl branch |
 | `country_scope` | `{include: all \| [list], exclude: [list/file]}` — the set membership the engine iterates (`country %in% scope`) | hardcoded for 301/fentanyl; parsed-as-data for 232/IEEPA |
 | `product_scope` | `{chapters \| prefixes \| prefixes_file \| list_file, exclude_file}` | `section_232_headings`, resource CSVs |
-| `rate` | `{default, by_country, floors (target_total), by_product_tier}` | scattered: `s232_rates`, `section_301_rates`, ch99 extraction |
-| `usmca_treatment` | `exempt` / `content_scaled` / `none` | the `*_usmca_exception` flags + per-program `usmca_exempt` |
+| `rate` | `{default, by_country, overrides, target_total, by_product_tier}` — **three distinct mechanisms**: `overrides` is a plain SET; `target_total` is an all-in FLOOR `max(value−base,0)` (the deal mechanism, recomputed after MFN/base edits); and the IEEPA surcharge-vs-floor switch is a fourth, country-group case | scattered: `s232_rates`, `section_301_rates`, deal floors (`06:1745`), surcharge/floor switch (`06:934`), ch99 extraction |
+| `usmca_treatment` | statutory **eligibility metadata only**: `exempt` / `eligible` / `none`. The utilization *math* (per-product shares; scaling of base + recip + fent + s122; auto/MHD content scaling) is **not** here — it lives in `adjustment_params` | `*_usmca_exception` flags + per-program `usmca_exempt` (eligibility); utilization at `06:2522-2646` |
 | `active.{from,until}` | activation window — **what a synthetic revision sets**; `until` also models IEEPA invalidation | `effective_date`, heading gates, `IEEPA_INVALIDATION_DATE` |
 | `metal` (232-only) | `{type: steel\|aluminum\|copper\|none, content: full\|share}` → drives `metal_share`/`nonmetal_share` | `deriv_type`, `metal_content`, `s232_annex` |
 
@@ -144,6 +174,28 @@ What disappears into fields: the **heading gate**
 (`grepl('9903.94...', ch99_code)`) becomes `active.from`; the **China `if`**
 becomes `country_scope`; the **`*_usmca_exception` flags** become
 `usmca_treatment`. Each hardcoded thing becomes data.
+
+### Baseline semantics the field list must still absorb
+
+The table above is necessary but **not sufficient** for parity. The live
+calculator carries behavior the current draft drops; each must land either as an
+explicit field or as an explicit pointer into `adjustment_params`, or baseline
+will not reproduce:
+
+- **IEEPA phase precedence** — Phase 1 / Phase 2 / country-EO entries stack across
+  phases but not within; within a phase the country entry supersedes the group and
+  the highest wins (Brazil 10%+40%=50%, Tunisia max(15%,25%)=25%). `06:856-874`.
+- **Country-EO exemptions vs Annex A** — country EOs (Brazil 9903.01.77 …) must
+  bypass the universal Annex A or they are wrongly suppressed. `06:801`.
+- **Floor-product exemptions** — `floor_exempt_products` zero the reciprocal rate
+  for exempt HS8×country-group pairs. `06:997`.
+- **Ch98 fentanyl carve-out** — US Note 2(v)(i): the 9802.00.40/50/60/80 set zeros
+  `rate_ieepa_fent`. `06:1230`.
+- **Annex overrides** (April 2026) — `annex_1a/1b/2/3` rates with a guard that
+  preserves separate heading-program rates (EU cars under 9903.94.51). `06:1982`.
+- **Auto rebate / US-content shares**, **subdivision-r blends**, **de-minimis** →
+  `adjustment_params` (these are modeling assumptions, not statute).
+- **Section 201** — `rate_section_201` is a live authority column the draft ignores.
 
 ### Value-configured vs. structure-configured
 
@@ -158,47 +210,88 @@ Section 232 is already structure-configured for country scope (it parses exempt
 lists and country-specific deals from the Ch99 descriptions). 301 and fentanyl
 are only value-configured. **The work is promoting them all to the 232 shape.**
 
+### Section 232 program overlap and precedence
+
+A product can match more than one 232 program, so `programs` needs a first-class
+resolution rule — the easy "232 on drones" case is easy only because it overlaps
+nothing. Baseline behavior to preserve, and the authoring default:
+
+- **Highest rate wins** when a product is in multiple heading programs (`06:1429`,
+  `max(heading_232_rate)`). This is also the default for authored/scenario programs.
+- **Semi-exclusion** — semiconductor articles are stripped from auto/copper/steel
+  lists so only the 25% semi rate applies (Note 39(a); `06:1386`).
+- **Blanket chapters over heading lists** — chapter-level steel/aluminum take
+  precedence over heading-program membership.
+- **Annex-override guard** — the annex catch-all must not wipe a product's separate
+  heading-program rate (`06:1982`, `heading_program_products`).
+- For an overlapped product, the **winning program** also supplies `metal`,
+  USMCA-eligibility, and `stacking.class` — these are not independently mixable.
+
 ## The scenario delta: operations on specs
 
 A synthetic future revision is a small list of operations over the baseline
 specs — the uniform replacement for today's `disable:` / `patches:`
 (`config/scenarios.yaml`).
 
+A scenario has **two independent dimensions**: `policy` (statutory deltas over the
+specs) and `assumptions` (modeling deltas over `adjustment_params`). Either may be
+empty. `baseline_mode` selects current-law (keep scheduled expiries) vs
+current-policy (cancel them); `base` pins the branch point.
+
 ```yaml
 scenario: drone_232_july2026
 description: "232 on drones at 25%, effective 2026-07-31"
-base: latest                       # delta off the latest revision's specs
-operations:
-  - op: add_program                # the drone case — NEW coverage
-    authority: section_232
-    effective_from: 2026-07-31
-    program:
-      id: drones
-      product_scope: { prefixes: ['8806'] }
-      country_scope: { include: all }
-      rate: { default: 0.25 }
-      stacking: { class: primary_metal }    # full customs value
-      metal: { type: none }
-      usmca_treatment: none
 
-  - op: set_country_scope          # the re-scoping case
-    authority: section_301
-    program: s301
-    country_scope: { include: [china, vietnam] }
-    effective_from: 2026-07-31
+policy:
+  base: latest                     # or a YYYY-MM-DD pin (see base-pinning below)
+  baseline_mode: current_law       # current_law (default) | current_policy
+  operations:
+    - op: add_program              # the drone case — NEW coverage
+      authority: section_232
+      effective_from: 2026-07-31
+      program:
+        id: drones
+        product_scope: { prefixes: ['8806'] }
+        country_scope: { include: all }
+        rate: { default: 0.25 }
+        stacking: { class: primary_full }  # 232 owns FULL customs value, IEEPA excluded;
+                                           # no metal content (primary_metal would be invalid here)
+        usmca_treatment: none
 
-  - op: set_rate                   # the simple rate-bump case
-    authority: ieepa_reciprocal
-    country: vietnam
-    rate: 0.46
-    effective_from: 2026-07-31
+    - op: set_country_scope        # the re-scoping case
+      authority: section_301
+      program: s301
+      country_scope: { include: ['5700','5520'] }   # China + Vietnam (5520)
+      effective_from: 2026-07-31
+
+    - op: set_rate                 # the simple rate-bump case
+      authority: ieepa_reciprocal
+      country: '5520'              # Vietnam
+      rate: 0.46
+      effective_from: 2026-07-31
+
+assumptions: {}                    # e.g. usmca_utilization, auto_content_share overrides
 ```
 
-Operation verbs: `add_program`, `disable` (authority or program), `set_rate` /
-`add_rate` / `floor`, `set_country_scope`, `set_active`. Each carries
-`effective_from`, which splits the tip interval into baseline-before /
-scenario-after — reusing `collect_patch_split_dates()` in
-`src/apply_scenarios.R`.
+**Operation verbs:** `add_program`, `disable` (authority or program), `set_rate` /
+`add_rate` / `target_total`, `set_country_scope`, `set_active`. Each carries
+`effective_from`.
+
+**Resolution rules** (must be specified, not implied):
+- Operations apply **in listed order**; later ops on the same target win.
+- `set_rate` sets `rate.default`; `set_rate` with `country:` sets `rate.overrides[country]`;
+  `add_rate` adjusts; `target_total` sets the all-in floor. They do not silently
+  cross-write each other.
+- `authority` may name a **group alias** (`ieepa` → reciprocal + fentanyl) so one op
+  hits both without manual sync.
+- Unknown authority/program id, unknown census code, or `primary_metal` without a
+  `metal.type` → **hard error**, never a silent no-op.
+
+**The timeline splitter is new work, not a reuse of `collect_patch_split_dates()`**
+(`apply_scenarios.R:292`, which only reads `patches[].filter.from_date`). A synthetic
+revision must build a modified spec set, recompute coverage, assign a synthetic
+revision id, and append the forward interval(s) — which the current
+`09_daily_series.R` interval-splitting does **not** do.
 
 ## Three borrowings from tariff-etrs
 
@@ -215,7 +308,14 @@ worth adopting:
 2. **A pinnable base, not just `latest`.** ETRs' `historical: '2026-02-24'`
    lets a counterfactual delta off a *specific* base rather than always the tip.
    Support both `base: latest` and `base: <date>` — useful for reproducibility
-   and "what if we'd done X back in April."
+   and "what if we'd done X back in April." **Semantics of a past pin:** keep every
+   change *already scheduled as of the pin* (the current-law time path continues to
+   bend — s122 sunset, Annex III, etc.) and suppress only revisions *enacted after*
+   the pin. Deltas layer on top; they do not overwrite scheduled changes unless an
+   op explicitly targets one. `baseline_mode: current_policy` is the canned scenario
+   that *does* cancel the scheduled expiries (`set_active until: null`), so
+   current-law and current-policy share one engine — current-law is the empty
+   scenario, current-policy is a standard named one.
 
 3. **The statutory / adjustment-parameter boundary.** ETRs keeps statutory
    rates (the dense CSV from the tracker) separate from *adjustment* parameters
@@ -261,9 +361,19 @@ calculator the identical shape.
 
 ## Migration plan (incremental, not a rewrite)
 
-Each step is independently shippable and leaves the panel output **identical** —
-provable against the existing output-equivalence check
-(`scripts/submit_alt_equivalence.sh`, see commits around `77f...`).
+Each step is independently shippable and leaves the panel output **within numeric
+tolerance** (refactors reorder float ops, so byte-identity is the wrong bar).
+
+0. **Parity harness first.** Extend `scripts/submit_alt_equivalence.sh` (today it
+   `cmp`s only the 6 *alternatives*) to also gate the **baseline** panel, and add a
+   **tolerance comparator** (per-cell ε + matching aggregate ETR/revenue) plus a
+   **per-authority golden** so every later step is checkable. This is the safety net
+   the rest of the plan leans on; it does not exist yet.
+
+   The change also has real **API blast radius**: replacing `ieepa_rates` /
+   `s232_rates` / `fentanyl_rates` with one spec list touches both build paths
+   (`00_build_timeseries.R:253`, `09_daily_series.R`). Add an explicit **adapter**
+   step (below) before any generic loop.
 
 1. **Normalize the inputs.** Wrap today's `s232_rates` / `ieepa_rates` / etc.
    into the `AuthoritySpec` shape *without* changing the 17-step calc — the
@@ -296,7 +406,12 @@ definitional, not a policy choice.
 - **Rate representation for product-tiered authorities** (301 at 7.5% / 25%):
   carried by the `list_file` (`by_product_tier`), or split into multiple
   programs? The list-file approach matches the current `s301_product_lists.csv`.
-- **`adjustment_params` home** in the merged engine: a sibling config object to
-  the spec list, overlaid by shallow-merge per the ETRs borrowing.
+  Note `add_program` for a file-backed authority has no inline tier path today —
+  adding *new* 301 product coverage in a scenario needs a file or an inline tier list.
 - **Effective dates beyond the horizon**: scenarios effective in 2027 require
   extending `series_horizon` (currently `2026-12-31`).
+
+_Resolved during review:_ `adjustment_params` is a **separate scenario dimension**
+(decision 3), not folded into the spec. Identifiers are **Census codes** (decision 5).
+Parity is **numeric tolerance** (decision 4). Baseline is **current-law by default**
+with current-policy as a canned scenario (decision 6).
