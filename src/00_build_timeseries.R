@@ -421,6 +421,24 @@ build_full_timeseries <- function(
     message('Saved parquet sibling: ', parquet_path)
   }
 
+  # ---- Write weighted-ETR policy inputs (self-contained build) ----
+  # 08_weighted_etr.R loads ieepa_country_rates.csv + usmca_products.csv from
+  # data/processed/. These were historically produced only by running 05
+  # standalone, so a build without them silently skipped weighted ETR (the
+  # downstream call is wrapped in tryCatch). Regenerate them here from the
+  # latest processed revision so a --full build is self-contained.
+  if (length(revisions_to_process) > 0) {
+    latest_rev <- tail(revisions_to_process, 1)
+    tryCatch({
+      json_path <- resolve_json_path(latest_rev, archive_dir)
+      message('\nWriting weighted-ETR policy inputs from ', latest_rev, '...')
+      write_policy_inputs(json_path, country_lookup)
+    }, error = function(e) {
+      message('WARNING: failed to write policy inputs from ', latest_rev, ': ',
+              conditionMessage(e))
+    })
+  }
+
   # ---- Save metadata ----
   metadata <- list(
     last_revision = last_successful_rev,
