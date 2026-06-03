@@ -403,6 +403,8 @@ alt_runner <- function(alt_specs, alt_workers = 1L, log_dir = NULL,
     source(here('src', '04_parse_products.R'))
     source(here('src', '05_parse_policy_params.R'))
     source(here('src', '06_calculate_rates.R'))
+    source(here('src', 'authority_spec.R'))
+    source(here('src', 'authority_adapter.R'))
     source(here('src', '09_daily_series.R'))
   }
 

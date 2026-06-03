@@ -59,6 +59,8 @@ source(here('src', '03_parse_chapter99.R'))
 source(here('src', '04_parse_products.R'))
 source(here('src', '05_parse_policy_params.R'))
 source(here('src', '06_calculate_rates.R'))
+source(here('src', 'authority_spec.R'))      # AuthoritySpec datatype
+source(here('src', 'authority_adapter.R'))   # build_authority_specs() (Phase 1)
 source(here('src', '07_validate_tpc.R'))
 
 
@@ -107,6 +109,18 @@ build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
   s232_rates <- extract_section232_rates(ch99_data_active)
   usmca <- extract_usmca_eligibility(hts_raw)
 
+  # f. (Optional) AuthoritySpec path — gated by TARIFF_USE_SPECS. When enabled,
+  #    re-package the bespoke objects into a spec set; the calculator pulls the
+  #    embedded raw objects back out and runs the identical body (Phase 1 parity).
+  specs <- if (use_specs_enabled()) {
+    build_authority_specs(
+      products, ch99_data, ieepa_rates, usmca,
+      countries, rev_id, eff_date,
+      s232_rates = s232_rates, fentanyl_rates = fentanyl_rates,
+      policy_params = pp_build
+    )
+  } else NULL
+
   # g. Calculate rates for this revision
   rates <- calculate_rates_for_revision(
     products, ch99_data, ieepa_rates, usmca,
@@ -114,7 +128,8 @@ build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
     s232_rates = s232_rates,
     fentanyl_rates = fentanyl_rates,
     stacking_method = stacking_method,
-    policy_params = pp_build
+    policy_params = pp_build,
+    specs = specs
   )
 
   # h. Save snapshot

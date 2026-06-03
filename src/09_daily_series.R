@@ -1112,6 +1112,14 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
     source(here('src', '04_parse_products.R'))
     source(here('src', '05_parse_policy_params.R'))
     source(here('src', '06_calculate_rates.R'))
+    source(here('src', 'authority_spec.R'))
+    source(here('src', 'authority_adapter.R'))
+  }
+  # Ensure the AuthoritySpec adapter is present even when the pipeline above was
+  # already sourced by the caller (the `if` block only fires for standalone use).
+  if (!exists('build_authority_specs', mode = 'function')) {
+    source(here('src', 'authority_spec.R'))
+    source(here('src', 'authority_adapter.R'))
   }
 
   # Save original .pp and swap in override
@@ -1158,17 +1166,27 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
       s232_rates <- extract_section232_rates(filter_active_ch99(ch99_data, as.Date(eff_date)))
       usmca <- extract_usmca_eligibility(hts_raw)
 
+      specs <- if (use_specs_enabled()) {
+        build_authority_specs(
+          products, ch99_data, ieepa_rates, usmca,
+          countries, rev_id, eff_date,
+          s232_rates = s232_rates, fentanyl_rates = fentanyl_rates,
+          policy_params = policy_params %||% pp_override
+        )
+      } else NULL
+
       rates <- calculate_rates_for_revision(
         products, ch99_data, ieepa_rates, usmca,
         countries, rev_id, eff_date,
         s232_rates = s232_rates,
         fentanyl_rates = fentanyl_rates,
-        policy_params = policy_params %||% pp_override
+        policy_params = policy_params %||% pp_override,
+        specs = specs
       )
       saveRDS(rates, file.path(tmp_dir, paste0('snapshot_', rev_id, '.rds')))
       n_saved <- n_saved + 1L
       rm(rates, hts_raw, ch99_data, products, ieepa_rates,
-         fentanyl_rates, s232_rates, usmca)
+         fentanyl_rates, s232_rates, usmca, specs)
       gc()
     }, error = function(e) {
       message('    SKIP ', rev_id, ': ', conditionMessage(e))

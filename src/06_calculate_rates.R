@@ -700,6 +700,10 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
 #' @param effective_date Date the revision took effect
 #' @param s232_rates Section 232 rates from extract_section232_rates() (or NULL)
 #' @param fentanyl_rates Fentanyl rates from extract_ieepa_fentanyl_rates() (or NULL)
+#' @param specs AuthoritySpec set from build_authority_specs() (or NULL). Phase 1
+#'   transitional: when supplied, the embedded raw objects (raw_ieepa / raw_s232 /
+#'   raw_fentanyl) override the corresponding args; the body is otherwise
+#'   unchanged, so output is identical (docs/authority_spec.md, migration step 1a).
 #' @return Tibble with rate columns + revision, effective_date, usmca_eligible
 calculate_rates_for_revision <- function(
   products, ch99_data, ieepa_rates, usmca,
@@ -707,9 +711,24 @@ calculate_rates_for_revision <- function(
   s232_rates = NULL,
   fentanyl_rates = NULL,
   stacking_method = 'mutual_exclusion',
-  policy_params = NULL
+  policy_params = NULL,
+  specs = NULL
 ) {
   message('Calculating rates for revision: ', revision_id, ' (', effective_date, ')')
+
+  # AuthoritySpec dual signature (Phase 1, transitional — docs/authority_spec.md).
+  # When a spec set is supplied, it is a LOSSLESS re-packaging of the bespoke
+  # per-authority objects (built by build_authority_specs() in authority_adapter.R).
+  # Pull the embedded raw objects back out and overwrite the legacy locals: they
+  # are the IDENTICAL R objects the caller would have passed positionally, so the
+  # body below runs unchanged and the output is provably identical (ideally
+  # byte-identical). The internal re-extraction at :724-726 / :1276-1278 still
+  # fires as before. Phase 2 makes the spec's normalized fields authoritative.
+  if (!is.null(specs)) {
+    ieepa_rates    <- attr(specs[['ieepa_reciprocal']], 'raw_ieepa',    exact = TRUE)
+    s232_rates     <- attr(specs[['section_232']],      'raw_s232',     exact = TRUE)
+    fentanyl_rates <- attr(specs[['ieepa_fentanyl']],   'raw_fentanyl', exact = TRUE)
+  }
 
   # Date-gate Ch99 entries: drop rows whose legal effective_date_offset is
   # AFTER this revision's effective_date. The HTS publishes new authorities

@@ -18,6 +18,7 @@ data/hts_archives/_archive/
 data/processed/
 data/timeseries/
 data/timeseries_parallel/
+data/timeseries_specs/
 data/tpc/*.csv
 data/tpc/*.png
 data/us_notes/*.pdf
