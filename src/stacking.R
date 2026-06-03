@@ -115,7 +115,68 @@ compute_nonmetal_share <- function(df) {
 }
 
 
-apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutual_exclusion') {
+# =============================================================================
+# Stacking taxonomy as DATA (Phase 3a) — replaces the hand-written country/232
+# case_when with a per-authority policy the engine reads.
+# =============================================================================
+#
+# Each additional-tariff authority (one wide `rate_*` column) maps to:
+#   net   — its net_* decomposition column.
+#   class — 'primary'       : the 232 metal layer. Contributes its full rate and,
+#                             via nonmetal_share, defines the fraction the
+#                             content-split authorities apply to.
+#           'content_split' : applies only to the non-metal fraction when a 232
+#                             metal rate is present (IEEPA reciprocal, S122, and
+#                             fentanyl for CA/MX); full rate when no 232.
+#           'additive'      : stacks at full rate regardless (301, 201, other,
+#                             and fentanyl for China).
+#   additive_countries — per-country overrides flipping a content_split authority
+#           to additive. This is the ONLY former country hardcode in the stacking
+#           math (China fentanyl passes through at full rate), now DATA so a
+#           scenario can re-scope it.
+#
+# Authority ORDER is load-bearing: it reproduces the historical case_when term
+# order (301 fourth). 301 is zero off-China and IEEE 0-additions don't change
+# association, so this single order reproduces every historical branch bit-for-bit.
+default_stacking_policy <- function(cty_china = '5700') {
+  list(
+    rate_232         = list(net = 'net_232',         class = 'primary'),
+    rate_ieepa_recip = list(net = 'net_ieepa',       class = 'content_split'),
+    rate_ieepa_fent  = list(net = 'net_fentanyl',    class = 'content_split',
+                            additive_countries = cty_china),
+    rate_301         = list(net = 'net_301',         class = 'additive'),
+    rate_s122        = list(net = 'net_s122',        class = 'content_split'),
+    rate_section_201 = list(net = 'net_section_201', class = 'additive'),
+    rate_other       = list(net = 'net_other',       class = 'additive')
+  )
+}
+
+
+#' Compute per-authority net contributions on a wide rate panel from a stacking
+#' policy. Adds one `.contrib_<net>` column per authority. Assumes nonmetal_share
+#' is already present (call compute_nonmetal_share() first) and that `country` and
+#' `rate_232` exist. Shared by apply_stacking_rules() (sums them into
+#' total_additional) and compute_net_authority_contributions() (keeps them as net_*).
+compute_stacking_contributions <- function(df, policy) {
+  for (col in names(policy)) {
+    p <- policy[[col]]
+    if (!col %in% names(df)) df[[col]] <- 0
+    contrib <- paste0('.contrib_', p$net)
+    if (identical(p$class, 'content_split')) {
+      add_ctry <- p$additive_countries %||% character(0)
+      split_active <- df$rate_232 > 0 & !(df$country %in% add_ctry)
+      df[[contrib]] <- df[[col]] * if_else(split_active, df$nonmetal_share, 1)
+    } else {
+      # primary + additive contribute their full rate
+      df[[contrib]] <- df[[col]]
+    }
+  }
+  df
+}
+
+
+apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutual_exclusion',
+                                 stacking_policy = NULL) {
   # Ensure optional columns exist and have no NAs
   if (!'rate_s122' %in% names(df)) {
     df$rate_s122 <- 0
@@ -152,41 +213,17 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
     )
   }
 
+  policy <- stacking_policy %||% default_stacking_policy(cty_china)
   df <- compute_nonmetal_share(df)
+  df <- compute_stacking_contributions(df, policy)
 
-  df <- df %>%
-    mutate(
-      total_additional = case_when(
-        # Phase 2e: rate_301 is added in EVERY branch now (301 is additive). It is
-        # 0 outside section_301's country_scope (the calc zeros out-of-scope), so
-        # this is identical to the old China-only treatment — and re-scoping 301
-        # (e.g. 301 -> Vietnam) then "just works" without touching this math.
-        # China with 232: 232 + recip*nonmetal + fentanyl + 301 + s122*nonmetal + s201 + other
-        country == cty_china & rate_232 > 0 ~
-          rate_232 + rate_ieepa_recip * nonmetal_share + rate_ieepa_fent + rate_301 +
-          rate_s122 * nonmetal_share + rate_section_201 + rate_other,
+  contrib_cols <- unname(vapply(policy, function(p) paste0('.contrib_', p$net), character(1)))
+  # Sum in policy order (Reduce is strictly left-to-right) so the baseline total
+  # is bit-for-bit identical to the historical branch arithmetic.
+  df$total_additional <- Reduce(`+`, lapply(contrib_cols, function(cc) df[[cc]]))
+  df$total_rate <- df$base_rate + df$total_additional
 
-        # China without 232: reciprocal + fentanyl + 301 + s122 + s201 + other
-        country == cty_china ~
-          rate_ieepa_recip + rate_ieepa_fent + rate_301 + rate_s122 + rate_section_201 + rate_other,
-
-        # Others with 232: 232 + recip*nonmetal + fent*nonmetal + s122*nonmetal + s201 + other
-        # Fentanyl follows the same content-based split as reciprocal: 232 covers
-        # the metal/copper content, fentanyl applies to the non-metal portion only.
-        # For heading products (auto_parts, copper, autos), nonmetal_share ≈ 0.
-        # Matches Tariff-ETRs calculations.R:1571-1575. Only CA/MX have nonzero
-        # rate_ieepa_fent among non-China countries, so this branch primarily
-        # governs CA/MX behavior on 232 products.
-        rate_232 > 0 ~
-          rate_232 + rate_ieepa_recip * nonmetal_share + rate_ieepa_fent * nonmetal_share +
-          rate_s122 * nonmetal_share + rate_section_201 + rate_other + rate_301,
-
-        # Others without 232: reciprocal + fentanyl + s122 + s201 + other + 301
-        TRUE ~ rate_ieepa_recip + rate_ieepa_fent + rate_s122 + rate_section_201 + rate_other + rate_301
-      ),
-      total_rate = base_rate + total_additional
-    ) %>%
-    select(-nonmetal_share)
+  df %>% select(-all_of(contrib_cols), -nonmetal_share)
 }
 
 
@@ -206,7 +243,8 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
 #' @return df with net_232, net_ieepa, net_fentanyl, net_301, net_s122,
 #'   net_section_201, net_other added
 compute_net_authority_contributions <- function(df, cty_china = '5700',
-                                                stacking_method = 'mutual_exclusion') {
+                                                stacking_method = 'mutual_exclusion',
+                                                stacking_policy = NULL) {
   # Ensure optional columns exist (backwards compat with old snapshots)
   if (!'rate_s122' %in% names(df)) df$rate_s122 <- 0
   if (!'rate_section_201' %in% names(df)) df$rate_section_201 <- 0
@@ -229,26 +267,17 @@ compute_net_authority_contributions <- function(df, cty_china = '5700',
     )
   }
 
+  policy <- stacking_policy %||% default_stacking_policy(cty_china)
   df <- compute_nonmetal_share(df)
+  df <- compute_stacking_contributions(df, policy)
 
-  df %>%
-    mutate(
-      net_232 = if_else(rate_232 > 0, rate_232, 0),
-      net_ieepa = if_else(rate_232 > 0, rate_ieepa_recip * nonmetal_share, rate_ieepa_recip),
-      net_fentanyl = case_when(
-        country == cty_china ~ rate_ieepa_fent,
-        rate_232 > 0 ~ rate_ieepa_fent * nonmetal_share,
-        TRUE ~ rate_ieepa_fent
-      ),
-      # Phase 2e: rate_301 is scoped to section_301's country_scope upstream (the
-      # calc zeros it out of scope), so net_301 is simply rate_301 — identical to
-      # the old `if_else(country == cty_china, rate_301, 0)` since rate_301 was 0
-      # off-China. Keys on the rate, not the country, so re-scoping flows through.
-      net_301 = rate_301,
-      net_s122 = if_else(rate_232 > 0, rate_s122 * nonmetal_share, rate_s122),
-      net_section_201 = rate_section_201,
-      net_other = rate_other
-    ) %>%
-    select(-nonmetal_share)
+  # Surface each authority's contribution as its net_* column (same values the
+  # historical mutual-exclusion case_when produced).
+  for (col in names(policy)) {
+    df[[policy[[col]]$net]] <- df[[paste0('.contrib_', policy[[col]]$net)]]
+  }
+  contrib_cols <- unname(vapply(policy, function(p) paste0('.contrib_', p$net), character(1)))
+
+  df %>% select(-all_of(contrib_cols), -nonmetal_share)
 }
 
