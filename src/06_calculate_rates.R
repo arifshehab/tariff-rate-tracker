@@ -740,7 +740,11 @@ calculate_rates_for_revision <- function(
   # If s232_rates was extracted upstream from unfiltered ch99_data
   # (00_build_timeseries.R and 09_daily_series.R both pre-extract), re-extract
   # so heading_gates downstream see the gated state.
-  if (!is.null(s232_rates)) {
+  # Phase 2a: when a spec set drives the calc, the spec's 232 value is
+  # AUTHORITATIVE — skip the re-extraction. Parity-safe because the embedded
+  # raw_s232 was extracted with the identical filter_active_ch99(effective_date)
+  # gate (00:106-107 / 09:1158), so it equals what this would re-extract.
+  if (is.null(specs) && !is.null(s232_rates)) {
     s232_rates <- extract_section232_rates(ch99_data)
   }
 
@@ -1292,7 +1296,9 @@ calculate_rates_for_revision <- function(
   #    Aluminum: chapter 76 (US Note 19, 9903.85)
   #    Autos: heading 8703 + specific subheadings (US Note 25, 9903.94)
   #    Copper: specific headings in chapter 74
-  if (is.null(s232_rates)) {
+  # Phase 2a: with a spec set, 232 comes from the spec (see the guarded
+  # re-extraction above); never re-extract here either.
+  if (is.null(specs) && is.null(s232_rates)) {
     s232_rates <- extract_section232_rates(ch99_data)
   }
 
