@@ -148,6 +148,111 @@ gzip_file <- function(src, remove = TRUE) {
   dst
 }
 
+
+# =============================================================================
+# Release-currency gate
+# =============================================================================
+
+#' Map a USITC release name to a repo revision id
+#'
+#' "2026HTSRev9" -> "2026_rev_9"; "2026HTSBasic" -> "2026_basic";
+#' "2025HTSRev32" -> "rev_32"; "2025HTSBasic" -> "basic" (2025 has no year prefix).
+#'
+#' @param name Release name from releaseList (e.g., "2026HTSRev9")
+#' @return Revision id, or NA_character_ if unparseable
+release_name_to_revision <- function(name) {
+  m <- regmatches(name, regexec('^([0-9]{4})HTS(Basic|Rev([0-9]+))$', name))[[1]]
+  if (length(m) == 0) return(NA_character_)
+  year <- m[2]
+  rev <- if (m[3] == 'Basic') 'basic' else paste0('rev_', m[4])
+  if (year == '2025') rev else paste0(year, '_', rev)
+}
+
+#' Is a revision's archive present locally (raw .json or gzipped .json.gz)?
+#'
+#' @param revision Revision id (e.g., '2026_rev_9')
+#' @param archive_dir HTS archive directory
+#' @return TRUE if an archive file exists
+revision_archive_present <- function(revision, archive_dir = 'data/hts_archives') {
+  parsed <- parse_revision_id(revision)
+  base <- file.path(archive_dir, paste0('hts_', parsed$year, '_', parsed$rev))
+  file.exists(paste0(base, '.json.gz')) || file.exists(paste0(base, '.json'))
+}
+
+#' Check whether local archives are current with the USITC HTS release list
+#'
+#' Counts how many of the most-recent USITC releases are missing locally, walking
+#' newest-first until the first present archive. Because the reststop export
+#' endpoint can only fetch the CURRENT release (the static archive host is blocked
+#' for retrospective files — see download_missing_revisions), the gate is:
+#'   - 0 missing             -> 'up_to_date'    (proceed)
+#'   - 1 missing (= current) -> 'one_ahead'     (proceed; download step auto-fetches it)
+#'   - >=2 missing           -> 'behind_manual' (STOP; the non-current missing revisions
+#'                                               cannot be auto-downloaded)
+#' A network failure yields 'unknown' (proceed with a warning — never block on a
+#' transient error).
+#'
+#' @param archive_dir HTS archive directory
+#' @param api_url releaseList endpoint
+#' @return list(status, n_ahead, missing, current_release, message)
+check_release_currency <- function(archive_dir = 'data/hts_archives',
+                                   api_url = 'https://hts.usitc.gov/reststop/releaseList') {
+  releases <- tryCatch({
+    old_ua <- getOption('HTTPUserAgent')
+    options(HTTPUserAgent = EXPORT_USER_AGENT)
+    on.exit(options(HTTPUserAgent = old_ua), add = TRUE)
+    jsonlite::fromJSON(api_url, simplifyDataFrame = TRUE)
+  }, error = function(e) NULL)
+
+  if (is.null(releases) || !is.data.frame(releases) || nrow(releases) == 0) {
+    return(list(status = 'unknown', n_ahead = NA_integer_, missing = character(),
+                current_release = NA_character_,
+                message = paste0('  HTS release check: could not reach ', api_url,
+                                 ' — skipping currency check, proceeding.')))
+  }
+
+  # Order newest-first by release start date (fall back to the target date).
+  start_d <- as.Date(releases$releaseStartDate, format = '%m/%d/%Y')
+  if ('target' %in% names(releases)) {
+    start_d[is.na(start_d)] <- as.Date(releases$target[is.na(start_d)], format = '%m/%d/%Y')
+  }
+  releases <- releases[order(start_d, decreasing = TRUE), ]
+  current_release <- releases$name[1]
+
+  # Walk newest-first; count consecutive missing archives until the first present one.
+  n_ahead <- 0L
+  missing <- character()
+  for (i in seq_len(nrow(releases))) {
+    rid <- release_name_to_revision(releases$name[i])
+    if (is.na(rid)) next
+    if (revision_archive_present(rid, archive_dir)) break
+    n_ahead <- n_ahead + 1L
+    missing <- c(missing, releases$name[i])
+  }
+
+  if (n_ahead == 0L) {
+    status <- 'up_to_date'
+    msg <- paste0('  HTS release check: up to date (current release ', current_release, ').')
+  } else if (n_ahead == 1L) {
+    status <- 'one_ahead'
+    msg <- paste0('  HTS release check: 1 new release (', missing[1], ', the current ',
+                  'release) — the download step will fetch it via the export endpoint.')
+  } else {
+    status <- 'behind_manual'
+    msg <- paste0(
+      'HTS release check FAILED: the repo is ', n_ahead, ' releases behind USITC.\n',
+      '  Missing (newest first): ', paste(missing, collapse = ', '), '\n',
+      '  Only the current release (', missing[1], ') can be auto-downloaded; the static ',
+      'archive host is blocked for older revisions.\n',
+      '  Manually download the older missing revision(s) from hts.usitc.gov and place them ',
+      'in ', archive_dir, '/ as hts_<year>_<rev>.json[.gz], then re-run.\n',
+      '  (Pass --skip-release-check to bypass this gate.)'
+    )
+  }
+  list(status = status, n_ahead = n_ahead, missing = missing,
+       current_release = current_release, message = msg)
+}
+
 #' Build USITC download URL for an HTS revision
 #'
 #' Uses the static file hosting at www.usitc.gov/sites/default/files/tata/hts/

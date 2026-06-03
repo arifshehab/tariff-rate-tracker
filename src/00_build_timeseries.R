@@ -20,6 +20,15 @@
 #   Rscript src/00_build_timeseries.R --refresh-usmca     # Re-download USMCA shares from DataWeb API
 #   Rscript src/00_build_timeseries.R --publish-internal # After build, mirror outputs to shared model_data tree (internal NFS)
 #   Rscript src/00_build_timeseries.R --publish-git      # After build, write dated public outputs to release/ in the repo
+#   Rscript src/00_build_timeseries.R --skip-release-check # Bypass the HTS release-currency gate
+#
+# HTS release-currency gate (Step A2): before building, the run compares local
+# archives against USITC's release list. Up to date or exactly one release behind
+# (the current release missing) -> proceed (Step B auto-fetches the current release
+# via the reststop export endpoint). More than one release behind -> STOP, because
+# the older missing revision(s) cannot be auto-downloaded (the static archive host
+# is blocked) and must be fetched manually into data/hts_archives/. Bypass with
+# --skip-release-check (e.g., offline runs).
 #
 # Available rebuild-alts names (passed comma-separated): usmca_annual,
 #   usmca_monthly, usmca_2024, usmca_dec2025, metal_flat, dutyfree_nonzero,
@@ -572,6 +581,7 @@ if (sys.nframe() == 0) {
   do_publish_git      <- '--publish-git' %in% args
   use_policy_dates <- !('--use-hts-dates' %in% args)  # default: policy dates
   unweighted <- '--unweighted' %in% args
+  skip_release_check <- '--skip-release-check' %in% args
   start_from <- NULL
   rebuild_alts <- NULL
   for (i in seq_along(args)) {
@@ -687,6 +697,23 @@ if (sys.nframe() == 0) {
     message('Mode: Incremental from ', start_from)
   } else {
     start_from <- detect_incremental_start(use_policy_dates = use_policy_dates)
+  }
+
+  # --- Step A2: HTS release-currency gate ---
+  # Stop early if the repo is more than one release behind USITC: only the current
+  # release can be auto-downloaded (the static archive host is blocked for older
+  # revisions — see check_release_currency() in 02_download_hts.R). One release
+  # behind (the current one missing) is fine — Step B fetches it via the export
+  # endpoint. Bypass with --skip-release-check (e.g., offline runs).
+  if (!skip_release_check) {
+    rc <- check_release_currency()
+    if (identical(rc$status, 'behind_manual')) {
+      log_error(rc$message)
+      stop(rc$message, call. = FALSE)
+    }
+    message(rc$message)
+  } else {
+    message('  HTS release check: skipped (--skip-release-check)')
   }
 
   # --- Step B: Download missing JSON ---
