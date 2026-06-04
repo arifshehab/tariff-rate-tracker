@@ -8,6 +8,21 @@ Verified timeline of Chapter 99 policy changes across all 39 HTS revision points
 
 These are the main policy items that still matter operationally when interpreting the later revisions and the forward extension through the end of 2026.
 
+### Revision dating caveat (rev_25–31) — discovered 2026-06-04
+
+`config/revision_dates.csv` dates 2025 rev_25–31 one to three weeks earlier than the official USITC change records in `data/hts_change_record/`: rev_25 is dated 2025-09-26 but was published Oct 14 with items effective Oct 14 (PP 10976 wood 232); rev_26 dated 10-06 vs items effective Nov 1 (MHD 232); rev_29 dated 10-31 vs published Nov 17 with items effective Nov 13 (agricultural Annex II EO); rev_32 dated 11-15 vs published Dec 5. Daily-series boundaries in the Sept–Dec 2025 window are therefore time-shifted until the re-dating pass lands (todo.md active priority 2). The Annex II exemption windows are immune — they use change-record legal dates directly (see below).
+
+### 2026-06-04 methodology fix pass (extreme-eta review)
+
+Six fixes landed from the Census-collections-vs-statutory review (`docs/tracker_review_extreme_etas.md`); they change how snapshots from this date forward compare to earlier builds:
+
+1. **8-digit leaf tariff lines retained.** Lines with no statistical suffix (378 ch98 + 95 ch91, including the Swiss watch complex) were silently dropped from the product universe; now kept, padded to 10 digits with "00" (matching Census reporting).
+2. **232 auto-parts applicability shares.** Note 33(g) lists bare heading `8471`, but the duty's operative scope is parts of passenger vehicles/light trucks; general-purpose computers were swept in at ~23.8%. New `applicability_shares_file` on the heading config; interim calibration excludes 8471 (Census-supported).
+3. **Country-EO Annex II inheritance + ch98.** India's 9903.01.84 inherits the full note 2(v)(iii) list per note 2(z)(ii)/heading 9903.01.86 (`country_eo_annex_ii_inherit` config); chapter 98 claims are exempt from every country EO per the standard paragraph in each EO's note. Brazil keeps its own enumerated list.
+4. **Berman ch97/ch49 exemptions materialized** (exempt-list regeneration; the script fix had never been re-run).
+5. **Annex II exemption windows.** `resources/ieepa_exempt_products.csv` now carries `effective_date_start`/`effective_date_end`, stamped by `scripts/build_annex_ii_dates.R` from the per-revision chapter-99 PDFs using change-record legal dates: electronics added 2025-04-05 (retroactive memo); EO 14346 metals/gold added 2025-09-08 (its removals end 2025-09-07); agricultural expansion 2025-11-13; copper exempt only through 2025-07-31 (PP 10962) and wood through 2025-10-13 (PP 10976) — both windows previously missing entirely. Chapter 6 (flowers) was removed from the universal list: it appears only on the Swiss framework annex, never in the universal enumeration. Note: no Swiss product exemptions exist in the 2025 HTS text at all — they first appear in 2026_basic (captured in `data/us_notes/floor_exempt_2026_*.csv`).
+6. **USMCA eligibility and shares.** `special`-field S/S+ extraction now inherits from parent legal lines (statistical suffixes were uniformly false-negative; eligible coverage 24.9% → 62.9%), and missing/zero-trade HTS10 shares fall back to the HS8-level value-weighted share instead of defaulting to the full CA/MX rate.
+
 ### Swiss and Liechtenstein framework
 
 The Swiss and Liechtenstein floor framework is represented both by native HTS entries in later revisions and by a date-bounded override for earlier revisions inside the framework window. The governing parameters live in `config/policy_params.yaml` under `swiss_framework`.
