@@ -1040,15 +1040,39 @@ calculate_rates_for_revision <- function(
         character(0)
       }
 
+      # Country EOs that inherit the universal Annex II list via their own
+      # US-note subdivision. India: note 2(z)(ii) routes 9903.01.84 through
+      # heading 9903.01.86 to "the provisions of the HTSUS listed in
+      # subdivision (v)(iii) of note 2" — i.e. the full Annex II list.
+      # Brazil's 9903.01.77 does NOT inherit: it has its own enumerated list
+      # (note 2(x)(iii)(a), captured in country_eo_exempt_products.csv).
+      annex_ii_inherit_eos <- unlist(pp$country_eo_annex_ii_inherit %||% character(0))
+
+      # Every country-EO note carries the standard chapter 98 paragraph ("the
+      # additional duty imposed by this heading shall not apply to goods for
+      # which entry is properly claimed under a provision of chapter 98",
+      # with value-basis carve-downs for 9802.00.40/.50/.60/.80) — verified
+      # in the rev_6 notes for Brazil (x)(i) and India (z)(i). Reuse the ch98
+      # scope already encoded on the universal exempt list (same set the
+      # fentanyl ch98 exemption uses).
+      ch98_eo_exempt <- ieepa_exempt_products[
+        substr(ieepa_exempt_products, 1, 2) == '98']
+
       rates <- rates %>%
         mutate(
           # Universal Annex II applies to baseline + phase1 + phase2 surcharges
-          # AND the floor structure; country_eo bypasses it but uses its own
-          # per-EO exempt list. ieepa_exempt_scope = 'baseline_only' (diagnostic)
-          # narrows the universal exempt list to baseline-only countries.
+          # AND the floor structure; country_eo bypasses it and instead uses
+          # (a) its own per-EO exempt list, (b) Annex II inheritance for EOs
+          # in country_eo_annex_ii_inherit (India per note 2(z)(ii)), and
+          # (c) the standard ch98 claim paragraph present in every EO's note.
+          # ieepa_exempt_scope = 'baseline_only' (diagnostic) narrows the
+          # universal exempt list to baseline-only countries.
           is_universally_exempt = hts10 %in% ieepa_exempt_products,
-          is_country_eo_exempt  = !is.na(country_eo_ch99) &
-            paste(country_eo_ch99, substr(hts10, 1, 8), sep = '|') %in% country_eo_exempt_keys,
+          is_country_eo_exempt  = !is.na(country_eo_ch99) & (
+            paste(country_eo_ch99, substr(hts10, 1, 8), sep = '|') %in% country_eo_exempt_keys |
+            (country_eo_ch99 %in% annex_ii_inherit_eos & is_universally_exempt) |
+            hts10 %in% ch98_eo_exempt
+          ),
           exempt_active = is_universally_exempt & (
             ieepa_exempt_scope == 'all' |
             (ieepa_exempt_scope == 'baseline_only' &
@@ -1115,8 +1139,11 @@ calculate_rates_for_revision <- function(
           rate_232 = 0, rate_301 = 0, rate_ieepa_fent = 0, rate_s122 = 0,
           rate_section_201 = 0, rate_other = 0,
           is_universally_exempt = hts10 %in% ieepa_exempt_products,
-          is_country_eo_exempt  = !is.na(country_eo_ch99) &
-            paste(country_eo_ch99, substr(hts10, 1, 8), sep = '|') %in% country_eo_exempt_keys,
+          is_country_eo_exempt  = !is.na(country_eo_ch99) & (
+            paste(country_eo_ch99, substr(hts10, 1, 8), sep = '|') %in% country_eo_exempt_keys |
+            (country_eo_ch99 %in% annex_ii_inherit_eos & is_universally_exempt) |
+            hts10 %in% ch98_eo_exempt
+          ),
           exempt_active = is_universally_exempt & (
             ieepa_exempt_scope == 'all' |
             (ieepa_exempt_scope == 'baseline_only' &
@@ -1311,6 +1338,9 @@ calculate_rates_for_revision <- function(
     mhd_products <- character(0)
     semi_products <- character(0)
     heading_product_lists <- list()
+    # Fractional applicability shares accumulated in the heading loop; applied
+    # to heading_232_rate after heading_product_rate is built (see below).
+    applicability_scale <- tibble(hts10 = character(), applic_share = numeric())
 
     if (!is.null(s232_headings)) {
       # Gate each heading config on whether its Ch99 program exists in this revision.
@@ -1354,6 +1384,50 @@ calculate_rates_for_revision <- function(
 
         cfg <- s232_headings[[tariff_name]]
         matched <- match_232_heading_products(cfg, products, tariff_name, verbose = TRUE)
+
+        # Optional per-prefix applicability shares. Enumerated lists like Note
+        # 33(g) can name dual-use provisions (notably bare heading 8471) whose
+        # trade is mostly NOT "parts of passenger vehicles ... and light
+        # trucks" — the operative scope of the duty. applicability_share
+        # approximates the fraction of each prefix's imports that fall in
+        # scope: share = 0 prefixes are excluded from the heading outright;
+        # fractional shares scale the product's heading rate after
+        # heading_product_rate is built (same blending pattern as the semi
+        # qualifying_share).
+        if (!is.null(cfg$applicability_shares_file)) {
+          ap_path <- here(cfg$applicability_shares_file)
+          if (file.exists(ap_path)) {
+            ap <- suppressMessages(read_csv(
+              ap_path, comment = '#',
+              col_types = cols(hts_prefix = col_character(),
+                               applicability_share = col_double(),
+                               .default = col_character())
+            ))
+            # Longest-prefix match: each matched product takes the share of
+            # the most specific matching prefix; unmatched products keep 1.0.
+            share_for <- rep(NA_real_, length(matched))
+            for (k in order(nchar(ap$hts_prefix), decreasing = TRUE)) {
+              hit <- is.na(share_for) & startsWith(matched, ap$hts_prefix[k])
+              share_for[hit] <- ap$applicability_share[k]
+            }
+            share_for[is.na(share_for)] <- 1
+            if (any(share_for == 0)) {
+              message('  ', tariff_name, ': excluded ', sum(share_for == 0),
+                      ' products with applicability_share = 0')
+            }
+            is_frac <- share_for > 0 & share_for < 1
+            if (any(is_frac)) {
+              applicability_scale <- bind_rows(
+                applicability_scale,
+                tibble(hts10 = matched[is_frac], applic_share = share_for[is_frac])
+              )
+            }
+            matched <- matched[share_for > 0]
+          } else {
+            warning(tariff_name, ' applicability_shares_file not found: ',
+                    ap_path, ' — applying heading to all matched products')
+          }
+        }
 
         heading_product_lists[[tariff_name]] <- list(
           products = matched,
@@ -1485,6 +1559,19 @@ calculate_rates_for_revision <- function(
 
       message('  Semi scaling: ', nrow(qs_data), ' per-HTS10 shares loaded; ',
               'end_use_exemption_share = ', end_use_share)
+    }
+
+    # --- Apply fractional applicability shares (collected in heading loop) ---
+    # share = 0 products were already excluded at match time; 0 < share < 1
+    # products stay in the heading but at a scaled rate.
+    if (nrow(applicability_scale) > 0 && nrow(heading_product_rate) > 0) {
+      applicability_scale <- distinct(applicability_scale, hts10, .keep_all = TRUE)
+      heading_product_rate <- heading_product_rate %>%
+        left_join(applicability_scale, by = 'hts10', relationship = 'many-to-one') %>%
+        mutate(heading_232_rate = heading_232_rate * coalesce(applic_share, 1.0)) %>%
+        select(-applic_share)
+      message('  Applicability scaling: ', nrow(applicability_scale),
+              ' products at fractional shares')
     }
 
     # --- Build per-country rate lookup ---
