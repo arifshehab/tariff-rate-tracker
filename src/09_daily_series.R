@@ -1117,7 +1117,8 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
                                           revision_dates_path = here('config', 'revision_dates.csv'),
                                           census_codes_path = here('resources', 'census_codes.csv'),
                                           policy_params = NULL,
-                                          snapshot_out_dir = NULL) {
+                                          snapshot_out_dir = NULL,
+                                          operations = NULL) {
 
   message('\n  Building alternative timeseries: ', variant_name)
 
@@ -1135,6 +1136,11 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
   if (!exists('build_authority_specs', mode = 'function')) {
     source(here('src', 'authority_spec.R'))
     source(here('src', 'authority_adapter.R'))
+  }
+  # Phase 6e: the operations engine (apply_operations) so a scenario's ops reach
+  # this rebuild path too (00 already applies them; this site previously didn't).
+  if (!exists('apply_operations', mode = 'function')) {
+    source(here('src', 'scenario_ops.R'))
   }
 
   # Save original .pp and swap in override
@@ -1182,12 +1188,17 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
       usmca <- extract_usmca_eligibility(hts_raw)
 
       specs <- if (use_specs_enabled()) {
-        build_authority_specs(
+        s <- build_authority_specs(
           products, ch99_data, ieepa_rates, usmca,
           countries, rev_id, eff_date,
           s232_rates = s232_rates, fentanyl_rates = fentanyl_rates,
           policy_params = policy_params %||% pp_override
         )
+        # Phase 6e: apply the scenario's operations (no ops => baseline, unchanged).
+        if (!is.null(operations) && length(operations) > 0) {
+          s <- apply_operations(s, operations)
+        }
+        s
       } else NULL
 
       rates <- calculate_rates_for_revision(
