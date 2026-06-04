@@ -12,16 +12,23 @@
 #
 #   Tariff-Rate-Tracker/
 #     2026-05-08/
-#       timeseries/
-#         rate_timeseries.rds
-#         rate_timeseries.parquet
-#         metadata.rds
-#       daily/         <- output/daily/*.csv
-#       quality/       <- output/quality/*
-#       etr/           <- output/etr/*.csv         (if built)
-#       etrs_config/   <- output/etrs_config/*     (if built)
-#       alternative/   <- output/alternative/*     (if --with-alternatives)
+#       actual/
+#         timeseries/
+#           rate_timeseries.rds
+#           rate_timeseries.parquet
+#           metadata.rds
+#         daily/         <- output/actual/daily/*.csv
+#         quality/       <- output/actual/quality/*
+#         etr/           <- output/actual/etr/*     (if built)
+#         etrs_config/   <- output/actual/etrs_config/*  (if built)
+#       scenarios/
+#         <name>/        <- output/scenarios/<name>/*   (per named what-if)
 #       manifest.json
+#
+# The rate panel lives under actual/timeseries/ so the downstream reader
+# (tariff-model src/read_rate_panel.R) finds current-law at
+# <vintage>/actual/timeseries/ and each what-if at
+# <vintage>/scenarios/<name>/timeseries/.
 #     2026-05-09/
 #       ...
 #     latest -> 2026-05-09
@@ -60,6 +67,12 @@ SHARED_ROOT_DEFAULT <- '/nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-R
 #' @param build_started_at POSIXct; recorded in manifest. Defaults to now.
 #' @param dry_run If TRUE, plan only — log the copy list and manifest without
 #'   touching the shared tree.
+#' @param update_latest If TRUE (default), repoint <shared_root>/latest at this
+#'   vintage. Set FALSE to publish an additive vintage without changing the
+#'   shared default (e.g. publishing into a tree another owner maintains).
+#' @param include_scenarios If TRUE (default), publish every dir under
+#'   output/scenarios/. Set FALSE to publish only the actual/ (current-law)
+#'   tree — e.g. when scenario outputs are stale or intentionally withheld.
 #' @return Invisibly, a list with `vintage`, `vintage_dir`, `manifest`, and
 #'   `n_files` on success; NULL on dry-run.
 publish_internal <- function(shared_root = SHARED_ROOT_DEFAULT,
@@ -67,7 +80,9 @@ publish_internal <- function(shared_root = SHARED_ROOT_DEFAULT,
                              repo_root = here(),
                              build_flags = list(),
                              build_started_at = Sys.time(),
-                             dry_run = FALSE) {
+                             dry_run = FALSE,
+                             update_latest = TRUE,
+                             include_scenarios = TRUE) {
 
   if (!requireNamespace('arrow', quietly = TRUE)) {
     stop('publish_internal requires the arrow package (parquet conversion). ',
@@ -129,7 +144,7 @@ publish_internal <- function(shared_root = SHARED_ROOT_DEFAULT,
   }
 
   scen_root <- scenarios_root(out_root)
-  if (dir.exists(scen_root)) {
+  if (include_scenarios && dir.exists(scen_root)) {
     for (scen_path in list.dirs(scen_root, recursive = FALSE)) {
       copied[[paste0('scenario.', basename(scen_path))]] <- publish_dir(
         scen_path,
@@ -149,12 +164,17 @@ publish_internal <- function(shared_root = SHARED_ROOT_DEFAULT,
   if (!dry_run) {
     write(jsonlite::toJSON(manifest, pretty = TRUE, auto_unbox = TRUE, na = 'string'),
           file.path(vintage_dir, 'manifest.json'))
-    update_latest_symlink(shared_root, vintage)
+    if (update_latest) update_latest_symlink(shared_root, vintage)
   }
 
   n_files <- sum(vapply(copied, function(x) length(x$files), integer(1)))
   message('\nPublished ', n_files, ' file(s) to ', vintage_dir)
-  message('Updated symlink: ', file.path(shared_root, 'latest'), ' -> ', vintage)
+  if (update_latest) {
+    message('Updated symlink: ', file.path(shared_root, 'latest'), ' -> ', vintage)
+  } else {
+    message('Left ', file.path(shared_root, 'latest'),
+            ' unchanged (additive publish; update_latest = FALSE)')
+  }
   message(strrep('=', 70), '\n')
 
   invisible(list(vintage = vintage,
@@ -184,7 +204,9 @@ resolve_vintage <- function(shared_root) {
 #' @keywords internal
 publish_timeseries <- function(repo_root, vintage_dir, dry_run = FALSE) {
   src_dir <- file.path(repo_root, 'data', 'timeseries')
-  dest_dir <- file.path(vintage_dir, 'timeseries')
+  # The baseline (current-law) panel is the "actual" series. tariff-model's
+  # read_rate_panel.R resolves it at <vintage>/actual/timeseries/.
+  dest_dir <- file.path(vintage_dir, 'actual', 'timeseries')
 
   src_rds <- file.path(src_dir, 'rate_timeseries.rds')
   src_meta <- file.path(src_dir, 'metadata.rds')

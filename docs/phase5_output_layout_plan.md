@@ -16,6 +16,29 @@
 
 ---
 
+## ✅ UPDATE 2026-06-04 — layout flip DONE; panel re-homed; current-law vintage published
+
+The "NOT yet started" note below is **stale**. Verified vs code:
+- **The layout flip is DONE + committed (`32caf0a`).** Writers route through `src/output_paths.R`
+  (daily/quality/etr → `output/actual/<section>`; scenarios → `output/scenarios/<name>`);
+  `publish_internal.R` writes `<vintage>/actual/<section>` + iterates `<vintage>/scenarios/<name>`;
+  the false-green scripts (`run_parity_check.R`, `submit_alt_equivalence.sh`) were fixed to the new paths.
+- **The one load-bearing gap — FIXED.** The rate panel (the only thing `tariff-model` consumes) was
+  published at `<vintage>/timeseries/`, but `tariff-model/src/read_rate_panel.R` reads
+  `<vintage>/actual/timeseries/`. `publish_timeseries()` now writes the baseline panel under
+  `actual/timeseries/` (dry-run confirmed). Added `update_latest` + `include_scenarios` params to
+  `publish_internal` (default TRUE, behavior-preserving).
+- **Published a current-law vintage** to the shared NFS tree (Slurm `13773853`): additive
+  `2026-06-04/actual/{timeseries,daily}`, `update_latest=FALSE` (ji252's `latest` untouched),
+  `include_scenarios=FALSE`. Runner `output/publish_vintage.sh`. Panel = baseline, 41 revs, 194.5M rows.
+- **John's calls (PM):** publish the file but DON'T touch tariff-model (he flips the switch later);
+  SKIP what-ifs for now — the scenario-panel half is gated behind the Codex 232/new-coverage bugs
+  (`docs/codex_review_assessment.md`), which would otherwise ship wrong scenario numbers downstream.
+- **Phase-5 remaining (deferred):** per-scenario panel emission + per-scenario `operations_recipe`
+  manifests (behind the Codex fixes); activate tariff-model `rate_panel:` (John); etrs_config orphan.
+
+---
+
 ## 🔨 EXECUTION OUTCOME / RECONCILED (2026-06-03, branch `phase0-parallel-build`)
 
 Step 0 done (4-agent recon). **Status: bug FIXED; layout work NOT yet started (gated — see below).**
