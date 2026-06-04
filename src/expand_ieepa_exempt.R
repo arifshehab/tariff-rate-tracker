@@ -21,10 +21,14 @@ current <- read_csv(exempt_file, col_types = cols(hts10 = col_character()))
 cat("Current exempt products:", nrow(current), "\n")
 
 # --- Load all HTS10 codes from parsed products RDS (memory-efficient) ---
-# Load one at a time, extract hts10, then discard
+# Load one at a time, extract hts10, then discard.
+# NOTE: regenerate the data/processed caches with the CURRENT parser before
+# running (see scripts/refresh_product_caches.R) — the 2026-06-04 parser
+# change added 8-digit leaf lines (378 ch98 + 95 ch91) that older caches lack.
 rds_files <- c(
   here('data', 'processed', 'products_rev_32.rds'),
-  here('data', 'timeseries', 'products_2026_rev_4.rds')
+  here('data', 'timeseries', 'products_2026_rev_4.rds'),
+  here('data', 'processed', 'products_2026_rev_9.rds')
 )
 
 all_hts10 <- character()
