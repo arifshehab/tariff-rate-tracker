@@ -201,15 +201,16 @@ calculate_rates_fast <- function(products, ch99_data, countries,
 #' the AuthoritySpec adapter compute the gates from one source — no drift. Keyed
 #' by the `section_232_headings` config names (NOT spec program ids).
 #'
-#' @param s232_rates extract_section232_rates() output
-#' @param ch99_data the DATE-GATED Chapter 99 data (filter_active_ch99 already applied)
+#' @param s232_rates extract_section232_rates() output. Carries `auto_has_parts`
+#'   (the date-gated 9903.94.0[5-9] presence flag) since Phase 6c, so the gates
+#'   are a PURE function of s232_rates — no live-Ch99 argument, and a scenario
+#'   that mutates s232_rates recomputes gates without needing ch99.
 #' @return named logical list, one entry per known heading program
-compute_heading_gates <- function(s232_rates, ch99_data) {
-  has_auto_parts_ch99 <- any(grepl('^9903\\.94\\.0[5-9]', ch99_data$ch99_code))
+compute_heading_gates <- function(s232_rates) {
   list(
     autos_passenger    = s232_rates$auto_rate > 0 || s232_rates$auto_has_deals,
     autos_light_trucks = s232_rates$auto_rate > 0 || s232_rates$auto_has_deals,
-    auto_parts         = has_auto_parts_ch99,
+    auto_parts         = isTRUE(s232_rates$auto_has_parts),
     copper             = s232_rates$copper_rate > 0,
     softwood           = s232_rates$wood_rate > 0 || s232_rates$wood_furniture_rate > 0,
     wood_furniture     = s232_rates$wood_rate > 0 || s232_rates$wood_furniture_rate > 0,
@@ -1379,7 +1380,7 @@ calculate_rates_for_revision <- function(
       # date-gated ch99 + authoritative s232 value), else compute inline. One
       # source ⇒ byte-identical baseline.
       heading_gates <- attr(specs[['section_232']], 'heading_gates', exact = TRUE) %||%
-        compute_heading_gates(s232_rates, ch99_data)
+        compute_heading_gates(s232_rates)
 
       # Adding a heading to policy_params.yaml without registering its gate here
       # would silently activate the heading on every revision (gate_val = NULL →

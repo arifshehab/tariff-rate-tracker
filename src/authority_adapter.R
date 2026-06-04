@@ -81,8 +81,8 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   ieepa_until <- pp$IEEPA_INVALIDATION_DATE
 
   # --- section_232 — the genuinely multi-program authority ------------------
-  # Programs are a Phase-2 scaffold (rates/active derived authoritatively from
-  # raw_s232 later); country exemptions live in the embedded raw object today.
+  # Programs are a Phase-2 scaffold; the resolved 21-field rate list (rates,
+  # exempt lists, deals, overrides) lives on programs[[1]]$rate$resolved (Phase 6b).
   metal_prog <- function(id, type) authority_program(
     id = id, country_scope = list(include = 'all', exclude = list()),
     stacking = list(class = 'primary_metal'), metal = list(type = type, content = 'full'))
@@ -107,13 +107,13 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   # Phase 6b: park the 21-field s232 list whole on programs[[1]]$rate$resolved
   # (authority-wide; per-program split deferred to P8). Read via s232_rates_from_specs().
   section_232$programs[[1]]$rate$resolved <- s232_rates
-  # Phase 2c: precompute the heading-program activation gates from the SAME
-  # date-gated ch99 + authoritative s232 value the calc uses, so the calc reads
-  # them off the spec instead of recomputing (compute_heading_gates is the single
-  # source). Adapter owns the filter_active_ch99 gate (mirrors 06:738).
+  # Phase 2c/6c: precompute the heading-program activation gates from the
+  # authoritative s232 value, so the calc reads them off the spec instead of
+  # recomputing (compute_heading_gates is the single source). Since 6c the gate
+  # fn is a pure function of s232_rates (which carries the date-gated
+  # auto_has_parts flag) — no live-ch99 grep here anymore.
   if (!is.null(s232_rates)) {
-    ch99_active <- filter_active_ch99(ch99_data, as.Date(effective_date))
-    attr(section_232, 'heading_gates') <- compute_heading_gates(s232_rates, ch99_active)
+    attr(section_232, 'heading_gates') <- compute_heading_gates(s232_rates)
   }
 
   # --- ieepa_reciprocal — blanket, country-level ----------------------------

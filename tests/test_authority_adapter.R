@@ -23,7 +23,7 @@ get_country_constants <- function(pp) list(CTY_CHINA = '5700', CTY_CANADA = '122
                                             CTY_MEXICO = '2010')
 filter_active_ch99    <- function(ch99_data, effective_date) ch99_data
 HEADING_GATES_SENTINEL <- list(autos_passenger = TRUE, copper = FALSE)
-compute_heading_gates <- function(s232_rates, ch99_data) HEADING_GATES_SENTINEL
+compute_heading_gates <- function(s232_rates) HEADING_GATES_SENTINEL   # Phase 6c: pure fn of s232_rates
 S122_SENTINEL <- list(s122_rate = 0.10, has_s122 = TRUE)   # Phase 6a
 extract_section122_rates <- function(ch99_data) S122_SENTINEL
 

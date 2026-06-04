@@ -1047,6 +1047,10 @@ extract_section232_rates <- function(ch99_data) {
     aluminum_derivative_exempt = aluminum_derivative_exempt,
     steel_derivative_exempt = steel_derivative_exempt,
     auto_has_deals = auto_has_deals,
+    # Phase 6c: presence of auto-parts Ch99 entries (9903.94.05-09), computed here
+    # from the (date-gated) ch99 so compute_heading_gates() is a pure function of
+    # s232_rates — no live-Ch99 dependency, and the gate travels with the spec.
+    auto_has_parts = any(grepl('^9903\\.94\\.0[5-9]', ch99_data$ch99_code)),
     auto_deal_rates = auto_deal_rates,
     wood_deal_rates = wood_deal_rates,
     steel_country_overrides = steel_country_overrides,
