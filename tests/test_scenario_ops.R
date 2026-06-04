@@ -10,6 +10,7 @@
 suppressPackageStartupMessages(library(here))
 source(here('src', 'authority_spec.R'))
 source(here('src', 'scenario_ops.R'))
+source(here('src', 'new_coverage.R'))   # Phase 8: collect_seeded_programs / resolve_product_scope
 
 pass <- 0L
 check <- function(cond, msg) {
@@ -63,7 +64,7 @@ expect_error(apply_operations(specs, list(
        country_scope = list(include = 'all')))),
   'scope op on non-scope-driven authority (232) errors')
 expect_error(apply_operations(specs, list(list(op = 'add_program', authority = 'section_232'))),
-  'unsupported verb (add_program) errors')
+  'add_program without a `program` record errors')
 expect_error(apply_operations(specs, list(
   list(op = 'disable', authority = 'ieepa_reciprocal'))),
   'disable on embed-backed authority (ieepa) errors — deferred to Phase 7')
@@ -142,5 +143,56 @@ expect_error(apply_operations(rspecs, list(list(op = 'disable', authority = 'iee
 expect_error(apply_operations(rspecs, list(
   list(op = 'set_exempt', authority = 'section_232', program = 'copper', countries = '1220'))),
   'set_exempt on a program with no exemption list (copper) errors')
+
+# =============================================================================
+# Phase 8 — add_program (new coverage) + the no-Ch99 seeder's pure helpers
+# =============================================================================
+cat('\n--- Phase 8: add_program appends a new-coverage program ---\n')
+nc_specs <- authority_spec_set(
+  authority_spec('section_301', stacking = list(class = 'additive'),
+    programs = list(authority_program('s301', country_scope = list(include = '5700')))),
+  authority_spec('other', stacking = list(class = 'additive'),
+    programs = list(authority_program('other', country_scope = list(include = 'all'))))
+)
+
+# A clearly-SYNTHETIC drone tariff: 50% on HTS prefix 8806, all countries.
+drone_op <- list(op = 'add_program', authority = 'other',
+                 program = list(id = 'drone_synthetic',
+                                rate = list(flat = 0.50),
+                                product_scope = list(prefixes = '8806'),
+                                country_scope = list(include = 'all')))
+np <- apply_operations(nc_specs, list(drone_op))
+check(length(np[['other']]$programs) == 2L, 'add_program appended a program to `other`')
+added <- np[['other']]$programs[[2]]
+check(identical(added$id, 'drone_synthetic'), 'added program has the given id')
+check(identical(added$rate$flat, 0.50), 'added program carries rate$flat')
+check(identical(nc_specs[['other']]$programs |> length(), 1L),
+      'original specs NOT mutated (copy-on-modify isolation)')
+
+cat('\n--- Phase 8: collect_seeded_programs finds only flat-rate programs ---\n')
+check(length(collect_seeded_programs(nc_specs)) == 0L,
+      'baseline (no flat-rate programs) => collect_seeded_programs empty (dormant)')
+seeded <- collect_seeded_programs(np)
+check(length(seeded) == 1L && identical(seeded[[1]]$id, 'drone_synthetic'),
+      'after add_program => one seeded program, tagged with .authority')
+check(identical(seeded[[1]]$.authority, 'other'), 'seeded program carries its authority name')
+
+cat('\n--- Phase 8: resolve_product_scope (prefixes / all / list) ---\n')
+prods <- data.frame(hts10 = c('8806100000', '8806900000', '8525890000', '7208100000'),
+                    base_rate = 0, stringsAsFactors = FALSE)
+check(setequal(resolve_product_scope(list(prefixes = '8806'), prods),
+               c('8806100000', '8806900000')), 'prefixes 8806 -> the two 8806 HTS10s')
+check(length(resolve_product_scope(list(include = 'all'), prods)) == 4L, 'include=all -> every product')
+check(setequal(resolve_product_scope(list(list = c('7208100000', '9999999999')), prods),
+               '7208100000'), 'explicit list -> intersection with the product universe')
+
+cat('\n--- Phase 8: fail-loud guards ---\n')
+expect_error(apply_operations(nc_specs, list(list(op = 'add_program', authority = 'other',
+  program = list(id = 'no_rate', product_scope = list(include = 'all'))))),
+  'add_program without rate$flat errors')
+expect_error(apply_operations(np, list(drone_op)),
+  'add_program with a duplicate program id errors')
+expect_error(resolve_product_scope(list(chapters = '88'), prods),
+  'unrecognized product_scope errors (never silently covers nothing)')
 
 cat(sprintf('\nALL %d SCENARIO_OPS ASSERTIONS PASSED\n', pass))

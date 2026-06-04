@@ -21,6 +21,7 @@ data/timeseries_parallel/
 data/timeseries_specs/
 data/timeseries_specs_full/
 data/timeseries_6d/
+data/timeseries_p8/
 data/tpc/*.csv
 data/tpc/*.png
 data/us_notes/*.pdf

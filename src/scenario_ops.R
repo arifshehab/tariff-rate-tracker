@@ -18,12 +18,15 @@
 #     section_122 (scalar). set_rate recomputes the s232 has_232 OR-gate / s122
 #     has_s122 so a scenario can turn a dormant authority ON. Flagship: bump steel.
 #   * disable — empties scope (301/201) OR zeros the resolved rates (232/s122).
+#   * add_program — add a NEW-COVERAGE tariff with no Ch99 backing (Phase 8). The
+#     program carries a flat rate + product/country scope, rides rate_other, and is
+#     applied by the calc's no-Ch99 seeder (src/new_coverage.R) before stacking.
 #
 # NOT YET SUPPORTED (error loudly — never a silent no-op):
-#   * add_program (new coverage with no Ch99 backing) + its weight provisioning:
-#     Phase 8 (needs the no-Ch99 seeder in the calculator).
 #   * set_floor (IEEPA universal baseline / phase-1 floor) and IEEPA reciprocal/
 #     fentanyl per-country set_rate (heterogeneous tibble): deferred follow-ups.
+#   * new-coverage import-weight provisioning for pairs absent from the weight
+#     base lives in the ETR step (08), not here.
 #
 # Depends on src/authority_spec.R (constructors, validate_spec_set, %||%).
 # =============================================================================
@@ -92,11 +95,11 @@ apply_operation <- function(specs, op, idx = NA_integer_) {
     disable           = op_disable(specs, op, idx),
     set_rate          = op_set_rate(specs, op, idx),
     set_exempt        = op_set_exempt(specs, op, idx),
+    add_program       = op_add_program(specs, op, idx),
     stop(sprintf(paste0('operation[%s]: verb "%s" is not supported. Supported: %s. ',
-                        'add_program (new coverage) + set_floor + IEEPA per-country ',
-                        'rate ops are deferred to Phase 8 / a follow-up.'),
+                        'set_floor + IEEPA per-country rate ops are a deferred follow-up.'),
                  idx, verb,
-                 'set_country_scope, set_active, disable, set_rate, set_exempt'))
+                 'set_country_scope, set_active, disable, set_rate, set_exempt, add_program'))
   )
 }
 
@@ -250,5 +253,38 @@ op_set_exempt <- function(specs, op, idx) {
   if (is.null(r)) stop(sprintf('operation[%s] (set_exempt): section_232 has no resolved payload', idx))
   r[[field]] <- as.character(countries)
   specs[[auth]] <- .op_set_resolved(spec, r)
+  specs
+}
+
+#' add_program — add a NEW-COVERAGE tariff (no Chapter-99 backing) to an authority
+#' (default `other`, the additive catch-all). The Phase-8 new-coverage verb.
+#'
+#' `op$program` is a record: `list(id, rate = list(flat = <number>), product_scope,
+#' country_scope)`. The calc's no-Ch99 seeder (src/new_coverage.R) applies the flat
+#' rate to rate_other on the resolved scope just before stacking. product_scope
+#' supports {include='all'} / {prefixes=} / {list=}; country_scope is {include,exclude}.
+op_add_program <- function(specs, op, idx) {
+  auth <- op$authority %||% 'other'
+  if (is.null(specs[[auth]])) {
+    stop(sprintf('operation[%s] (add_program): unknown authority "%s" (have: %s)',
+                 idx, auth, paste(names(specs), collapse = ', ')))
+  }
+  prog <- op$program %||% stop(sprintf('operation[%s] (add_program): missing `program` record', idx))
+  id <- prog$id %||% stop(sprintf('operation[%s] (add_program): program needs an `id`', idx))
+  flat <- prog$rate$flat
+  if (is.null(flat) || !is.numeric(flat) || length(flat) != 1L || is.na(flat)) {
+    stop(sprintf('operation[%s] (add_program): program "%s" needs rate = list(flat = <number>)', idx, id))
+  }
+  existing_ids <- vapply(specs[[auth]]$programs, function(p) p$id %||% NA_character_, character(1))
+  if (id %in% existing_ids) {
+    stop(sprintf('operation[%s] (add_program): program id "%s" already exists in %s', idx, id, auth))
+  }
+  newp <- authority_program(
+    id            = id,
+    product_scope = prog$product_scope %||% list(include = 'all'),
+    country_scope = prog$country_scope %||% list(include = 'all'),
+    rate          = list(flat = flat)
+  )
+  specs[[auth]]$programs <- c(specs[[auth]]$programs, list(newp))
   specs
 }

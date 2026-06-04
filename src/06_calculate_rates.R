@@ -2765,6 +2765,14 @@ calculate_rates_for_revision <- function(
     }
   }
 
+  # 7b. (Phase 8) No-Ch99 seeder: apply any NEW-COVERAGE programs added via the
+  # add_program op (flat rate + product/country scope, riding rate_other). Runs
+  # AFTER the Ch99-backed authorities and BEFORE stacking so the new rate folds in
+  # as the additive catch-all. DORMANT in baseline (no flat-rate `other` programs)
+  # => byte-identical. (Weight provisioning for pairs absent from the weight base
+  # is handled downstream in 08, not here.)
+  rates <- apply_new_coverage_programs(rates, specs, products, countries)
+
   # 8. Re-apply stacking rules with updated IEEPA and 232 rates. Phase 3b: when
   # enabled (TARIFF_RESOLVED_STACKING), route through the resolved-program long
   # table — the scenario/new-coverage substrate — and collapse back; default OFF
