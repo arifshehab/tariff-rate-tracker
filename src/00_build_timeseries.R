@@ -721,7 +721,6 @@ if (sys.nframe() == 0) {
             ' (', length(snap_files), ' revisions)')
 
     source(here('src', '09_daily_series.R'))
-    source(here('src', 'apply_scenarios.R'))
     source(here('src', 'build_import_weights.R'))
 
     pp <- load_policy_params(use_policy_dates = use_policy_dates)
@@ -916,7 +915,6 @@ if (sys.nframe() == 0) {
       rm(ts)
       gc()
       tryCatch({
-        source(here('src', 'apply_scenarios.R'))
         run_alternative_series(imports = imports, policy_params = pp,
                                 rebuild = with_alternatives,
                                 rebuild_alts = rebuild_alts,

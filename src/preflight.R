@@ -33,8 +33,7 @@ REQUIRED_CONFIGS <- c(
 
 # --- Optional config files ---
 OPTIONAL_CONFIGS <- c(
-  'config/local_paths.yaml',
-  'config/scenarios.yaml'
+  'config/local_paths.yaml'
 )
 
 # --- Required resource files ---

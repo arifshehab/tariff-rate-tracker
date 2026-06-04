@@ -964,43 +964,6 @@ build_rev_intervals <- function(revs_built, rev_dates, horizon_end = Sys.Date())
 }
 
 
-#' Split revision intervals at patch activation dates
-#'
-#' For each revision interval [vf, vu], any split_date D with vf < D <= vu is
-#' inserted as a boundary so the interval becomes [vf, D-1] and [D, vu]. The
-#' caller (aggregate_snapshots_per_revision) then runs the transform with the
-#' sub-interval's valid_from, and apply_scenario_spec gates patches whose
-#' filter$from_date is later than that valid_from.
-#'
-#' Revisions outside the patch date span — and rev_intervals when no split
-#' dates apply — are returned unchanged.
-#'
-#' @param rev_intervals Tibble with revision, valid_from, valid_until (one row
-#'   per revision)
-#' @param split_dates Vector of Date split points (e.g., from
-#'   collect_patch_split_dates(scenario_spec))
-#' @return Tibble with same columns, possibly more rows when sub-intervals
-#'   were generated
-split_rev_intervals_at_patches <- function(rev_intervals, split_dates) {
-  if (length(split_dates) == 0) return(rev_intervals)
-  split_dates <- sort(unique(as.Date(split_dates)))
-
-  rev_intervals %>%
-    pmap_dfr(function(revision, valid_from, valid_until) {
-      vf <- as.Date(valid_from)
-      vu <- as.Date(valid_until)
-      interior <- split_dates[split_dates > vf & split_dates <= vu]
-      if (length(interior) == 0) {
-        return(tibble(revision = revision, valid_from = vf, valid_until = vu))
-      }
-      # Boundaries: [vf, d1-1], [d1, d2-1], ..., [dN, vu]
-      starts <- c(vf, interior)
-      ends <- c(interior - 1, vu)
-      tibble(revision = revision, valid_from = starts, valid_until = ends)
-    })
-}
-
-
 #' Aggregate a set of per-revision snapshots into daily + interval parts
 #'
 #' Loads one snapshot at a time, attaches interval columns, optionally applies
@@ -1023,10 +986,10 @@ aggregate_snapshots_per_revision <- function(snapshot_dir, rev_intervals,
                                               policy_params = NULL,
                                               transform = NULL,
                                               progress_every = 10L) {
-  # rev_intervals may carry multiple sub-rows per revision when the caller has
-  # split intervals at patch from_dates (see split_rev_intervals_at_patches);
-  # each sub-row is processed independently with its own valid_from passed to
-  # the transform. Snapshots are loaded at most once per revision.
+  # rev_intervals may carry multiple sub-rows per revision (e.g. when a caller
+  # splits an interval at a schedule boundary); each sub-row is processed
+  # independently with its own valid_from passed to the transform. Snapshots are
+  # loaded at most once per revision.
   n_subs <- nrow(rev_intervals)
   daily_parts <- vector('list', n_subs)
   auth_parts <- vector('list', n_subs)
@@ -1251,124 +1214,6 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
 }
 
 
-#' Run post-build scenarios per-revision (memory-safe)
-#'
-#' Iterates over on-disk per-revision snapshots, applies each scenario (zeroing
-#' disabled authorities and re-stacking) to one revision at a time, aggregates,
-#' and writes out alternative daily series. Replaces the prior full-timeseries
-#' path (apply_scenario on ~185M rows then build_daily_aggregates), which was
-#' the OOM culprit for no_ieepa / no_ieepa_recip / no_232 / no_s122.
-#'
-#' @param scenario_names Character vector of scenario names from scenarios.yaml
-#' @param imports Import weights tibble (or NULL to load)
-#' @param policy_params Policy params list (from load_policy_params())
-#' @param scenarios_path Path to scenarios.yaml
-#' @param snapshot_dir Directory with snapshot_<rev>.rds files
-#' @param revision_dates_path Path to revision_dates.csv
-#' @return Invisible NULL
-run_post_build_scenarios_per_revision <- function(scenario_names,
-                                                   imports = NULL,
-                                                   policy_params = NULL,
-                                                   scenarios_path = here('config', 'scenarios.yaml'),
-                                                   snapshot_dir = here('data', 'timeseries'),
-                                                   revision_dates_path = here('config', 'revision_dates.csv')) {
-  if (!exists('apply_scenario', mode = 'function')) {
-    source(here('src', 'apply_scenarios.R'))
-  }
-
-  scenarios <- load_scenarios(scenarios_path)
-  invalid <- setdiff(scenario_names, names(scenarios))
-  if (length(invalid) > 0) {
-    stop('Unknown scenarios: ', paste(invalid, collapse = ', '))
-  }
-
-  if (is.null(imports)) imports <- load_import_weights()
-
-  rev_dates <- load_revision_dates(revision_dates_path)
-  snap_files <- list.files(snapshot_dir, pattern = '^snapshot_.*\\.rds$', full.names = FALSE)
-  if (length(snap_files) == 0) {
-    stop('No snapshots found in ', snapshot_dir,
-         ' -- run a full build before post-build scenarios')
-  }
-  revs_built <- sub('^snapshot_', '', tools::file_path_sans_ext(snap_files))
-
-  rev_intervals <- build_rev_intervals(
-    revs_built, rev_dates,
-    horizon_end = policy_params$SERIES_HORIZON_END %||% Sys.Date()
-  )
-
-  n_ok <- 0L
-  failures <- character(0)
-  for (scenario_name in scenario_names) {
-    scenario_spec <- scenarios[[scenario_name]]
-    disable <- scenario_spec$disable %||% character(0)
-    patches <- scenario_spec$patches %||% list()
-    message('\n  Scenario: ', scenario_name, ' (per-revision)')
-    message('    ', scenario_spec$description)
-    if (length(disable) > 0) {
-      message('    Disabling: ', paste(disable, collapse = ', '))
-    }
-
-    # If the scenario has date-bounded patches, split rev_intervals at each
-    # activation date so the transform sees a coherent on/off state per
-    # sub-interval. No-op when patches is empty.
-    split_dates <- collect_patch_split_dates(scenario_spec)
-    rev_intervals_for_scenario <- split_rev_intervals_at_patches(
-      rev_intervals, split_dates
-    )
-    if (length(patches) > 0) {
-      message('    Patches: ', length(patches),
-              '; activation dates: ',
-              paste(format(split_dates), collapse = ', '))
-      n_split <- nrow(rev_intervals_for_scenario) - nrow(rev_intervals)
-      if (n_split > 0) {
-        message('    Sub-intervals added: ', n_split)
-      }
-    }
-
-    # local() binds scenario_spec/name by value so the closure can't be
-    # aliased by the next loop iteration. valid_from is forwarded to
-    # apply_scenario_spec to gate date-bounded patches.
-    transform <- local({
-      spec <- scenario_spec
-      name <- scenario_name
-      pp <- policy_params
-      function(snapshot, valid_from = NULL) {
-        apply_scenario_spec(snapshot, spec, name,
-                            valid_from = valid_from, pp = pp)
-      }
-    })
-
-    ok <- tryCatch({
-      parts <- aggregate_snapshots_per_revision(
-        snapshot_dir = snapshot_dir,
-        rev_intervals = rev_intervals_for_scenario,
-        imports = imports,
-        policy_params = policy_params,
-        transform = transform
-      )
-      save_alternative_output(parts$daily_overall, scenario_name,
-                               agg_by_authority = parts$agg_by_authority,
-                               agg_by_country = parts$agg_by_country,
-                               agg_by_category = parts$agg_by_category)
-      TRUE
-    }, error = function(e) {
-      message('  FAILED (', scenario_name, '): ', conditionMessage(e))
-      FALSE
-    })
-    if (isTRUE(ok)) n_ok <- n_ok + 1L else failures <- c(failures, scenario_name)
-  }
-
-  message(sprintf('\n  Post-build scenarios: %d/%d succeeded',
-                  n_ok, length(scenario_names)))
-  if (length(failures) > 0) {
-    message('  Failed: ', paste(failures, collapse = ', '))
-  }
-
-  invisible(NULL)
-}
-
-
 #' Build the rebuild-alternatives registry
 #'
 #' Returns a list of (variant, pp_override) records — one per rebuild
@@ -1474,26 +1319,13 @@ run_alternative_series <- function(imports = NULL, policy_params = NULL,
   message(strrep('=', 70))
 
   if (is.null(imports)) imports <- load_import_weights()
-  if (!exists('apply_scenario_spec', mode = 'function')) {
-    source(here('src', 'apply_scenarios.R'))
-  }
 
-  # --- Post-build alternatives (scenario-based, per-revision) ---
-  # Iterates on-disk snapshots one at a time — never materializes the full
-  # combined timeseries. Required to keep no_ieepa / no_232 / no_s122 within
-  # memory bounds on Windows.
-  #
-  # Scenario list comes from config/scenarios.yaml (single source of truth);
-  # the 'baseline' entry is excluded since it's the no-op identity.
-  scenarios_path <- here('config', 'scenarios.yaml')
-  post_build_scenarios <- setdiff(names(load_scenarios(scenarios_path)), 'baseline')
-
-  run_post_build_scenarios_per_revision(
-    scenario_names = post_build_scenarios,
-    imports = imports,
-    policy_params = policy_params,
-    scenarios_path = scenarios_path
-  )
+  # Phase 7: the legacy post-build scenario engine (apply_scenarios.R +
+  # config/scenarios.yaml + run_post_build_scenarios_per_revision) has been
+  # removed. Counterfactuals are now authored as AuthoritySpec operations
+  # (src/scenario_ops.R) and applied at build time via
+  # build_alternative_timeseries(operations=...). This function now drives only
+  # the rebuild alternatives (the USMCA-share pp_override variants).
 
   # --- Rebuild alternatives (only with --with-alternatives) ---
   if (rebuild) {
