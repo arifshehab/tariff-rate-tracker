@@ -1,5 +1,7 @@
 # Merge plan: `taiwan-rev9-gz-archives` → AuthoritySpec branch
 
+> **✅ EXECUTED 2026-06-04** on `feat/counterfactual-pharma-301cs` (code/config only — data stays external). Validated via `output/validate_taiwan_rev9.sh` + `output/check_taiwan_rev9.R` (Slurm 13783615): **P1** baseline byte-identical (rev_7 rebuilt == golden), **P2** rev_8 editorial (== rev_7), **P3** rev_9 note-35(c) exemption moves exactly **338** Taiwan civil-aircraft rows (rate_232 0.50→0, reciprocal retained), Taiwan-/aircraft-specific. Conflict surface re-derived against the live tip (smaller than §4: `00`/`05` need no change once `a25d052` is skipped). `a25d052` ETR-inputs **skipped**; release-currency gate function taken but **not wired** (guards only the monolithic CLI).
+
 **Date:** 2026-06-04
 **Author:** analysis for the AuthoritySpec migration (`phase0-parallel-build`)
 **Source branch:** `origin/taiwan-rev9-gz-archives` (John Iselin / ji252), tip `a25d052`
@@ -7,6 +9,11 @@
 **Fork point (merge-base):** `8840217` "docs: Zenodo setup recipe" — **2026-05-21**, i.e. *before* the AuthoritySpec refactor. Both branches descend from this commit.
 
 > **Key decision (John, 2026-06-04): DATA STAYS EXTERNAL.** The canonical repo does **not** commit HTS archives. We keep our `.gitignore` of `data/hts_archives/*.json.gz`; we take the branch's *code/config*, not its committed archive blobs. This changes the merge mechanics — see [§6](#6-the-data-external-decision-and-what-it-means-mechanically). A naïve `git merge` would commit ~30 MB of archives + PDFs into history and must NOT be used.
+
+> **AMENDMENT (2026-06-04, later): this plan predates the A/B/C counterfactual work — three deltas a fresh instance MUST apply.** The plan as written targets `phase0-parallel-build`; since then `feat/counterfactual-pharma-301cs` added Workstreams A (two-flavor 301), B (pharma 232 sub-program), C (scheduled activations), commits `0026d1b`/`037013e`/`3e83c70`. The rev_8/rev_9 discovery does NOT change the plan (it already ingests both, §3.2), but:
+> 1. **Merge target is now `feat/counterfactual-pharma-301cs`, not `phase0-parallel-build`.** A/B/C touch the SAME files the Taiwan merge does — `src/06_calculate_rates.R` (A USMCA-on-301 + B pharma heading), `src/00_build_timeseries.R` (C `archive_rev_id` + `build_scheduled_activations`), `config/policy_params.yaml` (C `scheduled_activations` + B `pharmaceuticals` + A `section_301_content_split`). The conflict surface is BIGGER than §4's table. The Taiwan "step 7c" must land after our *modified* USMCA step; the Taiwan yaml block coexists with our new blocks (different regions, mostly clean). **Re-derive every conflict against the live tip — do not trust §4's table verbatim.**
+> 2. **§6.3 "source rev_8/9 locally" is already DONE** — both present in `data/hts_archives/` as `.json.gz` (also decompressed to `.json`; harmless — resolve_json_path de-dupes / the extra `.json` can be deleted). Skip the `git show … > …gz` copy step.
+> 3. **§7 parity target is the CURRENT re-baselined golden** (`data/timeseries/`, 35 cols incl. `rate_301_cs`), NOT the pre-301cs 33-col golden. The 41 pre-existing revisions stay byte-identical vs. *that* golden.
 
 ---
 

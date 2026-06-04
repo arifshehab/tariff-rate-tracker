@@ -15,6 +15,8 @@ config/.chapter99_pending
 data/hts_archives/*.json
 data/hts_archives/*.json.gz
 data/hts_archives/_archive/
+# HTS change-record PDFs — external/reference docs, not build inputs (data stays external)
+data/hts_change_record/
 data/processed/
 data/timeseries/
 data/timeseries_parallel/

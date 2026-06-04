@@ -257,7 +257,7 @@ get_latest_hts_archive <- function(year = format(Sys.Date(), '%Y'),
                                    archive_dir = here('data', 'hts_archives')) {
   files <- list.files(
     archive_dir,
-    pattern = paste0('hts_', year, '.*\\.json$'),
+    pattern = paste0('hts_', year, '.*\\.json(\\.gz)?$'),
     full.names = TRUE
   )
 

@@ -146,13 +146,18 @@ load_revision_dates <- function(csv_path = here('config', 'revision_dates.csv'),
 #' @param year Year prefix (default: 2025)
 #' @return Character vector of revision identifiers
 list_available_revisions <- function(archive_dir = here('data', 'hts_archives'), year = 2025) {
-  files <- list.files(archive_dir, pattern = paste0('hts_', year, '.*\\.json$'))
+  # Match both raw and gzip-compressed archives. The archives are committed to
+  # git gzipped (.json.gz) — ~20:1 compression — since the static download host
+  # is blocked for retrospective files (see 02_download_hts.R). fromJSON() reads
+  # .json.gz transparently, so only path resolution needs to be gz-aware.
+  files <- list.files(archive_dir, pattern = paste0('hts_', year, '.*\\.json(\\.gz)?$'))
 
-  # Extract revision from filename: hts_2025_rev_32.json -> rev_32, hts_2025_basic.json -> basic
-  revisions <- str_match(files, paste0('hts_', year, '_(.+)\\.json'))[, 2]
+  # Extract revision from filename: hts_2025_rev_32.json[.gz] -> rev_32
+  revisions <- str_match(files, paste0('hts_', year, '_(.+)\\.json(?:\\.gz)?$'))[, 2]
   revisions <- revisions[!is.na(revisions)]
 
-  return(revisions)
+  # De-dup in case both .json and .json.gz exist for a revision (transition).
+  return(unique(revisions))
 }
 
 
@@ -164,13 +169,16 @@ list_available_revisions <- function(archive_dir = here('data', 'hts_archives'),
 #' @return Full file path to JSON
 resolve_json_path <- function(revision, archive_dir = here('data', 'hts_archives'), year = 2025) {
   parsed <- parse_revision_id(revision)
-  path <- file.path(archive_dir, paste0('hts_', parsed$year, '_', parsed$rev, '.json'))
+  base <- file.path(archive_dir, paste0('hts_', parsed$year, '_', parsed$rev))
 
-  if (!file.exists(path)) {
-    stop('HTS JSON not found: ', path)
-  }
+  # Prefer the committed gzip archive; fall back to a raw .json if present.
+  # fromJSON() decompresses .json.gz transparently.
+  gz_path <- paste0(base, '.json.gz')
+  raw_path <- paste0(base, '.json')
+  if (file.exists(gz_path))  return(gz_path)
+  if (file.exists(raw_path)) return(raw_path)
 
-  return(path)
+  stop('HTS JSON not found: ', raw_path, ' (or .json.gz)')
 }
 
 

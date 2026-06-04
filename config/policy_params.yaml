@@ -14,6 +14,7 @@ country_codes:
   CTY_UK:            '4120'
   CTY_HK:            '5820'
   CTY_SKOREA:        '5800'
+  CTY_TAIWAN:        '5830'
   CTY_SWITZERLAND:   '4419'
   CTY_LIECHTENSTEIN: '4411'
 
@@ -27,6 +28,7 @@ iso_to_census:
   GB: '4120'
   AU: '6021'
   KR: '5800'
+  TW: '5830'   # Taiwan — 15% floor framework, 2026 rev_8/rev_9 (232 auto parts/wood deals)
   RU: '4621'
   AR: '3570'
   BR: '3510'
@@ -515,6 +517,20 @@ auto_rebate:
   rebate_rate: 0.0375          # 3.75% rebate per Proclamation
   us_assembly_share: 0.33      # fraction of vehicle assembled in US
   us_auto_content_share: 0.40  # fraction of auto value that is US/USMCA-origin
+
+# --- Section 232 civil-aircraft exemption (U.S. note 35) ---
+# Note 35(c) / heading 9903.96.03 exempts Taiwan civil-aircraft components from the
+# Section 232 metals annex (the additional duties of 9903.82.02 and 9903.82.04-9903.82.19),
+# effective with 2026 HTS rev_9 (2026-05-28). Applied in 06_calculate_rates.R: rate_232 -> 0
+# for the listed products of Taiwan, dropping them into the "without 232" stacking branch so
+# the IEEPA reciprocal applies on full value (only the 232 metals duty is removed). Gated on
+# heading 9903.96.03 being present in the revision's Ch99 data, so it self-dates to rev_9+.
+# TODO: the parallel carve-outs for the all-country general case + EU/UK/JP/KR (note 35(a)/(b),
+# headings 9903.96.01/.02) are NOT yet modeled — see todo.md.
+section_232_aircraft_exemption:
+  enabled: true
+  country: 'TW'
+  products_file: 'resources/s232_aircraft_exempt_taiwan.csv'
 
 # --- Section 232 auto-parts deal: subdivision (r) certification scope (EU/JP/KR) ---
 # US Note 33(r) covers EU/JP/KR auto parts NOT in subdivision (g), NOT in chapters

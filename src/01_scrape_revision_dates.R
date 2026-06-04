@@ -353,8 +353,9 @@ if (sys.nframe() == 0) {
   available <- character()
   for (rev_id in all_revisions) {
     parsed <- parse_revision_id(rev_id)
-    json_name <- paste0('hts_', parsed$year, '_', parsed$rev, '.json')
-    if (file.exists(file.path(archive_dir, json_name))) {
+    base <- file.path(archive_dir, paste0('hts_', parsed$year, '_', parsed$rev))
+    # Archives are stored gzipped (.json.gz); accept a raw .json too.
+    if (file.exists(paste0(base, '.json.gz')) || file.exists(paste0(base, '.json'))) {
       available <- c(available, rev_id)
     }
   }

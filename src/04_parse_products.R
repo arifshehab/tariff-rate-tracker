@@ -129,12 +129,11 @@ parse_all_revisions <- function(revisions, archive_dir = 'data/hts_archives') {
   results <- list()
 
   for (rev in revisions) {
-    parsed <- parse_revision_id(rev)
-    filename <- paste0('hts_', parsed$year, '_', parsed$rev, '.json')
-    filepath <- file.path(archive_dir, filename)
-
-    if (!file.exists(filepath)) {
-      warning('File not found: ', filepath)
+    # resolve_json_path prefers the committed .json.gz, falling back to raw .json
+    filepath <- tryCatch(resolve_json_path(rev, archive_dir),
+                         error = function(e) NA_character_)
+    if (is.na(filepath)) {
+      warning('File not found for revision: ', rev)
       next
     }
 

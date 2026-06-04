@@ -178,7 +178,7 @@ if (sys.nframe() == 0) {
   cat('HTS JSON ARCHIVES\n')
   json_dir <- file.path(base_dir, 'data', 'hts_archives')
   if (dir.exists(json_dir)) {
-    json_files <- list.files(json_dir, pattern = '\\.json$')
+    json_files <- list.files(json_dir, pattern = '\\.json(\\.gz)?$')
     cat(sprintf('  [%s] %d JSON files in data/hts_archives/\n',
                 if (length(json_files) > 0) 'OK' else '!!',
                 length(json_files)))

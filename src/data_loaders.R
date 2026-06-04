@@ -40,6 +40,26 @@ load_232_derivative_products <- function(path = here('resources', 's232_derivati
 }
 
 
+#' Load the Taiwan civil-aircraft Section 232 exemption product list
+#'
+#' Products exempt from the Section 232 metals annex under U.S. note 35(c) /
+#' heading 9903.96.03 (Taiwan civil-aircraft components), effective 2026 rev_9.
+#' Extracted from the rev_9 Chapter 99 PDF (note 35(c) subdivision list).
+#'
+#' @param path Path to s232_aircraft_exempt_taiwan.csv
+#' @return Character vector of HTS8 codes (empty if file missing)
+load_232_aircraft_exempt_taiwan <- function(
+  path = here('resources', 's232_aircraft_exempt_taiwan.csv')
+) {
+  if (!file.exists(path)) {
+    warning('Taiwan aircraft 232 exemption file not found: ', path)
+    return(character(0))
+  }
+  df <- read_csv(path, col_types = cols(.default = col_character()))
+  unique(df$hts8)
+}
+
+
 #' Load floor country product exemptions
 #'
 #' Products exempt from the 15% tariff floor for EU, Japan, S. Korea,
