@@ -51,6 +51,9 @@ library(jsonlite)
 library(here)
 
 source(here('src', 'output_paths.R'))   # Phase 5 layout helpers (actual/ + scenarios/)
+source(here('src', 'rate_schema.R'))    # enforce_rate_schema + build_rev_intervals (loads tidyverse)
+source(here('src', 'revisions.R'))      # load_revision_dates
+source(here('src', 'policy_params.R'))  # load_policy_params -> SERIES_HORIZON_END
 
 
 # Default location for the shared model-data root.
@@ -127,10 +130,43 @@ publish_internal <- function(shared_root = SHARED_ROOT_DEFAULT,
 
   if (!dry_run) dir.create(vintage_dir, recursive = TRUE, showWarnings = FALSE)
 
+  # Interval encoding is recomputed from the policy revision calendar — the
+  # authoritative source build_rev_intervals() uses everywhere — not read from a
+  # snapshot's stored valid_* (which assemble_timeseries strips and rebuilds).
+  # Defaults match the production build: policy dates + SERIES_HORIZON_END from
+  # policy_params.yaml. The round-trip verification (per-interval row counts vs
+  # the combined rds) would catch any convention drift.
+  rev_dates   <- load_revision_dates()
+  horizon_end <- load_policy_params()$SERIES_HORIZON_END %||% Sys.Date()
+
   copied <- list()
   out_root <- file.path(repo_root, 'output')
 
-  copied$timeseries <- publish_timeseries(repo_root, vintage_dir, dry_run = dry_run)
+  copied$timeseries <- publish_timeseries(repo_root, vintage_dir,
+                                          rev_dates = rev_dates,
+                                          horizon_end = horizon_end,
+                                          dry_run = dry_run)
+
+  # Per-series snapshot records for the manifest `series` block. `actual` is
+  # always present; in addition, every data/timeseries/<name>/ directory holding
+  # snapshot_*.rds is published as scenarios/<name> via the same splitter. None
+  # exist today — a clean no-op until the build writes per-scenario snapshots.
+  series_snapshots <- list(actual = copied$timeseries$snapshots)
+  if (include_scenarios) {
+    ts_src_root <- file.path(repo_root, 'data', 'timeseries')
+    for (sub in list.dirs(ts_src_root, recursive = FALSE)) {
+      if (length(list.files(sub, pattern = '^snapshot_.*\\.rds$')) == 0) next
+      name <- basename(sub)
+      recs <- publish_series_snapshots(sub, scenario_snapshots_dir(vintage_dir, name),
+                                       rev_dates = rev_dates, horizon_end = horizon_end,
+                                       dry_run = dry_run)
+      if (isTRUE(recs$present)) {
+        series_snapshots[[paste0('scenarios/', name)]] <- recs$snapshots
+        message('publish: scenario snapshots [', name, '] -> ',
+                length(recs$snapshots), ' interval(s)')
+      }
+    }
+  }
 
   # Phase 5: real ("actual") results publish into <vintage>/actual/<section>;
   # named what-ifs publish into <vintage>/scenarios/<name>. Section + root names
@@ -159,7 +195,8 @@ publish_internal <- function(shared_root = SHARED_ROOT_DEFAULT,
                              repo_root = repo_root,
                              build_flags = build_flags,
                              build_started_at = build_started_at,
-                             copied = copied)
+                             copied = copied,
+                             series_snapshots = series_snapshots)
 
   if (!dry_run) {
     write(jsonlite::toJSON(manifest, pretty = TRUE, auto_unbox = TRUE, na = 'string'),
@@ -167,8 +204,10 @@ publish_internal <- function(shared_root = SHARED_ROOT_DEFAULT,
     if (update_latest) update_latest_symlink(shared_root, vintage)
   }
 
-  n_files <- sum(vapply(copied, function(x) length(x$files), integer(1)))
-  message('\nPublished ', n_files, ' file(s) to ', vintage_dir)
+  n_snapshots <- sum(vapply(series_snapshots, length, integer(1)))
+  n_files <- sum(vapply(copied, function(x) length(x$files), integer(1))) + n_snapshots
+  message('\nPublished ', n_files, ' file(s) to ', vintage_dir,
+          ' (', n_snapshots, ' interval snapshot', if (n_snapshots != 1) 's' else '', ')')
   if (update_latest) {
     message('Updated symlink: ', file.path(shared_root, 'latest'), ' -> ', vintage)
   } else {
@@ -199,45 +238,148 @@ resolve_vintage <- function(shared_root) {
 }
 
 
-#' Copy the timeseries panel + metadata, and emit a parquet companion.
+#' Resolve worker count for the per-interval snapshot writers.
+#'
+#' Each worker holds one snapshot (~1.2 GB at production scale) plus a parquet
+#' write buffer, so the cap is node memory, not CPU. TARIFF_PUBLISH_CORES first
+#' (tune independently of the daily build), then the Slurm allocation, else 1.
 #'
 #' @keywords internal
-publish_timeseries <- function(repo_root, vintage_dir, dry_run = FALSE) {
-  src_dir <- file.path(repo_root, 'data', 'timeseries')
-  # The baseline (current-law) panel is the "actual" series. tariff-model's
-  # read_rate_panel.R resolves it at <vintage>/actual/timeseries/.
-  dest_dir <- file.path(vintage_dir, 'actual', 'timeseries')
+resolve_publish_cores <- function() {
+  cores <- suppressWarnings(as.integer(Sys.getenv('TARIFF_PUBLISH_CORES', unset = NA)))
+  if (is.na(cores)) cores <- suppressWarnings(as.integer(Sys.getenv('SLURM_CPUS_PER_TASK', unset = NA)))
+  if (is.na(cores) || cores < 1L) 1L else cores
+}
 
-  src_rds <- file.path(src_dir, 'rate_timeseries.rds')
-  src_meta <- file.path(src_dir, 'metadata.rds')
 
-  message('publish: timeseries -> ', dest_dir)
-  if (!dry_run) dir.create(dest_dir, recursive = TRUE, showWarnings = FALSE)
+#' Split a directory of per-revision snapshots into per-interval parquet files.
+#'
+#' Streams one snapshot_<rev>.rds at a time (never the full combined panel) into
+#' Hive-style partitions:
+#'   <dest_snaps_dir>/valid_from=YYYY-MM-DD/rates.parquet
+#' attaching the AUTHORITATIVE interval (recomputed from rev_dates via
+#' build_rev_intervals — the snapshot's own valid_* are not trusted, mirroring
+#' build_daily_aggregates_streaming()). Each parquet carries the full rate schema
+#' plus valid_from / valid_until (inclusive) as real columns, so a reader that
+#' ignores Hive partitioning still gets the intervals.
+#'
+#' Revisions are independent, so the per-snapshot writes fan out across cores.
+#' FAILS LOUD if any worker is lost: a dropped interval would silently omit a
+#' policy window from the published panel.
+#'
+#' @param snapshot_dir Source dir of snapshot_<rev>.rds files
+#' @param dest_snaps_dir Destination snapshots/ dir (rebuilt fresh)
+#' @param rev_dates Revision-date table (load_revision_dates())
+#' @param horizon_end Series horizon end (tip interval extends to it)
+#' @param cores Worker count; resolve_publish_cores() when NULL
+#' @param dry_run Plan only — compute intervals/records, write nothing
+#' @return list(present, snapshots = list of {valid_from, valid_until, revision,
+#'   path, n_rows}); present = FALSE when the dir has no snapshots
+#' @keywords internal
+publish_series_snapshots <- function(snapshot_dir, dest_snaps_dir,
+                                     rev_dates, horizon_end,
+                                     cores = NULL, dry_run = FALSE) {
+  snaps <- list.files(snapshot_dir, pattern = '^snapshot_.*\\.rds$')
+  if (length(snaps) == 0) {
+    return(list(present = FALSE, snapshots = list()))
+  }
+  revs <- sub('^snapshot_(.*)\\.rds$', '\\1', snaps)
+  ints <- build_rev_intervals(revs, rev_dates, as.Date(horizon_end))
+  ints <- ints[order(ints$valid_from), , drop = FALSE]
+  n <- nrow(ints)
+
+  if (!dry_run) {
+    unlink(dest_snaps_dir, recursive = TRUE)   # rebuild fresh: no stale partitions on a retried publish
+    dir.create(dest_snaps_dir, recursive = TRUE, showWarnings = FALSE)
+  }
+  if (is.null(cores)) cores <- resolve_publish_cores()
+
+  message('publish: ', n, ' interval snapshot(s) -> ', dest_snaps_dir,
+          ' (cores=', cores, ')')
+
+  write_one <- function(i) {
+    rev_id <- ints$revision[i]
+    vf <- ints$valid_from[i]
+    vu <- ints$valid_until[i]
+    snap <- enforce_rate_schema(
+      readRDS(file.path(snapshot_dir, paste0('snapshot_', rev_id, '.rds'))))
+    # Attach the authoritative interval (not the snapshot's stored valid_*).
+    snap$revision    <- rev_id
+    snap$valid_from  <- vf
+    snap$valid_until <- vu
+    dest <- snapshot_parquet_path(dest_snaps_dir, vf)
+    if (!dry_run) {
+      dir.create(dirname(dest), recursive = TRUE, showWarnings = FALSE)
+      arrow::write_parquet(snap, dest, compression = 'snappy')
+    }
+    list(valid_from = format(vf, '%Y-%m-%d'),
+         valid_until = format(vu, '%Y-%m-%d'),
+         revision = rev_id, path = dest, n_rows = nrow(snap))
+  }
+
+  results <- if (cores > 1L && !dry_run) {
+    parallel::mclapply(seq_len(n), write_one, mc.cores = cores, mc.preschedule = FALSE)
+  } else {
+    lapply(seq_len(n), write_one)
+  }
+
+  # FAIL LOUD — mirror build_daily_aggregates_streaming(): mclapply does NOT stop
+  # on worker loss. A crashed worker returns a try-error; an OOM/signal-killed one
+  # returns NULL. Either silently drops an interval, shortening the published
+  # panel. Guard both.
+  if (length(results) != n) {
+    stop('publish snapshots: expected ', n, ' results, got ', length(results),
+         ' — a worker was lost. Lower TARIFF_PUBLISH_CORES or raise job memory.')
+  }
+  bad <- !vapply(results, function(r) is.list(r) && !is.null(r[['path']]), logical(1))
+  if (any(bad)) {
+    why <- vapply(results[bad], function(r)
+      if (inherits(r, 'try-error')) as.character(r) else '<killed: NULL result (OOM/signal)>',
+      character(1))
+    stop('publish snapshots LOST ', sum(bad), ' of ', n, ' interval(s): ',
+         paste(ints$revision[bad], collapse = ', '), '\n',
+         paste(why, collapse = '\n'),
+         '\nLower TARIFF_PUBLISH_CORES or raise job memory.')
+  }
+
+  list(present = TRUE, snapshots = results)
+}
+
+
+#' Publish the baseline ("actual") rate panel as per-interval snapshots.
+#'
+#' Replaces the former single rate_timeseries.parquet/.rds: streams the
+#' per-revision snapshots into <vintage>/actual/snapshots/valid_from=*/rates.parquet
+#' and copies metadata.rds alongside. The combined panel is no longer published;
+#' tariff-model's read_rate_panel.R reads the snapshot layout (John's switch).
+#'
+#' @keywords internal
+publish_timeseries <- function(repo_root, vintage_dir, rev_dates, horizon_end,
+                               cores = NULL, dry_run = FALSE) {
+  src_dir    <- file.path(repo_root, 'data', 'timeseries')
+  dest_snaps <- actual_snapshots_dir(vintage_dir)
+
+  res <- publish_series_snapshots(src_dir, dest_snaps,
+                                  rev_dates = rev_dates, horizon_end = horizon_end,
+                                  cores = cores, dry_run = dry_run)
+  if (!isTRUE(res$present)) {
+    stop('publish: no snapshot_*.rds in ', src_dir,
+         ' — run the build before publishing.')
+  }
 
   files <- character()
-
-  dest_rds <- file.path(dest_dir, 'rate_timeseries.rds')
-  if (!dry_run) file.copy(src_rds, dest_rds, overwrite = TRUE)
-  files <- c(files, dest_rds)
-  message('  copied:    rate_timeseries.rds')
-
-  dest_parquet <- file.path(dest_dir, 'rate_timeseries.parquet')
-  if (!dry_run) {
-    ts <- readRDS(src_rds)
-    arrow::write_parquet(ts, dest_parquet, compression = 'snappy')
-    rm(ts); gc()
-  }
-  files <- c(files, dest_parquet)
-  message('  converted: rate_timeseries.parquet')
-
+  src_meta <- file.path(src_dir, 'metadata.rds')
   if (file.exists(src_meta)) {
-    dest_meta <- file.path(dest_dir, 'metadata.rds')
-    if (!dry_run) file.copy(src_meta, dest_meta, overwrite = TRUE)
+    dest_meta <- file.path(dest_snaps, 'metadata.rds')
+    if (!dry_run) {
+      dir.create(dest_snaps, recursive = TRUE, showWarnings = FALSE)
+      file.copy(src_meta, dest_meta, overwrite = TRUE)
+    }
     files <- c(files, dest_meta)
     message('  copied:    metadata.rds')
   }
 
-  list(present = TRUE, files = files)
+  list(present = TRUE, files = files, snapshots = res$snapshots)
 }
 
 
@@ -300,20 +442,36 @@ publish_dir <- function(src_dir, dest_dir, min_mtime = NULL, dry_run = FALSE) {
 
 #' Build the per-vintage manifest.
 #'
+#' @param series_snapshots Named list keyed by series ("actual",
+#'   "scenarios/<name>"), each a list of per-interval records
+#'   {valid_from, valid_until, revision, path, n_rows}. Rendered into the
+#'   manifest `series` block with sha256 + size_bytes. These panel parquets are
+#'   listed ONLY there — not in the flat `files` inventory — to avoid hashing
+#'   every interval twice.
 #' @keywords internal
 build_manifest <- function(vintage, vintage_dir, repo_root,
-                           build_flags, build_started_at, copied) {
+                           build_flags, build_started_at, copied,
+                           series_snapshots = list()) {
+  relativize      <- function(f) sub(paste0('^', vintage_dir, '/?'), '', f)
+  file_sha256     <- function(f) if (file.exists(f)) digest::digest(file = f, algo = 'sha256') else NA_character_
+  file_size_bytes <- function(f) if (file.exists(f)) as.integer(file.info(f)$size) else NA_integer_
+
   all_files <- unlist(lapply(copied, function(x) x$files), use.names = FALSE)
   inventory <- lapply(all_files, function(f) {
-    if (!file.exists(f)) {
-      return(list(path = sub(paste0('^', vintage_dir, '/?'), '', f),
-                  size_bytes = NA_integer_, sha256 = NA_character_))
-    }
-    list(
-      path = sub(paste0('^', vintage_dir, '/?'), '', f),
-      size_bytes = as.integer(file.info(f)$size),
-      sha256 = digest::digest(file = f, algo = 'sha256')
-    )
+    list(path = relativize(f), size_bytes = file_size_bytes(f), sha256 = file_sha256(f))
+  })
+
+  # Per-series interval snapshots = the rate panel partitioned by valid_from
+  # (same logical rows as the former single rate_timeseries.parquet).
+  series <- lapply(series_snapshots, function(snaps) {
+    list(snapshots = lapply(snaps, function(s) list(
+      valid_from  = s$valid_from,
+      valid_until = s$valid_until,
+      path        = relativize(s$path),
+      sha256      = file_sha256(s$path),
+      size_bytes  = file_size_bytes(s$path),
+      n_rows      = s$n_rows
+    )))
   })
 
   git_info <- capture_git_info(repo_root)
@@ -324,6 +482,10 @@ build_manifest <- function(vintage, vintage_dir, repo_root,
   }, character(1))
 
   list(
+    schema_version = '2.0',                 # 2.0 = per-interval snapshot layout (1.x = single rate_timeseries.parquet)
+    rate_unit = 'fraction',
+    interval_end = 'inclusive',             # valid_until = next effective_date - 1 (last active day)
+    country_code_vocabulary = 'ISO-3166-1 alpha-3 (column: country)',
     vintage = vintage,
     build_started_at = if (is.null(build_started_at)) NA_character_ else format(build_started_at, '%Y-%m-%dT%H:%M:%S%z'),
     published_at = format(Sys.time(), '%Y-%m-%dT%H:%M:%S%z'),
@@ -333,6 +495,7 @@ build_manifest <- function(vintage, vintage_dir, repo_root,
     sections = vapply(names(copied), function(k) copied[[k]]$present, logical(1)),
     r_version = paste(R.version$major, R.version$minor, sep = '.'),
     package_versions = as.list(pkg_versions),
+    series = series,
     files = inventory
   )
 }

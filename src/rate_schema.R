@@ -62,6 +62,45 @@ enforce_rate_schema <- function(df) {
   return(df)
 }
 
+
+#' Build rev_intervals from revision_dates.csv, restricted to a set of revisions
+#'
+#' Extracts the standard (revision, valid_from, valid_until) interval encoding
+#' for the given revisions. Used by snapshot-based paths (daily aggregation,
+#' per-interval publish) that need to attach intervals without loading the full
+#' combined timeseries. valid_until is INCLUSIVE (last active day): the next
+#' revision's effective_date minus one; the tip extends to horizon_end.
+#'
+#' Lives here (not in 09_daily_series.R) so the publish layer can reuse it
+#' without sourcing the daily-series / calculator module.
+#'
+#' @param revs_built Character vector of revision IDs that have snapshots available
+#' @param rev_dates Tibble from load_revision_dates()
+#' @param horizon_end Series horizon end date (defaults to Sys.Date())
+#' @return Tibble with columns revision, valid_from, valid_until
+build_rev_intervals <- function(revs_built, rev_dates, horizon_end = Sys.Date()) {
+  if (length(revs_built) == 0) {
+    stop('build_rev_intervals: revs_built is empty — no revisions to build intervals for')
+  }
+  matched <- rev_dates$effective_date[rev_dates$revision %in% revs_built]
+  if (length(matched) == 0) {
+    stop('build_rev_intervals: none of revs_built match revision_dates.csv')
+  }
+  last_eff <- max(matched)
+  if (horizon_end < last_eff) horizon_end <- last_eff
+
+  rev_dates %>%
+    filter(revision %in% revs_built) %>%
+    arrange(effective_date) %>%
+    mutate(
+      valid_from = effective_date,
+      valid_until = lead(effective_date) - 1
+    ) %>%
+    mutate(valid_until = if_else(is.na(valid_until), horizon_end, valid_until)) %>%
+    select(revision, valid_from, valid_until)
+}
+
+
 # =============================================================================
 # Consolidated Functions (deduplicated from 03, 04, 06)
 # =============================================================================

@@ -42,3 +42,26 @@ scenario_dir <- function(name, root = output_root()) file.path(scenarios_root(ro
 
 # ---- unchanged-by-Phase-5 locations (kept here for one-stop reference) -------
 logs_dir <- function(root = output_root()) file.path(root, 'logs')
+
+# ---- published-vintage snapshot layout (per-interval rate panel) ------------
+# The publish layer (src/publish_internal.R) splits the rate panel by policy
+# interval start into Hive-style partitions, so a consumer reads only the dates
+# it needs instead of one monolithic rate_timeseries.parquet:
+#   <vintage>/actual/snapshots/valid_from=YYYY-MM-DD/rates.parquet
+#   <vintage>/scenarios/<name>/snapshots/valid_from=YYYY-MM-DD/rates.parquet
+# Keyed off an explicit vintage_dir (the publish destination), NOT output_root().
+SNAPSHOTS_SUBDIR <- 'snapshots'
+SNAPSHOT_FILE    <- 'rates.parquet'
+
+actual_snapshots_dir   <- function(vintage_dir)       file.path(vintage_dir, 'actual', SNAPSHOTS_SUBDIR)
+scenario_snapshots_dir <- function(vintage_dir, name) file.path(vintage_dir, 'scenarios', name, SNAPSHOTS_SUBDIR)
+
+#' Hive-style partition directory for one interval start (valid_from=YYYY-MM-DD).
+snapshot_partition_dir <- function(snaps_dir, valid_from) {
+  file.path(snaps_dir, paste0('valid_from=', format(as.Date(valid_from), '%Y-%m-%d')))
+}
+
+#' Path to the rates parquet for one interval start.
+snapshot_parquet_path <- function(snaps_dir, valid_from) {
+  file.path(snapshot_partition_dir(snaps_dir, valid_from), SNAPSHOT_FILE)
+}
