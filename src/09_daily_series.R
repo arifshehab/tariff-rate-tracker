@@ -302,19 +302,24 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   }
 
   # --- Per-revision aggregates (with generic expiry splitting) ---
-  # Generic interval splitter: splits a revision interval at all expiry dates
-  # and calls the aggregation function for each sub-interval
+  # Phase 3c: split points come from the unified timeline splitter (src/timeline.R),
+  # fed the legacy expiry boundaries. Provably identical sub-intervals to the old
+  # get_expiry_split_points path (boundary E+1 == old split+1), so output is
+  # unchanged — this just routes splitting through the one seam. Extending the
+  # boundary set (spec active windows / annex / Ch99 offsets) is the next step and
+  # is what catches mid-interval activations the old splitter missed.
+  exp_bounds <- expiry_boundaries(policy_params)
   split_and_aggregate <- function(agg_fn) {
     rev_intervals %>%
       pmap_dfr(function(revision, valid_from, valid_until) {
-        splits <- get_expiry_split_points(valid_from, valid_until, policy_params)
-        if (length(splits) == 0) {
+        starts_inner <- timeline_split_points(valid_from, valid_until, exp_bounds)
+        if (length(starts_inner) == 0) {
           return(agg_fn(revision, valid_from, valid_until))
         }
-        # Build sub-intervals: [valid_from, split1], [split1+1, split2], ..., [splitN+1, valid_until]
-        boundaries <- c(valid_from, splits + 1)
-        ends <- c(splits, valid_until)
-        pmap_dfr(list(boundaries, ends), function(s, e) {
+        # Sub-intervals: [valid_from, s1-1], [s1, s2-1], ..., [sN, valid_until]
+        starts <- c(valid_from, starts_inner)
+        ends   <- c(starts_inner - 1, valid_until)
+        pmap_dfr(list(starts, ends), function(s, e) {
           agg_fn(revision, s, e, sub_start = s)
         })
       })

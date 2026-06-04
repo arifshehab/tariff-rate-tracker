@@ -101,3 +101,15 @@ timeline_split_points <- function(valid_from, valid_until, boundaries) {
   b  <- as.Date(boundaries)
   sort(unique(b[!is.na(b) & b > vf & b <= vu]))
 }
+
+#' The parity-preserving boundary set for the downstream splitter swap: the legacy
+#' expiry adjustments (SECTION_122 / SWISS) as canonical boundaries (last-live-day
+#' E -> first-dead-day E+1). Depends on collect_expiry_adjustments() (helpers.R) at
+#' call time. This is the bridge set; the mid-interval-activation fix adds the spec
+#' active windows / annex / Ch99 offsets on top (via collect_schedule_boundaries).
+expiry_boundaries <- function(policy_params) {
+  adj <- collect_expiry_adjustments(policy_params)
+  if (!length(adj)) return(as.Date(character()))
+  e <- as.Date(vapply(adj, function(a) as.character(as.Date(a$expiry_date)), character(1)))
+  sort(unique(boundary_from_expiry(e)))
+}
