@@ -205,27 +205,25 @@ Pass `--with-artifacts` to include the heavier artifact-dependent integration ch
 |---|---|
 | `output/etr/` | weighted ETR tables and plots |
 | `output/comparisons/` | benchmark comparison artifacts |
-| `output/alternative/` | counterfactual variants — one file per scenario × output type (`daily_overall_<variant>.csv`, `by_authority_<variant>.csv`, `by_country_<variant>.csv`, `by_category_<variant>.csv`). See [docs/scenarios.md](scenarios.md). |
+| `output/alternative/` | rebuild-alternative variants (USMCA-share pp_override rebuilds) — one file per variant × output type (`daily_overall_<variant>.csv`, `by_authority_<variant>.csv`, `by_country_<variant>.csv`, `by_category_<variant>.csv`). AuthoritySpec scenarios: see [docs/scenarios.md](scenarios.md). |
 | `output/etrs_config/{date}/` | ETRs-compatible config directories (from `generate_etrs_config.R`) |
 
 ## Scenarios and counterfactuals
 
-The build runs the baseline and any number of counterfactual scenarios defined
-in [`config/scenarios.yaml`](../config/scenarios.yaml). Scenarios produce
-companion outputs in `output/alternative/`. They support two formats:
+Counterfactual scenarios are **AuthoritySpec operations** applied to the policy
+spec before the calculator runs (the legacy `config/scenarios.yaml` patch engine
+was removed in Phase 7). A scenario is a list of operations
+(`set_rate`/`set_exempt`/`disable`/`set_country_scope`/`set_active`/`add_program`);
+"baseline = the empty scenario." See [docs/scenarios.md](scenarios.md) for the
+authoring guide and [`src/scenario_ops.R`](../src/scenario_ops.R) for the verbs.
 
-- `disable:` — zero out one or more authority columns wholesale.
-- `patches:` — date-bounded targeted overrides selected by country group and
-  product set; currently supports the `floor` action.
-
-See [docs/scenarios.md](scenarios.md) for the authoring guide (filter and
-action vocabulary, output schemas, and how to extend the DSL).
-
-To run only scenarios without re-building the main series (e.g. after editing
-`config/scenarios.yaml`):
+Separately, the build can re-run the series under alternative **policy-parameter**
+variants (the USMCA-share rebuilds: `usmca_annual`, `usmca_monthly`, `usmca_2024`,
+`usmca_dec2025`, …) with `--with-alternatives`; outputs land in
+`output/alternative/`.
 
 ```bash
-Rscript src/00_build_timeseries.R --alternatives-only
+Rscript src/00_build_timeseries.R --alternatives-only   # rebuild alternatives only
 ```
 
 ## Comparison workflows
