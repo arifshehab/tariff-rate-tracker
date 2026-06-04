@@ -23,6 +23,8 @@ get_country_constants <- function(pp) list(CTY_CHINA = '5700', CTY_CANADA = '122
 filter_active_ch99    <- function(ch99_data, effective_date) ch99_data
 HEADING_GATES_SENTINEL <- list(autos_passenger = TRUE, copper = FALSE)
 compute_heading_gates <- function(s232_rates, ch99_data) HEADING_GATES_SENTINEL
+S122_SENTINEL <- list(s122_rate = 0.10, has_s122 = TRUE)   # Phase 6a
+extract_section122_rates <- function(ch99_data) S122_SENTINEL
 
 source(here('src', 'authority_adapter.R'))
 
@@ -64,6 +66,8 @@ check(identical(attr(specs[['ieepa_reciprocal']], 'raw_ieepa',    exact = TRUE),
       'raw_ieepa embedded verbatim on ieepa_reciprocal')
 check(identical(attr(specs[['ieepa_fentanyl']],   'raw_fentanyl', exact = TRUE), fent),
       'raw_fentanyl embedded verbatim on ieepa_fentanyl')
+check(identical(attr(specs[['section_122']],      'raw_s122',     exact = TRUE), S122_SENTINEL),
+      'raw_s122 embedded on section_122 (Phase 6a)')
 check(identical(attr(attr(specs[['ieepa_reciprocal']], 'raw_ieepa', exact = TRUE),
                      'universal_baseline', exact = TRUE), 0.10),
       'universal_baseline attribute survives the embed')
@@ -73,6 +77,7 @@ legacy <- specs_legacy_args(specs)
 check(identical(legacy$ieepa_rates, ieepa),    'specs_legacy_args$ieepa_rates == ieepa')
 check(identical(legacy$s232_rates, s232),      'specs_legacy_args$s232_rates == s232')
 check(identical(legacy$fentanyl_rates, fent),  'specs_legacy_args$fentanyl_rates == fent')
+check(identical(legacy$s122_rates, S122_SENTINEL), 'specs_legacy_args$s122_rates == s122 (Phase 6a)')
 
 cat('\n--- normalized scaffold (not read in Phase 1, but should be faithful) ---\n')
 check(identical(specs[['section_301']]$programs[[1]]$country_scope$include, '5700'),

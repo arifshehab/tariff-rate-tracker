@@ -32,7 +32,8 @@
 SPEC_RAW_ATTRS <- c(
   section_232      = 'raw_s232',
   ieepa_reciprocal = 'raw_ieepa',
-  ieepa_fentanyl   = 'raw_fentanyl'
+  ieepa_fentanyl   = 'raw_fentanyl',
+  section_122      = 'raw_s122'     # Phase 6a
 )
 
 # ---- helpers ----------------------------------------------------------------
@@ -48,7 +49,8 @@ specs_legacy_args <- function(specs) {
   list(
     ieepa_rates    = attr(specs[['ieepa_reciprocal']], 'raw_ieepa',    exact = TRUE),
     s232_rates     = attr(specs[['section_232']],      'raw_s232',     exact = TRUE),
-    fentanyl_rates = attr(specs[['ieepa_fentanyl']],   'raw_fentanyl', exact = TRUE)
+    fentanyl_rates = attr(specs[['ieepa_fentanyl']],   'raw_fentanyl', exact = TRUE),
+    s122_rates     = attr(specs[['section_122']],      'raw_s122',     exact = TRUE)
   )
 }
 
@@ -189,6 +191,12 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       id = 's122', product_scope = list(include = 'all'),
       country_scope = list(include = 'all')))
   )
+  # Phase 6a: embed the Section 122 rate, extracted from the SAME date-gated ch99
+  # the calc uses (filter_active_ch99 at 06:766, then extract at 06:2406), so the
+  # calc reads it off the spec instead of re-extracting — closing the gap where
+  # s122 alone ignored the spec set. Mirrors the s232 heading-gate precompute above.
+  attr(section_122, 'raw_s122') <-
+    extract_section122_rates(filter_active_ch99(ch99_data, as.Date(effective_date)))
 
   # --- mfn (base layer) + other (catch-all) — inert in Phase 1 --------------
   mfn <- authority_spec(
