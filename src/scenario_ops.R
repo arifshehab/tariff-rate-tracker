@@ -9,26 +9,58 @@
 # apply_operations(specs, ops) returns a mutated authority_spec_set; the build
 # then runs calculate_rates_for_revision(..., specs = mutated) and recomputes.
 #
-# PHASE 2 SCOPE — only operations the calculator currently READS off the spec:
-#   * set_country_scope / disable / set_active for STRUCTURE-CONFIGURED authorities
-#     whose country scope the calc reads from the spec: section_301, section_201.
-#   * The flagship: `set_country_scope section_301 -> {China, Vietnam}` (301 -> VN).
+# SUPPORTED operations (each READS off the spec; never a silent no-op):
+#   * set_country_scope / set_active for the scope-driven authorities (section_301,
+#     section_201). Flagship: `set_country_scope section_301 -> {China, Vietnam}`.
+#   * set_rate / set_exempt for the rate-driven authorities, now that Phase 6b/6c
+#     made their rates spec-native (programs[[1]]$rate$resolved): section_232
+#     (per-program: steel/aluminum/copper/autos/mhd/wood/semiconductors) and
+#     section_122 (scalar). set_rate recomputes the s232 has_232 OR-gate / s122
+#     has_s122 so a scenario can turn a dormant authority ON. Flagship: bump steel.
+#   * disable — empties scope (301/201) OR zeros the resolved rates (232/s122).
 #
 # NOT YET SUPPORTED (error loudly — never a silent no-op):
-#   * Any op on section_232 / ieepa_* / section_122 rates: those rates still come
-#     from the embedded raw objects (232/ieepa) or internal extraction (s122), not
-#     normalized spec fields — making them spec-authoritative is the deferred
-#     Phase 6 (embed/seed) work. `disable` of these needs that first.
-#   * add_program (no-Ch99 seeding), set_rate/floor on embed authorities,
-#     set_product_scope. Deferred.
+#   * add_program (new coverage with no Ch99 backing) + its weight provisioning:
+#     Phase 8 (needs the no-Ch99 seeder in the calculator).
+#   * set_floor (IEEPA universal baseline / phase-1 floor) and IEEPA reciprocal/
+#     fentanyl per-country set_rate (heterogeneous tibble): deferred follow-ups.
 #
 # Depends on src/authority_spec.R (constructors, validate_spec_set, %||%).
 # =============================================================================
 
-# Authorities whose country scope the Phase-2 calculator reads from the spec.
+# Authorities whose country scope the calculator reads from the spec (Phase 2e).
 SCOPE_DRIVEN_AUTHORITIES <- c('section_301', 'section_201')
 
+# Authorities whose resolved rate payload (programs[[1]]$rate$resolved) the
+# calculator reads (Phase 6b/6c) — set_rate / set_exempt / disable mutate it.
+RATE_DRIVEN_AUTHORITIES <- c('section_232', 'section_122')
+
+# section_232: program id -> the rate field it owns in the resolved 21-field
+# s232_rates list (the thin cut parks the whole list on programs[[1]]; per-program
+# normalization is Phase 8, but ops address it by the logical program name here).
+S232_RATE_FIELD <- c(steel = 'steel_rate', aluminum = 'aluminum_rate',
+                     copper = 'copper_rate', autos = 'auto_rate', mhd = 'mhd_rate',
+                     wood = 'wood_rate', semiconductors = 'semi_rate')
+# Only the metals/autos primary programs carry country exemption lists.
+S232_EXEMPT_FIELD <- c(steel = 'steel_exempt', aluminum = 'aluminum_exempt',
+                       autos = 'auto_exempt')
+
 `%||%` <- function(x, y) if (is.null(x)) y else x
+
+# ---- resolved-payload accessors (Phase 6d) ----------------------------------
+.op_get_resolved <- function(spec) spec$programs[[1]]$rate$resolved
+.op_set_resolved <- function(spec, resolved) {
+  spec$programs[[1]]$rate$resolved <- resolved
+  spec
+}
+# Recompute the s232 has_232 OR-gate after a rate mutation. Mirrors the formula in
+# 05_parse_policy_params.R::extract_section232_rates (keep in lockstep).
+.s232_recompute_has_232 <- function(r) {
+  pos <- function(x) isTRUE(x > 0)
+  pos(r$steel_rate) || pos(r$aluminum_rate) || pos(r$auto_rate) || isTRUE(r$auto_has_deals) ||
+    pos(r$wood_rate) || pos(r$wood_furniture_rate) || pos(r$mhd_rate) || pos(r$copper_rate) ||
+    pos(r$semi_rate) || pos(r$aluminum_derivative_rate) || pos(r$steel_derivative_rate)
+}
 
 #' Apply a list of operations to a spec set, in listed order.
 #'
@@ -58,9 +90,13 @@ apply_operation <- function(specs, op, idx = NA_integer_) {
     set_country_scope = op_set_country_scope(specs, op, idx),
     set_active        = op_set_active(specs, op, idx),
     disable           = op_disable(specs, op, idx),
-    stop(sprintf('operation[%s]: verb "%s" is not supported in Phase 2. Supported: %s. ',
-                 idx, verb, 'set_country_scope, set_active, disable'),
-         'Rate/coverage ops on 232/IEEPA/s122 need the Phase 6 embed/seed work.')
+    set_rate          = op_set_rate(specs, op, idx),
+    set_exempt        = op_set_exempt(specs, op, idx),
+    stop(sprintf(paste0('operation[%s]: verb "%s" is not supported. Supported: %s. ',
+                        'add_program (new coverage) + set_floor + IEEPA per-country ',
+                        'rate ops are deferred to Phase 8 / a follow-up.'),
+                 idx, verb,
+                 'set_country_scope, set_active, disable, set_rate, set_exempt'))
   )
 }
 
@@ -103,14 +139,40 @@ op_set_country_scope <- function(specs, op, idx) {
   specs
 }
 
-#' disable — zero an authority by emptying its country scope (scope-driven only
-#' in Phase 2). The calc then applies it to no countries (e.g. rate_301 -> 0).
+#' disable — turn an authority off. Scope-driven (301/201): empty every program's
+#' country scope (calc applies it to no countries). Rate-driven (232/s122):
+#' zero the resolved rates so the calc's has_232/has_s122 gate is FALSE.
 op_disable <- function(specs, op, idx) {
-  .require_scope_driven(op$authority, idx, 'disable')
-  for (pos in seq_along(specs[[op$authority]]$programs)) {
-    specs[[op$authority]]$programs[[pos]]$country_scope <- list(include = character(0))
+  auth <- op$authority
+  if (auth %in% SCOPE_DRIVEN_AUTHORITIES) {
+    for (pos in seq_along(specs[[auth]]$programs)) {
+      specs[[auth]]$programs[[pos]]$country_scope <- list(include = character(0))
+    }
+    return(specs)
   }
-  specs
+  if (auth %in% RATE_DRIVEN_AUTHORITIES) {
+    spec <- specs[[auth]]
+    r <- .op_get_resolved(spec)
+    if (is.null(r)) stop(sprintf('operation[%s] (disable): %s has no resolved rate payload', idx, auth))
+    if (auth == 'section_232') {
+      for (f in S232_RATE_FIELD) r[[f]] <- 0
+      r$aluminum_derivative_rate <- 0
+      r$steel_derivative_rate    <- 0
+      r$auto_has_deals           <- FALSE
+      if (!is.null(r$auto_deal_rates)) r$auto_deal_rates <- r$auto_deal_rates[0, , drop = FALSE]
+      if (!is.null(r$wood_deal_rates)) r$wood_deal_rates <- r$wood_deal_rates[0, , drop = FALSE]
+      r$has_232 <- FALSE
+    } else if (auth == 'section_122') {
+      r$s122_rate <- 0
+      r$has_s122  <- FALSE
+    }
+    specs[[auth]] <- .op_set_resolved(spec, r)
+    return(specs)
+  }
+  stop(sprintf(paste0('operation[%s] (disable): authority "%s" is not disable-able. ',
+                      'Supported: %s (scope) + %s (rate). IEEPA disable is a deferred follow-up.'),
+               idx, auth, paste(SCOPE_DRIVEN_AUTHORITIES, collapse = ', '),
+               paste(RATE_DRIVEN_AUTHORITIES, collapse = ', ')))
 }
 
 #' set_active — change a program's (or authority's) active window {from, until}.
@@ -124,5 +186,69 @@ op_set_active <- function(specs, op, idx) {
     specs[[op$authority]]$programs[[pos]]$active <-
       modifyList(specs[[op$authority]]$programs[[pos]]$active %||% list(), active)
   }
+  specs
+}
+
+#' Guard: the authority's resolved rate payload must be readable by the calc.
+.require_rate_driven <- function(auth, idx, verb) {
+  if (!auth %in% RATE_DRIVEN_AUTHORITIES) {
+    stop(sprintf(paste0('operation[%s] (%s): authority "%s" is not rate-driven — only %s ',
+                        'have their resolved rate read from the spec. (IEEPA per-country ',
+                        'rate ops are a deferred follow-up; new coverage is Phase 8.)'),
+                 idx, verb, auth, paste(RATE_DRIVEN_AUTHORITIES, collapse = ', ')))
+  }
+}
+
+#' set_rate — set a program's rate in the resolved payload (Phase 6d). Flagship:
+#' bump steel. section_232 needs `program` (steel/aluminum/copper/autos/mhd/wood/
+#' semiconductors) and recomputes has_232; section_122 is scalar (sets has_s122).
+op_set_rate <- function(specs, op, idx) {
+  auth <- op$authority
+  .require_rate_driven(auth, idx, 'set_rate')
+  rate <- op$rate %||% stop(sprintf('operation[%s] (set_rate): missing `rate`', idx))
+  if (!is.numeric(rate) || length(rate) != 1L || is.na(rate)) {
+    stop(sprintf('operation[%s] (set_rate): `rate` must be a single non-NA number', idx))
+  }
+  spec <- specs[[auth]]
+  r <- .op_get_resolved(spec)
+  if (is.null(r)) stop(sprintf('operation[%s] (set_rate): %s has no resolved rate payload', idx, auth))
+  if (auth == 'section_232') {
+    prog <- op$program %||% stop(sprintf(
+      'operation[%s] (set_rate): section_232 needs `program` (one of %s)',
+      idx, paste(names(S232_RATE_FIELD), collapse = ', ')))
+    field <- S232_RATE_FIELD[[prog]]
+    if (is.null(field)) stop(sprintf(
+      'operation[%s] (set_rate): unknown section_232 program "%s" (have: %s)',
+      idx, prog, paste(names(S232_RATE_FIELD), collapse = ', ')))
+    r[[field]] <- rate
+    r$has_232  <- .s232_recompute_has_232(r)
+  } else {   # section_122
+    r$s122_rate <- rate
+    r$has_s122  <- rate > 0
+  }
+  specs[[auth]] <- .op_set_resolved(spec, r)
+  specs
+}
+
+#' set_exempt — replace a section_232 program's country exemption list (Phase 6d).
+#' `op$countries` = census codes exempt from that program's 232 rate.
+op_set_exempt <- function(specs, op, idx) {
+  auth <- op$authority
+  if (auth != 'section_232') {
+    stop(sprintf('operation[%s] (set_exempt): only section_232 supported (got "%s")', idx, auth))
+  }
+  prog <- op$program %||% stop(sprintf(
+    'operation[%s] (set_exempt): needs `program` (one of %s)',
+    idx, paste(names(S232_EXEMPT_FIELD), collapse = ', ')))
+  field <- S232_EXEMPT_FIELD[[prog]]
+  if (is.null(field)) stop(sprintf(
+    'operation[%s] (set_exempt): no exemption list for section_232 program "%s" (have: %s)',
+    idx, prog, paste(names(S232_EXEMPT_FIELD), collapse = ', ')))
+  countries <- op$countries %||% stop(sprintf('operation[%s] (set_exempt): missing `countries`', idx))
+  spec <- specs[[auth]]
+  r <- .op_get_resolved(spec)
+  if (is.null(r)) stop(sprintf('operation[%s] (set_exempt): section_232 has no resolved payload', idx))
+  r[[field]] <- as.character(countries)
+  specs[[auth]] <- .op_set_resolved(spec, r)
   specs
 }
