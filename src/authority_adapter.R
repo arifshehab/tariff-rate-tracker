@@ -44,13 +44,6 @@ s232_rates_from_specs     <- function(specs) .spec_resolved_rate(specs[['section
 fentanyl_rates_from_specs <- function(specs) .spec_resolved_rate(specs[['ieepa_fentanyl']])
 s122_rates_from_specs     <- function(specs) .spec_resolved_rate(specs[['section_122']])
 
-#' Is the AuthoritySpec build path enabled? (TARIFF_USE_SPECS=1|true|yes)
-#' Robust to the usual env-var spellings (as.logical("1") is NA, not TRUE).
-use_specs_enabled <- function() {
-  v <- tolower(trimws(Sys.getenv('TARIFF_USE_SPECS', '')))
-  v %in% c('1', 'true', 'yes', 'on')
-}
-
 # ---- the adapter ------------------------------------------------------------
 
 #' Re-package the bespoke per-authority parser outputs into an authority_spec_set.

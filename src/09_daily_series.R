@@ -1187,19 +1187,17 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
       s232_rates <- extract_section232_rates(filter_active_ch99(ch99_data, as.Date(eff_date)))
       usmca <- extract_usmca_eligibility(hts_raw)
 
-      specs <- if (use_specs_enabled()) {
-        s <- build_authority_specs(
-          products, ch99_data, ieepa_rates, usmca,
-          countries, rev_id, eff_date,
-          s232_rates = s232_rates, fentanyl_rates = fentanyl_rates,
-          policy_params = policy_params %||% pp_override
-        )
-        # Phase 6e: apply the scenario's operations (no ops => baseline, unchanged).
-        if (!is.null(operations) && length(operations) > 0) {
-          s <- apply_operations(s, operations)
-        }
-        s
-      } else NULL
+      # Phase 6f: AuthoritySpec path always on (specs = authoritative input).
+      specs <- build_authority_specs(
+        products, ch99_data, ieepa_rates, usmca,
+        countries, rev_id, eff_date,
+        s232_rates = s232_rates, fentanyl_rates = fentanyl_rates,
+        policy_params = policy_params %||% pp_override
+      )
+      # Phase 6e: apply the scenario's operations (no ops => baseline, unchanged).
+      if (!is.null(operations) && length(operations) > 0) {
+        specs <- apply_operations(specs, operations)
+      }
 
       rates <- calculate_rates_for_revision(
         products, ch99_data, ieepa_rates, usmca,

@@ -111,24 +111,20 @@ build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
   s232_rates <- extract_section232_rates(ch99_data_active)
   usmca <- extract_usmca_eligibility(hts_raw)
 
-  # f. (Optional) AuthoritySpec path — gated by TARIFF_USE_SPECS. When enabled,
-  #    re-package the bespoke objects into a spec set; the calculator pulls the
-  #    embedded raw objects back out and runs the identical body (Phase 1 parity).
-  specs <- if (use_specs_enabled()) {
-    s <- build_authority_specs(
-      products, ch99_data, ieepa_rates, usmca,
-      countries, rev_id, eff_date,
-      s232_rates = s232_rates, fentanyl_rates = fentanyl_rates,
-      policy_params = pp_build
-    )
-    # Phase 2e: a scenario applies its operations to the specs before the calc.
-    # No operations => baseline (the empty scenario).
-    if (!is.null(operations) && length(operations) > 0) {
-      message('  Applying ', length(operations), ' scenario operation(s) to specs')
-      s <- apply_operations(s, operations)
-    }
-    s
-  } else NULL
+  # f. AuthoritySpec path (Phase 6f: ALWAYS ON — specs are the authoritative input;
+  #    "baseline = the empty scenario"). Re-package the parser outputs into a spec
+  #    set; the calculator reads rates/scope/gates off it. A scenario applies its
+  #    operations before the calc; no operations => baseline.
+  specs <- build_authority_specs(
+    products, ch99_data, ieepa_rates, usmca,
+    countries, rev_id, eff_date,
+    s232_rates = s232_rates, fentanyl_rates = fentanyl_rates,
+    policy_params = pp_build
+  )
+  if (!is.null(operations) && length(operations) > 0) {
+    message('  Applying ', length(operations), ' scenario operation(s) to specs')
+    specs <- apply_operations(specs, operations)
+  }
 
   # g. Calculate rates for this revision
   rates <- calculate_rates_for_revision(
