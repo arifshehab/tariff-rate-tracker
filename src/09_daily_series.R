@@ -852,9 +852,115 @@ save_daily_outputs <- function(daily, out_dir = actual_daily_dir()) {
 #' @param imports Optional pre-loaded import weights; loaded if NULL
 #' @param policy_params Optional policy params list (from load_policy_params())
 #' @return Daily aggregates (invisible)
-run_daily_series <- function(ts, imports = NULL, policy_params = NULL) {
+#' Build the full daily aggregates WITHOUT materializing the combined timeseries.
+#'
+#' Codex/perf Phase 1: the giant ~194.5M-row rate_timeseries.rds (~48 GB in RAM)
+#' is never needed for the daily math — each revision's aggregate depends only on
+#' that revision's own snapshot. This reads ONE snapshot at a time, runs the exact
+#' same build_daily_aggregates() on it, and binds the per-revision daily outputs.
+#' Output is identical to build_daily_aggregates(combined_ts) (same function, same
+#' splits/expansion/etr_base, just grouped by revision) but peak memory is one
+#' snapshot (~1.2 GB) instead of the whole stack.
+#'
+#' @param snapshot_dir Directory of snapshot_<rev>.rds files
+#' @param rev_dates Revision-date table (from load_revision_dates())
+#' @param imports Import weights tibble (or NULL)
+#' @param policy_params Policy params list (SERIES_HORIZON_END drives the tip interval)
+build_daily_aggregates_streaming <- function(snapshot_dir, rev_dates,
+                                              imports = NULL, policy_params = NULL,
+                                              cores = NULL) {
+  horizon_end <- as.Date(policy_params$SERIES_HORIZON_END %||% Sys.Date())
+  snaps <- list.files(snapshot_dir, pattern = '^snapshot_.*\\.rds$')
+  revs_built <- sub('^snapshot_(.*)\\.rds$', '\\1', snaps)
+  # Same interval logic assemble_timeseries() uses (00_build_timeseries.R) so the
+  # tip extends to the horizon and boundaries match the combined-ts path exactly.
+  rev_intervals <- rev_dates %>%
+    filter(revision %in% revs_built) %>%
+    arrange(effective_date) %>%
+    mutate(valid_from = effective_date,
+           valid_until = lead(effective_date) - 1) %>%
+    mutate(valid_until = if_else(is.na(valid_until), horizon_end, valid_until)) %>%
+    select(revision, valid_from, valid_until)
+  if (nrow(rev_intervals) == 0) stop('No snapshots found in ', snapshot_dir)
+
+  # Revisions are independent — fan the per-snapshot work across cores. Default
+  # from TARIFF_DAILY_CORES, else the Slurm allocation, else serial. Each worker
+  # holds one snapshot (~1.2 GB), so cores are bounded by node memory, not CPU.
+  if (is.null(cores)) {
+    cores <- suppressWarnings(as.integer(Sys.getenv('TARIFF_DAILY_CORES', unset = NA)))
+    if (is.na(cores)) cores <- suppressWarnings(as.integer(Sys.getenv('SLURM_CPUS_PER_TASK', unset = NA)))
+    if (is.na(cores) || cores < 1L) cores <- 1L
+  }
+  n <- nrow(rev_intervals)
+  message('Streaming daily aggregates over ', n,
+          ' revisions (per-snapshot; no combined timeseries; cores=', cores, ')')
+
+  process_one <- function(i) {
+    rev_id <- rev_intervals$revision[i]
+    snap <- readRDS(file.path(snapshot_dir, paste0('snapshot_', rev_id, '.rds'))) %>%
+      enforce_rate_schema()
+    # Attach the AUTHORITATIVE interval (recomputed from rev_dates, exactly as
+    # assemble_timeseries does — do NOT trust the snapshot's stored valid_*).
+    snap$revision    <- rev_id
+    snap$valid_from  <- rev_intervals$valid_from[i]
+    snap$valid_until <- rev_intervals$valid_until[i]
+    suppressMessages(
+      build_daily_aggregates(snap, imports = imports, policy_params = policy_params))
+  }
+
+  results <- if (cores > 1L) {
+    # mc.preschedule = FALSE: dynamic dispatch, since the ANNEX revisions are far
+    # heavier than the rest — keeps all cores busy instead of one straggler.
+    parallel::mclapply(seq_len(n), process_one, mc.cores = cores, mc.preschedule = FALSE)
+  } else {
+    lapply(seq_len(n), process_one)
+  }
+  # mclapply does NOT stop on worker failure: a CRASHED worker returns a
+  # try-error, and a worker KILLED by the OS (OOM / signal) returns NULL. Either
+  # way the revision would silently vanish from the bind_rows below and shorten
+  # the daily series. Guard against BOTH so a dropped revision fails LOUDLY —
+  # never a silently-truncated daily series.
+  if (length(results) != n) {
+    stop('streaming daily: expected ', n, ' results, got ', length(results),
+         ' — a worker was lost. Lower TARIFF_DAILY_CORES or raise job memory.')
+  }
+  bad <- !vapply(results, function(r) is.list(r) && !is.null(r[['daily_overall']]),
+                 logical(1))
+  if (any(bad)) {
+    why <- vapply(results[bad], function(r)
+      if (inherits(r, 'try-error')) as.character(r) else '<killed: NULL result (OOM/signal)>',
+      character(1))
+    stop('streaming daily LOST ', sum(bad), ' of ', n, ' revision(s): ',
+         paste(rev_intervals$revision[bad], collapse = ', '), '\n',
+         paste(why, collapse = '\n'),
+         '\nLower TARIFF_DAILY_CORES or raise job memory.')
+  }
+
+  list(
+    daily_overall      = bind_rows(lapply(results, `[[`, 'daily_overall')),
+    daily_by_country   = bind_rows(lapply(results, `[[`, 'daily_by_country')),
+    daily_by_authority = bind_rows(lapply(results, `[[`, 'daily_by_authority')),
+    daily_by_category  = bind_rows(lapply(results, `[[`, 'daily_by_category'))
+  )
+}
+
+#' Run the daily series and write outputs.
+#'
+#' Two input modes:
+#'   - legacy:    pass `ts` (the combined timeseries) — filters it per revision.
+#'   - streaming: pass `snapshot_dir` (+ `rev_dates`) — reads one snapshot at a
+#'     time, never building the 48 GB combined panel. Identical outputs, far less
+#'     memory/time. This is the preferred path for builds and the parity gate.
+run_daily_series <- function(ts = NULL, imports = NULL, policy_params = NULL,
+                             snapshot_dir = NULL, rev_dates = NULL) {
   if (is.null(imports)) imports <- load_import_weights()
-  daily <- build_daily_aggregates(ts, imports = imports, policy_params = policy_params)
+  if (!is.null(snapshot_dir)) {
+    if (is.null(rev_dates)) rev_dates <- load_revision_dates()
+    daily <- build_daily_aggregates_streaming(snapshot_dir, rev_dates,
+                                               imports = imports, policy_params = policy_params)
+  } else {
+    daily <- build_daily_aggregates(ts, imports = imports, policy_params = policy_params)
+  }
   save_daily_outputs(daily)
   return(invisible(daily))
 }

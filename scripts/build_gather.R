@@ -37,7 +37,11 @@ suppressMessages({
 args <- commandArgs(trailingOnly = TRUE)
 use_policy_dates <- !('--use-hts-dates' %in% args)
 unweighted <- '--unweighted' %in% args
-output_dir <- here('data', 'timeseries')
+# Where the array tasks wrote their snapshots. Overridable (TARIFF_TS_DIR) so the
+# gather can read an isolated candidate build without touching data/timeseries —
+# mirrors scripts/build_revision.R. Downstream (daily/ETR) honors TARIFF_OUTPUT_DIR.
+ts_dir_env <- Sys.getenv('TARIFF_TS_DIR')
+output_dir <- if (nzchar(ts_dir_env)) ts_dir_env else here('data', 'timeseries')
 
 init_logging(
   log_file = file.path(ensure_dir(here('output', 'logs')),

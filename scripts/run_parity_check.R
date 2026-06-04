@@ -11,7 +11,7 @@
 #   frozen — snapshots + rate_timeseries.rds at <root>, daily CSVs in <root>/daily
 #            (this is what scripts/capture_parity_golden.R writes)
 #   live   — a working repo: snapshots in <root>/data/timeseries,
-#            daily CSVs in <root>/output/daily
+#            daily CSVs in <root>/output/actual/daily
 #
 # Usage:
 #   Rscript scripts/run_parity_check.R --golden tests/golden/<sha>
@@ -57,6 +57,11 @@ resolve_build_dirs <- function(root) {
                 daily_dir = file.path(root, 'output', 'actual', 'daily')))
   }
   list(ts_dir = root, daily_dir = root)
+}
+
+# An artifact kind lives in either the daily tree or the timeseries tree.
+artifact_dir_for <- function(dirs, kind) {
+  if (grepl('^daily', kind)) dirs$daily_dir else dirs$ts_dir
 }
 
 gd <- resolve_build_dirs(golden_root)
@@ -119,8 +124,8 @@ pair_and_compare <- function(kind, gfiles, cfiles, ts) {
 for (kind in kinds) {
   spec <- PARITY_ARTIFACTS[[kind]]
   if (is.null(spec)) { cat('  (skip unknown artifact kind: ', kind, ')\n'); next }
-  dir_g <- if (grepl('^daily', kind)) gd$daily_dir else gd$ts_dir
-  dir_c <- if (grepl('^daily', kind)) cd$daily_dir else cd$ts_dir
+  dir_g <- artifact_dir_for(gd, kind)
+  dir_c <- artifact_dir_for(cd, kind)
   gfiles <- list.files(dir_g, pattern = utils::glob2rx(spec$glob), full.names = TRUE)
   cfiles <- list.files(dir_c, pattern = utils::glob2rx(spec$glob), full.names = TRUE)
   if (length(gfiles) == 0 && length(cfiles) == 0) next

@@ -83,3 +83,6 @@ data/us_notes/*.csv
 
 # Claude
 .claude/
+
+# Parity golden reference (large build artifacts; capture locally)
+tests/golden/
