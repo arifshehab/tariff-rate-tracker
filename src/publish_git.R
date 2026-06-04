@@ -50,10 +50,10 @@ RELEASE_DIR_DEFAULT <- here('release')
 #   format — 'parquet' or 'csv'; the format the released file is written in
 RELEASE_OUTPUTS <- list(
   list(name = 'rate_timeseries',     src = 'data/timeseries/rate_timeseries.rds',  format = 'parquet'),
-  list(name = 'daily_overall',       src = 'output/daily/daily_overall.csv',       format = 'csv'),
-  list(name = 'daily_by_country',    src = 'output/daily/daily_by_country.csv',    format = 'csv'),
-  list(name = 'daily_by_authority',  src = 'output/daily/daily_by_authority.csv',  format = 'csv'),
-  list(name = 'daily_by_category',   src = 'output/daily/daily_by_category.csv',   format = 'csv')
+  list(name = 'daily_overall',       src = 'output/actual/daily/daily_overall.csv',       format = 'csv'),
+  list(name = 'daily_by_country',    src = 'output/actual/daily/daily_by_country.csv',    format = 'csv'),
+  list(name = 'daily_by_authority',  src = 'output/actual/daily/daily_by_authority.csv',  format = 'csv'),
+  list(name = 'daily_by_category',   src = 'output/actual/daily/daily_by_category.csv',   format = 'csv')
 )
 
 

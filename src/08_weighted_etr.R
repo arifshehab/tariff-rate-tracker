@@ -842,33 +842,35 @@ run_weighted_etr <- function(ts = NULL, policy_params = NULL) {
   }
 
   # Plot (with or without TPC overlay)
-  plots <- plot_etrs(etrs, tpc_etrs, here('output', 'etr'))
+  etr_dir <- actual_etr_dir()
+  if (!dir.exists(etr_dir)) dir.create(etr_dir, recursive = TRUE)
+  plots <- plot_etrs(etrs, tpc_etrs, etr_dir)
 
   # Save CSVs (with TPC columns if available)
   if (!is.null(tpc_etrs)) {
     write_csv(
       etrs$overall %>% left_join(tpc_etrs$overall, by = 'date'),
-      here('output', 'etr', 'etr_overall.csv')
+      file.path(etr_dir, 'etr_overall.csv')
     )
     write_csv(
       etrs$by_partner %>% left_join(tpc_etrs$by_partner, by = c('date', 'partner')),
-      here('output', 'etr', 'etr_by_partner.csv')
+      file.path(etr_dir, 'etr_by_partner.csv')
     )
     write_csv(
       etrs$by_authority %>% left_join(tpc_etrs$overall, by = 'date'),
-      here('output', 'etr', 'etr_by_authority.csv')
+      file.path(etr_dir, 'etr_by_authority.csv')
     )
     write_csv(
       etrs$by_gtap %>% left_join(tpc_etrs$by_gtap, by = c('date', 'gtap_code')),
-      here('output', 'etr', 'etr_by_gtap.csv')
+      file.path(etr_dir, 'etr_by_gtap.csv')
     )
   } else {
-    write_csv(etrs$overall, here('output', 'etr', 'etr_overall.csv'))
-    write_csv(etrs$by_partner, here('output', 'etr', 'etr_by_partner.csv'))
-    write_csv(etrs$by_authority, here('output', 'etr', 'etr_by_authority.csv'))
-    write_csv(etrs$by_gtap, here('output', 'etr', 'etr_by_gtap.csv'))
+    write_csv(etrs$overall, file.path(etr_dir, 'etr_overall.csv'))
+    write_csv(etrs$by_partner, file.path(etr_dir, 'etr_by_partner.csv'))
+    write_csv(etrs$by_authority, file.path(etr_dir, 'etr_by_authority.csv'))
+    write_csv(etrs$by_gtap, file.path(etr_dir, 'etr_by_gtap.csv'))
   }
-  message('\nAll ETR outputs saved to output/etr/')
+  message('\nAll ETR outputs saved to ', etr_dir)
 
   return(invisible(etrs))
 }

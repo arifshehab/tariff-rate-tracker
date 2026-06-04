@@ -786,7 +786,7 @@ build_daily_workbook_readme <- function() {
 #'
 #' @param daily List from build_daily_aggregates()
 #' @param out_dir Output directory
-save_daily_outputs <- function(daily, out_dir = here('output', 'daily')) {
+save_daily_outputs <- function(daily, out_dir = actual_daily_dir()) {
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
 
   write_csv(daily$daily_overall, file.path(out_dir, 'daily_overall.csv'))
@@ -873,17 +873,17 @@ save_alternative_output <- function(daily_overall, variant,
                                      agg_by_authority = NULL,
                                      agg_by_country = NULL,
                                      agg_by_category = NULL,
-                                     out_dir = here('output', 'alternative')) {
+                                     out_dir = scenario_dir(variant)) {
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
   daily_overall <- daily_overall %>% mutate(variant = variant)
-  fname <- paste0('daily_overall_', variant, '.csv')
+  fname <- 'daily_overall.csv'
   write_csv(daily_overall, file.path(out_dir, fname))
   message('  Saved: ', fname, ' (', nrow(daily_overall), ' rows)')
 
   # By-authority: interval-encoded (no daily expansion needed — small)
   if (!is.null(agg_by_authority) && nrow(agg_by_authority) > 0) {
     agg_by_authority <- agg_by_authority %>% mutate(variant = variant)
-    fname_auth <- paste0('by_authority_', variant, '.csv')
+    fname_auth <- 'by_authority.csv'
     write_csv(agg_by_authority, file.path(out_dir, fname_auth))
     message('  Saved: ', fname_auth, ' (', nrow(agg_by_authority), ' rows)')
   }
@@ -912,7 +912,7 @@ save_alternative_output <- function(daily_overall, variant,
                        'mean_additional_exposed', 'mean_total_exposed',
                        'weighted_etr'))) %>%
       mutate(variant = variant)
-    fname_cty <- paste0('by_country_', variant, '.csv')
+    fname_cty <- 'by_country.csv'
     write_csv(trimmed, file.path(out_dir, fname_cty))
     message('  Saved: ', fname_cty, ' (', nrow(trimmed), ' rows)')
   }
@@ -924,7 +924,7 @@ save_alternative_output <- function(daily_overall, variant,
                        'mean_additional_exposed', 'mean_total_exposed',
                        'weighted_etr', 'n_products_present'))) %>%
       mutate(variant = variant)
-    fname_cat <- paste0('by_category_', variant, '.csv')
+    fname_cat <- 'by_category.csv'
     write_csv(trimmed_cat, file.path(out_dir, fname_cat))
     message('  Saved: ', fname_cat, ' (', nrow(trimmed_cat), ' rows)')
   }

@@ -28,7 +28,7 @@ get_arg <- function(flag, default = NULL) {
 }
 
 ts_dir    <- get_arg('--timeseries-dir', here('data', 'timeseries'))
-daily_dir <- get_arg('--daily-dir', here('output', 'daily'))
+daily_dir <- get_arg('--daily-dir', here('output', 'actual', 'daily'))
 
 git_sha_full  <- tryCatch(system('git rev-parse HEAD', intern = TRUE), error = function(e) NA_character_)
 git_sha_short <- tryCatch(system('git rev-parse --short HEAD', intern = TRUE), error = function(e) 'nogit')

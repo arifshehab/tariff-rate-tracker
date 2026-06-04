@@ -369,7 +369,7 @@ check_annex_classification <- function(ts, policy_params = NULL) {
 run_quality_report <- function(
   ts = NULL,
   timeseries_path = here('data', 'timeseries', 'rate_timeseries.rds'),
-  output_dir = here('output', 'quality')
+  output_dir = actual_quality_dir()
 ) {
   message('\n', strrep('=', 70))
   message('QUALITY REPORT')

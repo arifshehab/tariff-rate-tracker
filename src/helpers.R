@@ -16,6 +16,7 @@ source(here('src', 'resolved_programs.R'))  # Phase 3b: resolved-program table (
 source(here('src', 'timeline.R'))           # Phase 3c: unified schedule-boundary splitter
 source(here('src', 'rate_schema.R'))
 source(here('src', 'data_loaders.R'))
+source(here('src', 'output_paths.R'))   # Phase 5: output layout (actual/ + scenarios/)
 
 # =============================================================================
 # Output helpers

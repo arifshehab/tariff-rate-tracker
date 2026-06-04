@@ -54,7 +54,7 @@ resolve_build_dirs <- function(root) {
   }
   if (dir.exists(file.path(root, 'data', 'timeseries'))) {
     return(list(ts_dir = file.path(root, 'data', 'timeseries'),
-                daily_dir = file.path(root, 'output', 'daily')))
+                daily_dir = file.path(root, 'output', 'actual', 'daily')))
   }
   list(ts_dir = root, daily_dir = root)
 }

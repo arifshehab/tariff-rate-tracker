@@ -43,6 +43,8 @@
 library(jsonlite)
 library(here)
 
+source(here('src', 'output_paths.R'))   # Phase 5 layout helpers (actual/ + scenarios/)
+
 
 # Default location for the shared model-data root.
 SHARED_ROOT_DEFAULT <- '/nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker'
@@ -111,28 +113,31 @@ publish_internal <- function(shared_root = SHARED_ROOT_DEFAULT,
   if (!dry_run) dir.create(vintage_dir, recursive = TRUE, showWarnings = FALSE)
 
   copied <- list()
+  out_root <- file.path(repo_root, 'output')
 
   copied$timeseries <- publish_timeseries(repo_root, vintage_dir, dry_run = dry_run)
-  copied$daily      <- publish_dir(file.path(repo_root, 'output', 'daily'),
-                                   file.path(vintage_dir, 'daily'),
-                                   min_mtime = build_started_at,
-                                   dry_run = dry_run)
-  copied$quality    <- publish_dir(file.path(repo_root, 'output', 'quality'),
-                                   file.path(vintage_dir, 'quality'),
-                                   min_mtime = build_started_at,
-                                   dry_run = dry_run)
-  copied$etr        <- publish_dir(file.path(repo_root, 'output', 'etr'),
-                                   file.path(vintage_dir, 'etr'),
-                                   min_mtime = build_started_at,
-                                   dry_run = dry_run)
-  copied$etrs_config <- publish_dir(file.path(repo_root, 'output', 'etrs_config'),
-                                    file.path(vintage_dir, 'etrs_config'),
-                                    min_mtime = build_started_at,
-                                    dry_run = dry_run)
-  copied$alternative <- publish_dir(file.path(repo_root, 'output', 'alternative'),
-                                    file.path(vintage_dir, 'alternative'),
-                                    min_mtime = build_started_at,
-                                    dry_run = dry_run)
+
+  # Phase 5: real ("actual") results publish into <vintage>/actual/<section>;
+  # named what-ifs publish into <vintage>/scenarios/<name>. Section + root names
+  # come from src/output_paths.R so the writers and publish can't drift apart.
+  for (section in ACTUAL_SECTIONS) {
+    copied[[section]] <- publish_dir(
+      file.path(actual_root(out_root), section),
+      file.path(vintage_dir, 'actual', section),
+      min_mtime = build_started_at,
+      dry_run = dry_run)
+  }
+
+  scen_root <- scenarios_root(out_root)
+  if (dir.exists(scen_root)) {
+    for (scen_path in list.dirs(scen_root, recursive = FALSE)) {
+      copied[[paste0('scenario.', basename(scen_path))]] <- publish_dir(
+        scen_path,
+        file.path(vintage_dir, 'scenarios', basename(scen_path)),
+        min_mtime = build_started_at,
+        dry_run = dry_run)
+    }
+  }
 
   manifest <- build_manifest(vintage = vintage,
                              vintage_dir = vintage_dir,

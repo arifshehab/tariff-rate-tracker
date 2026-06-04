@@ -82,7 +82,7 @@ echo "--- Step 1: snapshotting serial baseline ---"
 if [ -d "$BASELINE_DIR" ]; then
   echo "Baseline already snapshotted at $BASELINE_DIR (keeping it)"
 else
-  cp -a output/alternative "$BASELINE_DIR"
+  cp -a output/scenarios "$BASELINE_DIR"
   echo "Baseline -> $BASELINE_DIR"
 fi
 ls "$BASELINE_DIR" | wc -l | xargs -I {} echo "Baseline file count: {}"
@@ -105,7 +105,7 @@ fi
 # Snapshot the parallel-run outputs alongside the baseline so a future job
 # can reproduce the comparison without re-running the 5h workload.
 rm -rf "$PARALLEL_DIR"
-cp -a output/alternative "$PARALLEL_DIR"
+cp -a output/scenarios "$PARALLEL_DIR"
 echo "Parallel run -> $PARALLEL_DIR"
 
 # ---- Step 3: diff all 6 rebuild alts against baseline ----
@@ -114,7 +114,7 @@ echo "--- Step 3: diffing 6 rebuild alts against baseline ---" | tee "$DIFF_REPO
 DIFF_RC=0
 for variant in usmca_annual usmca_monthly usmca_2024 usmca_dec2025 metal_flat dutyfree_nonzero; do
   for kind in daily_overall by_authority by_country; do
-    f="${kind}_${variant}.csv"
+    f="${variant}/${kind}.csv"
     if [ ! -f "$BASELINE_DIR/$f" ] || [ ! -f "$PARALLEL_DIR/$f" ]; then
       echo "  MISSING: $f (baseline=$([ -f $BASELINE_DIR/$f ] && echo yes || echo no), parallel=$([ -f $PARALLEL_DIR/$f ] && echo yes || echo no))" \
         | tee -a "$DIFF_REPORT"
