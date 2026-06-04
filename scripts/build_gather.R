@@ -53,6 +53,16 @@ init_logging(
 rev_dates <- load_revision_dates(use_policy_dates = use_policy_dates)
 pp <- load_policy_params(use_policy_dates = use_policy_dates)
 
+# Calculator-setup inputs — needed only to build synthetic future revisions
+# (scheduled activations) below. Cheap to set up unconditionally; mirrors
+# scripts/build_revision.R so the synthetic builds use the same inputs the
+# array tasks did.
+census_codes   <- read_csv(here('resources', 'census_codes.csv'),
+                           col_types = cols(.default = col_character()))
+countries      <- census_codes$Code
+country_lookup <- build_country_lookup(here('resources', 'census_codes.csv'))
+tpc_path       <- load_local_paths()$tpc_benchmark
+
 # Ordered list of revisions that actually have a snapshot on disk.
 all_revs <- rev_dates$revision
 have_snap <- file.exists(file.path(output_dir, paste0('snapshot_', all_revs, '.rds')))
@@ -117,8 +127,23 @@ products_last %>%
   select(hts10, base_rate, base_rate_raw, ch99_refs, n_ch99_refs, description) %>%
   write_csv(here('data', 'processed', 'products_raw.csv'))
 
+# ---- 2b. Synthetic future revisions (scheduled activations) ----
+# Build one synthetic revision per scheduled activation (tip archive stamped at
+# the future date D + the activation's ops), writing snapshot_sched_*.rds into
+# output_dir and appending {revision, effective_date} rows to rev_dates. Empty
+# config => no-op (rev_dates unchanged, baseline byte-identical). Done here in
+# the single-node gather (all archives available, tip known) rather than as
+# extra array tasks. `last_rev` (the real tip from `ordered`) is pinned as
+# last_revision so it tracks the last REAL HTS revision, not the synthetic one.
+rev_dates <- build_scheduled_activations(
+  rev_dates, pp, output_dir,
+  country_lookup = country_lookup, countries = countries,
+  census_codes = census_codes, archive_dir = here('data', 'hts_archives'),
+  tpc_path = tpc_path)
+
 # ---- 3. Assemble timeseries ----
 result <- assemble_timeseries(output_dir, rev_dates, pp, scenario = 'baseline',
+                              last_successful_rev = last_rev,
                               expected_revisions = expected_revs,
                               allow_partial = allow_partial)
 

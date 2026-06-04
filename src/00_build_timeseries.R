@@ -88,9 +88,17 @@ build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
                                     pp_build,
                                     stacking_method = 'mutual_exclusion',
                                     tpc_path = NULL,
-                                    operations = NULL) {
-  # a. Resolve JSON path
-  json_path <- resolve_json_path(rev_id, archive_dir)
+                                    operations = NULL,
+                                    archive_rev_id = rev_id) {
+  # a. Resolve JSON path. `archive_rev_id` decouples *which archive to parse*
+  #    from *what id/date to stamp*: for a real revision it equals `rev_id`
+  #    (default, unchanged behavior); a synthetic future revision parses the TIP
+  #    archive (`archive_rev_id` = latest real rev) but stamps the snapshot and
+  #    every `revision` label with `rev_id` and the future `eff_date`. The
+  #    calculator's internal date gates fire as-of `eff_date`, so the synthetic
+  #    revision automatically reflects every other scheduled change in force by D
+  #    (e.g. an s122 sunset). See build_scheduled_activations().
+  json_path <- resolve_json_path(archive_rev_id, archive_dir)
 
   # b. Read raw JSON (needed for IEEPA/USMCA extraction)
   hts_raw <- fromJSON(json_path, simplifyDataFrame = FALSE)
@@ -177,6 +185,92 @@ build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
 
   list(rates = rates, ch99_data = ch99_data, products = products,
        snapshot_path = snapshot_path, n_rates = nrow(rates))
+}
+
+
+#' Build synthetic future-revision snapshots from the scheduled_activations config.
+#'
+#' A scheduled activation is a tariff that is announced/legally-effective on a
+#' FUTURE date D but does not yet appear in any HTS archive (e.g. a pharma 232
+#' effective 2026-09-01). For each entry this re-runs the TIP archive (the latest
+#' real revision by effective_date) through the calculator, STAMPED at D, with the
+#' entry's `operations` applied — producing one synthetic revision `snapshot_<id>.rds`
+#' in `output_dir` and appending a `{revision = id, effective_date = D}` row to
+#' `rev_dates`. assemble_timeseries() then globs the new snapshot and derives its
+#' `[D, horizon]` interval purely from rev_dates ordering, automatically shortening
+#' the prior tip's `valid_until` to D-1 (no interval-logic change). See
+#' docs/scheduled_activations_code_review.md §4.
+#'
+#' Empty/absent scheduled_activations => writes nothing and returns `rev_dates`
+#' unchanged: the baseline stays byte-identical to the golden.
+#'
+#' Provenance: ids MUST be `sched_`-prefixed (enforced) so synthetic projections
+#' are distinguishable from observed HTS revisions; `last_revision` continues to
+#' track the last REAL revision because callers pass it explicitly to
+#' assemble_timeseries (synthetic revisions are built after the real tip is known).
+#'
+#' SAFETY: only ever call this with a scenario-specific `output_dir`. A stray
+#' `snapshot_sched_*.rds` in data/timeseries/ (the golden) would be globbed into
+#' the baseline panel and the parity gate would read green on contaminated data.
+#'
+#' @return rev_dates with one row appended per activation (unchanged if none).
+build_scheduled_activations <- function(rev_dates, pp_build, output_dir,
+                                        country_lookup, countries, census_codes,
+                                        archive_dir = 'data/hts_archives',
+                                        stacking_method = 'mutual_exclusion',
+                                        tpc_path = NULL) {
+  acts <- pp_build$scheduled_activations
+  if (is.null(acts) || length(acts) == 0) return(rev_dates)
+
+  # Tip = latest real revision by effective_date — the archive the synthetic
+  # revisions parse, and the rev whose tail interval they split.
+  tip <- rev_dates %>% arrange(effective_date) %>% slice_tail(n = 1)
+  tip_rev <- tip$revision
+
+  message('\n', strrep('=', 60))
+  message('Building ', length(acts), ' scheduled activation(s) on tip ', tip_rev,
+          ' (', tip$effective_date, ')')
+
+  new_rows <- vector('list', length(acts))
+  for (k in seq_along(acts)) {
+    act <- acts[[k]]
+    sid <- act$id %||% stop('scheduled_activations[', k, ']: missing `id`')
+    if (!startsWith(sid, 'sched_')) {
+      stop("scheduled_activations id '", sid, "' must start with 'sched_' ",
+           '(provenance: synthetic future revisions must be distinguishable from ',
+           'real HTS revisions).')
+    }
+    if (sid %in% rev_dates$revision) {
+      stop("scheduled_activations id '", sid, "' collides with an existing revision id.")
+    }
+    D <- as.Date(act$effective_date)
+    if (length(D) != 1 || is.na(D)) {
+      stop("scheduled_activations '", sid, "': invalid effective_date '",
+           act$effective_date, "'")
+    }
+    ops <- act$operations %||% list()
+    if (length(ops) == 0) {
+      stop("scheduled_activations '", sid, "': no `operations` — a synthetic ",
+           'revision with no change would just duplicate the tip.')
+    }
+
+    message('  [sched] ', sid, ' = tip ', tip_rev, ' stamped at ', D,
+            ' + ', length(ops), ' operation(s)')
+    build_revision_snapshot(
+      rev_id = sid, eff_date = D, tpc_date = NA,
+      archive_rev_id = tip_rev,
+      archive_dir = archive_dir, output_dir = output_dir,
+      country_lookup = country_lookup, countries = countries,
+      census_codes = census_codes, pp_build = pp_build,
+      stacking_method = stacking_method, tpc_path = tpc_path,
+      operations = ops
+    )
+    new_rows[[k]] <- tibble(revision = sid, effective_date = D)
+  }
+
+  # bind_rows fills the other rev_dates columns (tpc_date, policy_event, …) with
+  # NA for synthetic rows — correct, they have no HTS provenance.
+  dplyr::bind_rows(rev_dates, dplyr::bind_rows(new_rows))
 }
 
 
@@ -551,11 +645,24 @@ build_full_timeseries <- function(
             paste(failed_revisions, collapse = ', '))
   }
 
+  # ---- Synthetic future revisions (scheduled activations) ----
+  # After the real-revision snapshots exist (tip now known), emit one synthetic
+  # revision per scheduled activation (tip archive stamped at the future date D +
+  # the activation's ops). Empty config => no-op, rev_dates unchanged, baseline
+  # byte-identical. `last_successful_rev` stays the last REAL revision (synthetic
+  # revisions are built after the loop and never reassign it).
+  rev_dates <- build_scheduled_activations(
+    rev_dates, pp_build, output_dir,
+    country_lookup = country_lookup, countries = countries,
+    census_codes = census_codes, archive_dir = archive_dir,
+    stacking_method = stacking_method, tpc_path = tpc_path)
+
   # ---- Bind snapshots -> timeseries (+ intervals, parquet, metadata) ----
   # Reconcile the revisions this run attempted (revisions_to_process — already
   # trimmed for incremental mode) against the snapshots on disk, so a revision
   # that errored mid-loop fails the assembly loud rather than silently
-  # publishing a panel with a stretched-over gap (Finding 3).
+  # publishing a panel with a stretched-over gap (Finding 3). Synthetic
+  # snapshots are *extra* on disk — the gate only flags MISSING expected revs.
   result <- assemble_timeseries(output_dir, rev_dates, pp_build,
                                 last_successful_rev = last_successful_rev,
                                 scenario = scenario,

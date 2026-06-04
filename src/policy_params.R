@@ -179,6 +179,15 @@ load_policy_params <- function(yaml_path = NULL,
     params$SECTION_201 <- params$section_201
   }
 
+  # Scheduled future tariff activations ("turn-ON" dates). Each entry emits a
+  # synthetic future revision (build_scheduled_activations(),
+  # docs/scheduled_activations_*.md): the tip archive re-run stamped at
+  # `effective_date` with `operations` applied. Normalize to a list and coerce
+  # each effective_date to Date; ids/ops are validated at build time. EMPTY or
+  # absent => no synthetic revisions => byte-identical baseline.
+  params$scheduled_activations <- lapply(params$scheduled_activations %||% list(),
+    function(a) { a$effective_date <- as.Date(a$effective_date); a })
+
   # Local paths (optional user-specific file locations)
   params$LOCAL_PATHS <- load_local_paths()
 
