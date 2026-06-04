@@ -66,8 +66,15 @@ parse_products <- function(json_path) {
       for (d in deeper) rate_stack[[d]] <<- NULL
     }
 
-    # Skip if not a valid 10-digit HTS code
-    if (!is_valid_hts10(htsno)) {
+    # Keep 10-digit codes and 8-digit candidates. Some tariff lines are leaves
+    # at 8 digits (no statistical suffix) — e.g., most of ch91 watches and ch98
+    # special provisions (473 lines in 2026_rev_2). Census reports these as
+    # HTS10 with a "00" suffix. Non-leaf 8-digit rows (those with 10-digit
+    # statistical children) are dropped in the post-pass below.
+    clean_code <- gsub('\\.', '', htsno)
+    code_digits <- nchar(clean_code)
+    is_8digit_line <- code_digits == 8 && grepl('^[0-9]+$', clean_code)
+    if (!is_valid_hts10(htsno) && !is_8digit_line) {
       return(NULL)
     }
 
@@ -76,7 +83,7 @@ parse_products <- function(json_path) {
       return(NULL)
     }
 
-    hts10 <- normalize_hts(htsno)
+    hts10 <- normalize_hts(htsno)  # pads 8-digit codes to 10 with "00"
     description <- item$description %||% ''
 
     # Parse rate — inherit from parent if empty
@@ -105,11 +112,24 @@ parse_products <- function(json_path) {
       base_rate_raw = general,
       ch99_refs = list(ch99_refs),
       has_complex_rate = has_complex,
-      n_ch99_refs = length(ch99_refs)
+      n_ch99_refs = length(ch99_refs),
+      is_8digit_line = is_8digit_line
     )
   })
 
+  # Post-pass: keep 8-digit lines only when they are LEAVES (no 10-digit
+  # statistical children in this revision). An 8-digit parent with children
+  # is a grouping row, not a product; an 8-digit leaf IS the tariff line.
+  ten_digit_prefixes <- unique(substr(products$hts10[!products$is_8digit_line], 1, 8))
+  drop_8digit_parent <- products$is_8digit_line &
+    substr(products$hts10, 1, 8) %in% ten_digit_prefixes
+  n_8digit_leaves <- sum(products$is_8digit_line & !drop_8digit_parent)
+  products <- products %>%
+    filter(!drop_8digit_parent) %>%
+    select(-is_8digit_line)
+
   message('  Parsed products: ', nrow(products))
+  message('  8-digit leaf lines retained (padded to 10): ', n_8digit_leaves)
   message('  With Chapter 99 refs: ', sum(products$n_ch99_refs > 0))
   message('  With complex rates: ', sum(products$has_complex_rate))
   message('  Inherited parent rate: ', n_inherited, ' (',
