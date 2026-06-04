@@ -2403,11 +2403,15 @@ calculate_rates_for_revision <- function(
   #     invalidated IEEPA. Product exemptions from Annex II list; 232 mutual
   #     exclusion handled by apply_stacking_rules().
   #     Section 122 has a 150-day statutory limit; gate on expiry unless finalized.
-  # Phase 6a: when a spec set drives the calc, Section 122 comes from the spec's
-  # embedded raw_s122 (extracted by the adapter from the identical date-gated ch99),
-  # not a re-extraction here. %||% falls back for specs serialized before 6a.
+  # Phase 6a/6b: when a spec set drives the calc, Section 122 comes from the spec,
+  # not a re-extraction here. 6b reads it from the normalized program rate$resolved
+  # (s122_rates_from_specs); the transitional stopifnot proves that equals the
+  # raw_s122 attr it replaces (dropped in 6b cleanup). %||% guards the empty case.
   s122_rates <- if (!is.null(specs)) {
-    attr(specs[['section_122']], 'raw_s122', exact = TRUE) %||% extract_section122_rates(ch99_data)
+    r   <- s122_rates_from_specs(specs)
+    raw <- attr(specs[['section_122']], 'raw_s122', exact = TRUE)
+    if (!is.null(r) && !is.null(raw)) stopifnot(identical(r, raw))
+    r %||% raw %||% extract_section122_rates(ch99_data)
   } else {
     extract_section122_rates(ch99_data)
   }

@@ -54,6 +54,24 @@ specs_legacy_args <- function(specs) {
   )
 }
 
+# ---- Phase 6b: read the rate payload back out of the normalized programs -----
+#
+# The thin cut relocates each parser object VERBATIM from its out-of-band
+# `raw_*` attr into the owning program's `rate$resolved` slot (a normal spec
+# field the ops engine can mutate). Reconstruction is therefore the identity —
+# the calc gets back the exact same R object — so the body stays byte-identical.
+# (Full per-program normalization — e.g. splitting the 21-field s232 list across
+# its 7 programs — is deferred to Phase 8; not needed for the ops capability.)
+# 232's payload is authority-wide, parked on programs[[1]] until that split.
+.spec_resolved_rate <- function(spec) {
+  if (is.null(spec) || !length(spec$programs)) return(NULL)
+  spec$programs[[1]]$rate$resolved
+}
+ieepa_rates_from_specs    <- function(specs) .spec_resolved_rate(specs[['ieepa_reciprocal']])
+s232_rates_from_specs     <- function(specs) .spec_resolved_rate(specs[['section_232']])
+fentanyl_rates_from_specs <- function(specs) .spec_resolved_rate(specs[['ieepa_fentanyl']])
+s122_rates_from_specs     <- function(specs) .spec_resolved_rate(specs[['section_122']])
+
 #' Is the AuthoritySpec build path enabled? (TARIFF_USE_SPECS=1|true|yes)
 #' Robust to the usual env-var spellings (as.logical("1") is NA, not TRUE).
 use_specs_enabled <- function() {
@@ -195,8 +213,12 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   # the calc uses (filter_active_ch99 at 06:766, then extract at 06:2406), so the
   # calc reads it off the spec instead of re-extracting — closing the gap where
   # s122 alone ignored the spec set. Mirrors the s232 heading-gate precompute above.
-  attr(section_122, 'raw_s122') <-
-    extract_section122_rates(filter_active_ch99(ch99_data, as.Date(effective_date)))
+  # Phase 6b: the rate now lives in the program's normalized rate$resolved slot
+  # (read back via s122_rates_from_specs); the raw_s122 attr is kept transitionally
+  # so the calc's stopifnot can prove the two agree, and is dropped in 6b cleanup.
+  s122_resolved <- extract_section122_rates(filter_active_ch99(ch99_data, as.Date(effective_date)))
+  section_122$programs[[1]]$rate$resolved <- s122_resolved
+  attr(section_122, 'raw_s122') <- s122_resolved
 
   # --- mfn (base layer) + other (catch-all) — inert in Phase 1 --------------
   mfn <- authority_spec(

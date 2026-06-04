@@ -68,6 +68,12 @@ check(identical(attr(specs[['ieepa_fentanyl']],   'raw_fentanyl', exact = TRUE),
       'raw_fentanyl embedded verbatim on ieepa_fentanyl')
 check(identical(attr(specs[['section_122']],      'raw_s122',     exact = TRUE), S122_SENTINEL),
       'raw_s122 embedded on section_122 (Phase 6a)')
+
+cat('\n--- Phase 6b: rate payload relocated into the normalized program ---\n')
+check(identical(s122_rates_from_specs(specs), S122_SENTINEL),
+      's122 rate reachable via s122_rates_from_specs (programs[[1]]$rate$resolved)')
+check(identical(specs[['section_122']]$programs[[1]]$rate$resolved, S122_SENTINEL),
+      's122 payload stored verbatim in programs[[1]]$rate$resolved')
 check(identical(attr(attr(specs[['ieepa_reciprocal']], 'raw_ieepa', exact = TRUE),
                      'universal_baseline', exact = TRUE), 0.10),
       'universal_baseline attribute survives the embed')
@@ -96,6 +102,8 @@ saveRDS(specs, tmp)
 specs2 <- readRDS(tmp)
 check(identical(attr(specs2[['section_232']], 'raw_s232', exact = TRUE), s232),
       'raw_s232 survives saveRDS/readRDS')
+check(identical(specs2[['section_122']]$programs[[1]]$rate$resolved, S122_SENTINEL),
+      's122 program rate$resolved survives saveRDS/readRDS (Phase 6b)')
 check(identical(attr(attr(specs2[['ieepa_reciprocal']], 'raw_ieepa', exact = TRUE),
                      'universal_baseline', exact = TRUE), 0.10),
       'universal_baseline survives saveRDS/readRDS')
