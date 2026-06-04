@@ -132,3 +132,64 @@ The Phase-1 adapter can be deleted only when **no code reads `attr(...,'raw_*')`
 done for all four authorities + heading-gates — AND `09:1185` applies operations (6e). Then
 `SPEC_RAW_ATTRS`, `specs_legacy_args`, the `:755-759` head, and every `specs==NULL` branch collapse
 together, gated by the full 41-rev byte-identical sweep.
+
+---
+
+## EXECUTION OUTCOME (2026-06-04) — Phase 6 done through the byte-gated core
+
+Executed unattended; every refactor step gated byte-identical on Slurm before commit. Commits on
+`phase0-parallel-build` (pushed):
+
+| step | commit | what | gate |
+|---|---|---|---|
+| 6b-i | `bb97fa7` | relocate raw_s122 → `programs[[1]]$rate$resolved` (verbatim thin cut) | rev_20 + 2026_rev_4 byte-identical |
+| 6b-ii | `72eac7d` | same for s232 / ieepa_reciprocal (universal_baseline rides along) / fentanyl | + 2026_rev_5 heavy annex, byte-identical |
+| 6b-iii | `a4aea8e` | drop the transitional `raw_*` attrs + `SPEC_RAW_ATTRS` + `specs_legacy_args` + asserts | heavy slice byte-identical |
+| 6c | `9ee9dfa` | decouple 232 heading-gates from live Ch99 (`auto_has_parts` → s232_rates; gate fn now pure) | heavy slice (rev_20 auto_parts-active) byte-identical |
+| 6d | `ac94824` | ops verbs `set_rate` / `set_exempt` / `disable` for the big authorities | bump-steel real-grid proof + baseline byte-identical; tests 24/24 |
+| 6e | `d51e047` | the 09 rebuild path (`build_alternative_timeseries`) honors scenario ops | baseline slice byte-identical + parse-check (no daily-parity infra) |
+| 6f-core | `9c960b9` | AuthoritySpec path ALWAYS-ON; retire `TARIFF_USE_SPECS` | **FULL 41-rev sweep ALL byte-identical** |
+
+**Design notes vs the plan above:** the thin cut stored each parser object *verbatim* in
+`programs[[1]]$rate$resolved` (reconstruction = identity ⇒ byte-identical by construction), so the
+recon's "named drift risks" never materialized — they apply to *full* per-program normalization, which
+stays deferred. 6c lifted the `auto_parts` grep into `extract_section232_rates` (cleaner than the
+adapter, equivalent date-gated input). 6d delivered `set_rate`/`set_exempt`/`disable` (the headline
+capability); IEEPA per-country `set_rate` + `set_floor` are fail-loud follow-ups.
+
+**6f scope decision (deliberate):** only the high-value, byte-gated CORE landed (specs = production
+default). The remaining collapse — **remove the bespoke positional args from
+`calculate_rates_for_revision`'s signature + delete the `build_authority_specs` adapter +
+parser-emits-specs** — is **DEFERRED**: it is capability-neutral, coupled to the deferred full
+per-program normalization (decisions #2/#3), and its blast radius is 9 unit-test call sites that the
+snapshot gate cannot see (so it sits outside the unattended byte-gate safety envelope). The dual
+signature + adapter therefore remain in place; baseline is unaffected.
+
+## Beyond Phase 6 (same run)
+
+- **Phase 7 (`6d1ff0c`)** — deleted the legacy YAML scenario engine (`apply_scenarios.R`,
+  `config/scenarios.yaml`, `run_post_build_scenarios_per_revision`, the orphaned
+  `split_rev_intervals_at_patches`); slimmed `run_alternative_series` to drive only the retained
+  USMCA-share rebuild-alts; rewrote `docs/scenarios.md` + `docs/build.md` (`61425b8`). Gate: slice
+  byte-identical + dangling-ref scan clean.
+- **Phase 8a (`a168cd2`)** — new-coverage machinery: `add_program` verb + the no-Ch99 seeder
+  (`src/new_coverage.R`, rides `rate_other`, injected at 06 step 7b). Dormant in baseline. Gate: a
+  CLEARLY-SYNTHETIC drone tariff (+50% on HTS 8806) moved `rate_other` +0.50 on all 2,640 covered pairs,
+  nothing else; no-ops byte-identical. Tests 37/37.
+- **Phase 8b (`370f8f3`)** — fork-#2 loud weight report in `08`: rated pairs lacking a 2024 import
+  weight are reported per date, never fabricated (message-only; ETR math unchanged).
+
+## Working output produced
+
+Real per-revision snapshots, including two capability demonstrations on `rev_20` (gitignored builds):
+- `data/timeseries_specs_full/` — all 41 revisions, specs-always-on, byte-identical to the golden.
+- `data/timeseries_6d/{base,steel}/` — bump-steel: `rate_232` 0.50→0.99 on China steel (72xx),
+  `total_rate` 0.95→1.44.
+- `data/timeseries_p8/{base,drone}/` — synthetic drone: `rate_other` 0→0.50 on HTS 8806,
+  `total_rate` e.g. China 0.45→0.95, Vietnam 0→0.50.
+
+These are SNAPSHOT (rate-panel) outputs. The downstream daily-series → weighted-ETR → publish pipeline
+was **not** re-run end-to-end this session (not required for byte-identical refactor gating, and the
+gather→daily/ETR parity harness is still an open Phase-0 infra item — needed to byte-gate 6e/8b
+properly). `output/{daily,alternative,actual}/` hold artifacts from the prior 2026-06-03 full build,
+not regenerated here.
