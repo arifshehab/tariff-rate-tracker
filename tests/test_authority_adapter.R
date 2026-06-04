@@ -1,11 +1,12 @@
 # =============================================================================
 # authority_adapter unit tests
 # =============================================================================
-# Pure-logic checks for src/authority_adapter.R — the Phase 1 lossless
-# re-packaging. The crux of Phase 1 parity is: the raw per-authority objects
-# (s232_rates / ieepa_rates / fentanyl_rates) round-trip through the spec set
-# UNCHANGED — same R objects, with ieepa's `universal_baseline` attribute
-# intact — both in memory and across saveRDS/readRDS. No model data needed.
+# Pure-logic checks for src/authority_adapter.R — the lossless re-packaging.
+# The crux of parity (Phase 6b): the raw per-authority objects (s232_rates /
+# ieepa_rates / fentanyl_rates / s122) are parked VERBATIM in their owning
+# program's rate$resolved slot and read back via *_from_specs() UNCHANGED —
+# same R objects, with ieepa's `universal_baseline` attribute intact — both in
+# memory and across saveRDS/readRDS. No model data needed.
 #
 # get_country_constants() / load_policy_params() (normally from
 # 05_parse_policy_params.R) are stubbed so this runs without the parser
@@ -59,39 +60,21 @@ check(setequal(names(specs),
       'all eight authorities present')
 check(isTRUE(validate_spec_set(specs)), 'validates (fail-loud passed inside)')
 
-cat('\n--- lossless embed: identical R objects ---\n')
-check(identical(attr(specs[['section_232']],      'raw_s232',     exact = TRUE), s232),
-      'raw_s232 embedded verbatim on section_232')
-check(identical(attr(specs[['ieepa_reciprocal']], 'raw_ieepa',    exact = TRUE), ieepa),
-      'raw_ieepa embedded verbatim on ieepa_reciprocal')
-check(identical(attr(specs[['ieepa_fentanyl']],   'raw_fentanyl', exact = TRUE), fent),
-      'raw_fentanyl embedded verbatim on ieepa_fentanyl')
-check(identical(attr(specs[['section_122']],      'raw_s122',     exact = TRUE), S122_SENTINEL),
-      'raw_s122 embedded on section_122 (Phase 6a)')
-
-cat('\n--- Phase 6b: rate payload relocated into the normalized program ---\n')
-check(identical(s122_rates_from_specs(specs), S122_SENTINEL),
-      's122 rate reachable via s122_rates_from_specs (programs[[1]]$rate$resolved)')
-check(identical(specs[['section_122']]$programs[[1]]$rate$resolved, S122_SENTINEL),
-      's122 payload stored verbatim in programs[[1]]$rate$resolved')
+cat('\n--- lossless relocation: identical R objects in programs[[1]]$rate$resolved ---\n')
 check(identical(s232_rates_from_specs(specs), s232),
       's232 21-field list reachable via s232_rates_from_specs (parked on programs[[1]])')
 check(identical(ieepa_rates_from_specs(specs), ieepa),
       'ieepa tibble reachable via ieepa_rates_from_specs')
-check(identical(attr(ieepa_rates_from_specs(specs), 'universal_baseline', exact = TRUE), 0.10),
-      'universal_baseline rides along on the relocated ieepa payload')
 check(identical(fentanyl_rates_from_specs(specs), fent),
       'fentanyl tibble reachable via fentanyl_rates_from_specs')
-check(identical(attr(attr(specs[['ieepa_reciprocal']], 'raw_ieepa', exact = TRUE),
-                     'universal_baseline', exact = TRUE), 0.10),
-      'universal_baseline attribute survives the embed')
-
-cat('\n--- specs_legacy_args round-trips to the calculator inputs ---\n')
-legacy <- specs_legacy_args(specs)
-check(identical(legacy$ieepa_rates, ieepa),    'specs_legacy_args$ieepa_rates == ieepa')
-check(identical(legacy$s232_rates, s232),      'specs_legacy_args$s232_rates == s232')
-check(identical(legacy$fentanyl_rates, fent),  'specs_legacy_args$fentanyl_rates == fent')
-check(identical(legacy$s122_rates, S122_SENTINEL), 'specs_legacy_args$s122_rates == s122 (Phase 6a)')
+check(identical(s122_rates_from_specs(specs), S122_SENTINEL),
+      's122 list reachable via s122_rates_from_specs')
+check(identical(specs[['section_122']]$programs[[1]]$rate$resolved, S122_SENTINEL),
+      's122 payload stored verbatim in programs[[1]]$rate$resolved')
+check(identical(attr(ieepa_rates_from_specs(specs), 'universal_baseline', exact = TRUE), 0.10),
+      'universal_baseline attribute rides along on the relocated ieepa payload')
+check(is.null(attr(specs[['section_232']], 'raw_s232', exact = TRUE)),
+      'no out-of-band raw_s232 attr remains (Phase 6b cleanup)')
 
 cat('\n--- normalized scaffold (not read in Phase 1, but should be faithful) ---\n')
 check(identical(specs[['section_301']]$programs[[1]]$country_scope$include, '5700'),
@@ -104,17 +87,17 @@ check(identical(attr(specs[['section_232']], 'heading_gates', exact = TRUE),
                 HEADING_GATES_SENTINEL),
       '232 heading_gates precomputed onto the spec (Phase 2c)')
 
-cat('\n--- serialization round-trip preserves embeds + nested attrs ---\n')
+cat('\n--- serialization round-trip preserves relocated payloads + nested attrs ---\n')
 tmp <- tempfile(fileext = '.rds')
 saveRDS(specs, tmp)
 specs2 <- readRDS(tmp)
-check(identical(attr(specs2[['section_232']], 'raw_s232', exact = TRUE), s232),
-      'raw_s232 survives saveRDS/readRDS')
+check(identical(s232_rates_from_specs(specs2), s232),
+      's232 program rate$resolved survives saveRDS/readRDS')
 check(identical(specs2[['section_122']]$programs[[1]]$rate$resolved, S122_SENTINEL),
-      's122 program rate$resolved survives saveRDS/readRDS (Phase 6b)')
-check(identical(attr(attr(specs2[['ieepa_reciprocal']], 'raw_ieepa', exact = TRUE),
+      's122 program rate$resolved survives saveRDS/readRDS')
+check(identical(attr(ieepa_rates_from_specs(specs2),
                      'universal_baseline', exact = TRUE), 0.10),
-      'universal_baseline survives saveRDS/readRDS')
+      'universal_baseline survives saveRDS/readRDS (rides along on relocated payload)')
 check(isTRUE(validate_spec_set(specs2)), 'round-tripped set still validates')
 
 cat('\n--- IEEPA invalidation maps to active.until on both ieepa specs ---\n')

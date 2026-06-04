@@ -753,18 +753,11 @@ calculate_rates_for_revision <- function(
   # byte-identical). The internal re-extraction at :724-726 / :1276-1278 still
   # fires as before. Phase 2 makes the spec's normalized fields authoritative.
   if (!is.null(specs)) {
-    # Phase 6b: rates now live in the spec's normalized programs (rate$resolved),
-    # reconstructed via *_from_specs(). The transitional stopifnot proves the
-    # reconstruction equals the soon-to-be-removed raw_* attr on the real grid;
-    # both the asserts and the raw_* embeds are dropped in the 6b cleanup step.
+    # Phase 6b: rates live in the spec's normalized programs (rate$resolved),
+    # reconstructed verbatim via *_from_specs(); the body below runs unchanged.
     ieepa_rates    <- ieepa_rates_from_specs(specs)
     s232_rates     <- s232_rates_from_specs(specs)
     fentanyl_rates <- fentanyl_rates_from_specs(specs)
-    stopifnot(
-      identical(ieepa_rates,    attr(specs[['ieepa_reciprocal']], 'raw_ieepa',    exact = TRUE)),
-      identical(s232_rates,     attr(specs[['section_232']],      'raw_s232',     exact = TRUE)),
-      identical(fentanyl_rates, attr(specs[['ieepa_fentanyl']],   'raw_fentanyl', exact = TRUE))
-    )
   }
 
   # Date-gate Ch99 entries: drop rows whose legal effective_date_offset is
@@ -2412,15 +2405,11 @@ calculate_rates_for_revision <- function(
   #     invalidated IEEPA. Product exemptions from Annex II list; 232 mutual
   #     exclusion handled by apply_stacking_rules().
   #     Section 122 has a 150-day statutory limit; gate on expiry unless finalized.
-  # Phase 6a/6b: when a spec set drives the calc, Section 122 comes from the spec,
-  # not a re-extraction here. 6b reads it from the normalized program rate$resolved
-  # (s122_rates_from_specs); the transitional stopifnot proves that equals the
-  # raw_s122 attr it replaces (dropped in 6b cleanup). %||% guards the empty case.
+  # Phase 6a/6b: when a spec set drives the calc, Section 122 comes from the spec's
+  # normalized program (rate$resolved via s122_rates_from_specs), not a re-extraction
+  # here. %||% guards a spec built without an s122 payload.
   s122_rates <- if (!is.null(specs)) {
-    r   <- s122_rates_from_specs(specs)
-    raw <- attr(specs[['section_122']], 'raw_s122', exact = TRUE)
-    if (!is.null(r) && !is.null(raw)) stopifnot(identical(r, raw))
-    r %||% raw %||% extract_section122_rates(ch99_data)
+    s122_rates_from_specs(specs) %||% extract_section122_rates(ch99_data)
   } else {
     extract_section122_rates(ch99_data)
   }

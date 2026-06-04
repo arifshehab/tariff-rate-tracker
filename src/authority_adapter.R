@@ -6,55 +6,27 @@
 # parsers (03/04/05) already produce and re-packages them into a uniform
 # `authority_spec_set` (see docs/authority_spec.md, src/authority_spec.R).
 #
-# PHASE 1 CONTRACT — lossless re-packaging, parity-safe by construction:
-#   * The three bespoke objects that `calculate_rates_for_revision()` reads as
-#     ad-hoc args — `s232_rates`, `ieepa_rates` (WITH its `universal_baseline`
-#     attribute), `fentanyl_rates` — are embedded VERBATIM as attributes on the
-#     authorities that own them (`raw_s232` on section_232, `raw_ieepa` on
-#     ieepa_reciprocal, `raw_fentanyl` on ieepa_fentanyl).
-#   * The calculator, when handed a spec set, pulls those identical R objects
-#     back out and runs its unchanged body — so flag-on output is provably
-#     identical to flag-off (ideally byte-identical: same objects).
-#   * The normalized fields (`stacking.class`, `usmca_treatment`, `active`,
-#     `country_scope`, `programs`) are populated here as a faithful scaffold for
-#     Phase 2, but the calculator does NOT read them yet. Getting them slightly
-#     wrong cannot break Phase 1 parity; Phase 2 makes them authoritative.
-#   * `mfn` / `other` are constructed but inert (no raw payload; their data still
-#     flows through the calculator's internal footnote-seeding / extraction).
+# CONTRACT (Phase 6b) — rate payloads are spec-native, parity-safe by construction:
+#   * Each authority that owns a resolved rate object — `section_232`'s 21-field
+#     s232_rates list, `ieepa_reciprocal`'s tibble (WITH its `universal_baseline`
+#     attribute), `ieepa_fentanyl`'s tibble, `section_122`'s list — carries that
+#     object VERBATIM in its first program's `rate$resolved` slot: a normal,
+#     ops-mutable spec field, read back by the calculator via `*_from_specs()`.
+#   * The calculator, handed a spec set, pulls those identical R objects back out
+#     and runs its unchanged body — so flag-on output stays byte-identical to
+#     flag-off (same objects). The Phase-1 out-of-band `raw_*` attrs are gone (6b).
+#   * The other normalized fields are a scaffold the calculator reads selectively:
+#     `country_scope` for 301/201 (Phase 2e); `active.until` for IEEPA invalidation
+#     (Phase 2d); `heading_gates` precomputed for 232 (Phase 2c).
+#   * `mfn` / `other` are constructed but inert (no resolved payload; their data
+#     still flows through the calculator's internal footnote-seeding / extraction).
 #
 # Source order: this file depends on src/authority_spec.R (constructors,
 # validation, `%||%`) being sourced first, and on get_country_constants() from
 # src/05_parse_policy_params.R for census-code scope population.
 # =============================================================================
 
-# Attribute names under which the raw objects are embedded. These are the
-# contract read back by calculate_rates_for_revision() — keep in lockstep.
-SPEC_RAW_ATTRS <- c(
-  section_232      = 'raw_s232',
-  ieepa_reciprocal = 'raw_ieepa',
-  ieepa_fentanyl   = 'raw_fentanyl',
-  section_122      = 'raw_s122'     # Phase 6a
-)
-
-# ---- helpers ----------------------------------------------------------------
-#
-# Raw objects are embedded with plain `attr(spec, name) <- obj`, which stores the
-# object verbatim — including its OWN attributes, so the `universal_baseline`
-# attr on ieepa_rates survives the embed and the round-trip through RDS.
-
-#' Pull the embedded legacy objects back out of a spec set. Used by the
-#' calculator's transitional dual-signature path. Returns a named list with the
-#' three ad-hoc args; a missing authority yields NULL for that slot.
-specs_legacy_args <- function(specs) {
-  list(
-    ieepa_rates    = attr(specs[['ieepa_reciprocal']], 'raw_ieepa',    exact = TRUE),
-    s232_rates     = attr(specs[['section_232']],      'raw_s232',     exact = TRUE),
-    fentanyl_rates = attr(specs[['ieepa_fentanyl']],   'raw_fentanyl', exact = TRUE),
-    s122_rates     = attr(specs[['section_122']],      'raw_s122',     exact = TRUE)
-  )
-}
-
-# ---- Phase 6b: read the rate payload back out of the normalized programs -----
+# ---- read the rate payload back out of the normalized programs (Phase 6b) ----
 #
 # The thin cut relocates each parser object VERBATIM from its out-of-band
 # `raw_*` attr into the owning program's `rate$resolved` slot (a normal spec
@@ -133,10 +105,8 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
     )
   )
   # Phase 6b: park the 21-field s232 list whole on programs[[1]]$rate$resolved
-  # (authority-wide; per-program split deferred to P8). raw_s232 kept for the
-  # calc's transitional identity assert (dropped in 6b cleanup).
+  # (authority-wide; per-program split deferred to P8). Read via s232_rates_from_specs().
   section_232$programs[[1]]$rate$resolved <- s232_rates
-  attr(section_232, 'raw_s232') <- s232_rates
   # Phase 2c: precompute the heading-program activation gates from the SAME
   # date-gated ch99 + authoritative s232 value the calc uses, so the calc reads
   # them off the spec instead of recomputing (compute_heading_gates is the single
@@ -159,9 +129,8 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       rate = list(by_country = 'from_raw', default_unlisted_rate = 'from_raw')))
   )
   # Phase 6b: relocate into the program (the universal_baseline attr on the
-  # tibble rides along verbatim). raw_ieepa kept for the transitional assert.
+  # tibble rides along verbatim). Read via ieepa_rates_from_specs().
   ieepa_reciprocal$programs[[1]]$rate$resolved <- ieepa_rates
-  attr(ieepa_reciprocal, 'raw_ieepa') <- ieepa_rates
 
   # --- ieepa_fentanyl — content_split except China (additive), as data ------
   fentanyl_scope <- c(CTY_CHINA, CTY_CANADA, CTY_MEXICO)
@@ -178,9 +147,8 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       country_scope = list(include = fentanyl_scope),
       rate = list(by_country = 'from_raw')))
   )
-  # Phase 6b: relocate into the program. raw_fentanyl kept for the transitional assert.
+  # Phase 6b: relocate into the program. Read via fentanyl_rates_from_specs().
   ieepa_fentanyl$programs[[1]]$rate$resolved <- fentanyl_rates
-  attr(ieepa_fentanyl, 'raw_fentanyl') <- fentanyl_rates
 
   # --- section_301 — China gate as data (no raw embed; footnote-seeded) -----
   section_301 <- authority_spec(
@@ -222,12 +190,10 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   # the calc uses (filter_active_ch99 at 06:766, then extract at 06:2406), so the
   # calc reads it off the spec instead of re-extracting — closing the gap where
   # s122 alone ignored the spec set. Mirrors the s232 heading-gate precompute above.
-  # Phase 6b: the rate now lives in the program's normalized rate$resolved slot
-  # (read back via s122_rates_from_specs); the raw_s122 attr is kept transitionally
-  # so the calc's stopifnot can prove the two agree, and is dropped in 6b cleanup.
-  s122_resolved <- extract_section122_rates(filter_active_ch99(ch99_data, as.Date(effective_date)))
-  section_122$programs[[1]]$rate$resolved <- s122_resolved
-  attr(section_122, 'raw_s122') <- s122_resolved
+  # Phase 6b: the rate lives in the program's normalized rate$resolved slot,
+  # read back via s122_rates_from_specs(); no out-of-band attr.
+  section_122$programs[[1]]$rate$resolved <-
+    extract_section122_rates(filter_active_ch99(ch99_data, as.Date(effective_date)))
 
   # --- mfn (base layer) + other (catch-all) — inert in Phase 1 --------------
   mfn <- authority_spec(
