@@ -187,6 +187,12 @@ calculate_rates_fast <- function(products, ch99_data, countries,
       rate_s122 = rate_section_122
     )
 
+  # rate_301_cs (content-split 301 flavor): no upstream Ch99 producer, so seed it at
+  # 0 here so the column exists from the fast path onward (the stacking policy and
+  # ensure_dense_grid's REQUIRED_RATE_COLS both expect it). A2 routes content-split
+  # 301 codes into it; all-zero in baseline => byte-identical.
+  rates_wide$rate_301_cs <- 0
+
   # Apply stacking rules (vectorized, from helpers.R)
   rates_final <- apply_stacking_rules(rates_wide, cty_china, stacking_method = stacking_method)
 
@@ -218,7 +224,11 @@ compute_heading_gates <- function(s232_rates) {
     mhd_vehicles       = s232_rates$mhd_rate > 0,
     mhd_parts          = s232_rates$mhd_rate > 0,
     buses              = s232_rates$mhd_rate > 0,
-    semiconductors     = s232_rates$semi_rate > 0
+    semiconductors     = s232_rates$semi_rate > 0,
+    # Pharma is a register-then-activate dormant sub-program: pharma_rate is 0 in
+    # baseline (gate FALSE => heading skipped => byte-identical). isTRUE() guards
+    # the case where an older cached s232_rates predates the pharma_rate field.
+    pharmaceuticals    = isTRUE(s232_rates$pharma_rate > 0)
   )
 }
 
@@ -236,7 +246,8 @@ HEADING_RESOLVED_RATE_FIELD <- c(
   softwood           = 'wood_rate',
   mhd_vehicles       = 'mhd_rate',
   mhd_parts          = 'mhd_rate',
-  semiconductors     = 'semi_rate'
+  semiconductors     = 'semi_rate',
+  pharmaceuticals    = 'pharma_rate'
 )
 
 #' Resolve a Section 232 heading's applied rate. Reads the spec-resolved field FIRST
@@ -633,7 +644,7 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
   # Required input columns — function silently produces garbage if missing.
   REQUIRED_RATE_COLS <- c(
     'hts10', 'country',
-    'rate_232', 'rate_301', 'rate_ieepa_recip', 'rate_ieepa_fent',
+    'rate_232', 'rate_301', 'rate_301_cs', 'rate_ieepa_recip', 'rate_ieepa_fent',
     'rate_s122', 'rate_section_201', 'rate_other'
   )
   missing_required <- setdiff(REQUIRED_RATE_COLS, names(rates))
@@ -719,7 +730,7 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
     expand_grid(country = countries) %>%
     anti_join(existing_pairs, by = c('hts10', 'country')) %>%
     mutate(
-      rate_232 = 0, rate_301 = 0, rate_ieepa_recip = 0,
+      rate_232 = 0, rate_301 = 0, rate_301_cs = 0, rate_ieepa_recip = 0,
       rate_ieepa_fent = 0, rate_s122 = 0,
       rate_section_201 = 0, rate_other = 0,
       statutory_rate_232 = 0
@@ -1205,7 +1216,7 @@ calculate_rates_for_revision <- function(
 
       new_pairs <- new_pairs %>%
         mutate(
-          rate_232 = 0, rate_301 = 0, rate_ieepa_fent = 0, rate_s122 = 0,
+          rate_232 = 0, rate_301 = 0, rate_301_cs = 0, rate_ieepa_fent = 0, rate_s122 = 0,
           rate_section_201 = 0, rate_other = 0,
           is_universally_exempt = hts10 %in% ieepa_exempt_products,
           is_country_eo_exempt  = !is.na(country_eo_ch99) &
@@ -1726,7 +1737,7 @@ calculate_rates_for_revision <- function(
         ),
         s232_usmca_eligible = coalesce(heading_usmca_exempt, FALSE) & heading_rate_adj > 0 &
           !(chapter %in% c(STEEL_CHAPTERS, ALUM_CHAPTERS)),
-        rate_301 = 0, rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_s122 = 0,
+        rate_301 = 0, rate_301_cs = 0, rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_s122 = 0,
         rate_section_201 = 0, rate_other = 0
       ) %>%
       filter(rate_232 > 0) %>%
@@ -2349,6 +2360,22 @@ calculate_rates_for_revision <- function(
               paste(suspended_301, collapse = ', '))
     }
 
+    # A2: split the active 301 codes into the two stacking flavors. Codes named in
+    # config `section_301_content_split_codes` ride rate_301_cs (content_split —
+    # yields to a 232 like the reciprocal/122); everything else stays legacy-additive
+    # rate_301. EMPTY list (baseline) => cs set empty => add set == active_301_codes
+    # => the rate_301 path below is byte-identical and rate_301_cs stays 0. A code is
+    # in exactly one bucket, so the two flavors never double-count the SAME code (two
+    # different codes mapping to one hts8 can legitimately stack both, per "China can
+    # be subject to both").
+    cs_301_codes_cfg <- as.character(pp$section_301_content_split_codes %||% character(0))
+    cs_301_codes  <- intersect(active_301_codes, cs_301_codes_cfg)
+    add_301_codes <- setdiff(active_301_codes, cs_301_codes_cfg)
+    if (length(cs_301_codes) > 0) {
+      message('  Section 301: content-split flavor for ', length(cs_301_codes),
+              ' code(s): ', paste(cs_301_codes, collapse = ', '))
+    }
+
     if (length(active_301_codes) > 0) {
       # Build HTS8 -> 301 rate lookup:
       # Take MAX(s301_rate) across all ch99 codes per HTS8. For the 8 products
@@ -2357,7 +2384,7 @@ calculate_rates_for_revision <- function(
       # achieves the correct supersession. This matches Tariff-ETRs, which
       # partitions products into exclusive rate buckets (one rate per HS10).
       s301_lookup <- s301_products %>%
-        filter(ch99_code %in% active_301_codes) %>%
+        filter(ch99_code %in% add_301_codes) %>%
         inner_join(
           s301_rate_lookup,
           by = c('ch99_code' = 'ch99_pattern')
@@ -2417,7 +2444,7 @@ calculate_rates_for_revision <- function(
             ) %>%
             left_join(s301_lookup, by = 'hts8', relationship = 'many-to-one') %>%
             mutate(
-              rate_232 = 0, rate_ieepa_recip = 0,
+              rate_232 = 0, rate_301_cs = 0, rate_ieepa_recip = 0,
               rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0, rate_other = 0,
               rate_301 = coalesce(blanket_301, 0)
             ) %>%
@@ -2434,6 +2461,77 @@ calculate_rates_for_revision <- function(
         n_301_total <- sum(rates$rate_301 > 0)
         message('  Section 301 blanket: ', nrow(s301_lookup), ' HTS8 codes, ',
                 n_301_total, ' product-country pairs with 301 rate')
+      }
+
+      # --- A2: content-split 301 flavor (rate_301_cs) --------------------------
+      # Mirror of the additive block above, writing rate_301_cs (content_split).
+      # DORMANT in baseline (cs_301_codes empty => skipped => byte-identical). When
+      # codes are classified in, rate_301_cs rises here, is scaled by USMCA in step 7
+      # (both 301 columns), and is displaced by a 232 via nonmetal_share in stacking
+      # — exactly the reciprocal/122 content-split behavior.
+      if (length(cs_301_codes) > 0) {
+        s301_cs_lookup <- s301_products %>%
+          filter(ch99_code %in% cs_301_codes) %>%
+          inner_join(s301_rate_lookup, by = c('ch99_code' = 'ch99_pattern')) %>%
+          group_by(hts8) %>%
+          summarise(blanket_301_cs = max(s301_rate), .groups = 'drop')
+
+        if (nrow(s301_cs_lookup) > 0) {
+          # Same spec-driven scope as the additive flavor (set_country_scope on
+          # section_301 re-scopes both); defaults to {China}.
+          scope_301_cs <- if (!is.null(specs)) {
+            resolve_country_scope(specs[['section_301']]$programs[[1]]$country_scope, countries)
+          } else {
+            CTY_CHINA
+          }
+
+          rates <- rates %>%
+            mutate(hts8 = substr(hts10, 1, 8)) %>%
+            left_join(s301_cs_lookup, by = 'hts8', relationship = 'many-to-one') %>%
+            mutate(
+              blanket_301_cs = coalesce(blanket_301_cs, 0),
+              rate_301_cs = if_else(
+                country %in% scope_301_cs,
+                pmax(rate_301_cs, blanket_301_cs),
+                0
+              )
+            ) %>%
+            select(-hts8, -blanket_301_cs)
+
+          s301_cs_hts8_codes <- s301_cs_lookup$hts8
+          s301_cs_hts10 <- products %>%
+            mutate(hts8 = substr(hts10, 1, 8)) %>%
+            filter(hts8 %in% s301_cs_hts8_codes) %>%
+            pull(hts10)
+
+          new_301_cs_pairs <- bind_rows(lapply(scope_301_cs, function(.ctry) {
+            existing_ctry <- rates %>% filter(country == .ctry) %>% pull(hts10)
+            new_products <- setdiff(s301_cs_hts10, existing_ctry)
+            if (length(new_products) == 0) return(NULL)
+            products %>%
+              filter(hts10 %in% new_products) %>%
+              select(hts10, base_rate) %>%
+              mutate(
+                base_rate = coalesce(base_rate, 0),
+                hts8 = substr(hts10, 1, 8),
+                country = .ctry
+              ) %>%
+              left_join(s301_cs_lookup, by = 'hts8', relationship = 'many-to-one') %>%
+              mutate(
+                rate_232 = 0, rate_301 = 0, rate_ieepa_recip = 0,
+                rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0, rate_other = 0,
+                rate_301_cs = coalesce(blanket_301_cs, 0)
+              ) %>%
+              filter(rate_301_cs > 0) %>%
+              select(-hts8, -blanket_301_cs)
+          }))
+
+          if (nrow(new_301_cs_pairs) > 0) {
+            message('  Adding ', nrow(new_301_cs_pairs),
+                    ' product-country pairs for content-split 301 duties')
+            rates <- bind_rows(rates, new_301_cs_pairs)
+          }
+        }
       }
     }
 
@@ -2566,6 +2664,7 @@ calculate_rates_for_revision <- function(
       statutory_rate_ieepa_recip = rate_ieepa_recip,
       statutory_rate_ieepa_fent  = rate_ieepa_fent,
       statutory_rate_301         = rate_301,
+      statutory_rate_301_cs      = rate_301_cs,
       statutory_rate_s122        = rate_s122,
       statutory_rate_section_201 = rate_section_201,
       statutory_rate_other       = rate_other
@@ -2724,6 +2823,12 @@ calculate_rates_for_revision <- function(
           rate_ieepa_recip = rate_ieepa_recip * (1 - usmca_share),
           rate_ieepa_fent = rate_ieepa_fent * (1 - usmca_share),
           rate_s122 = rate_s122 * (1 - usmca_share),
+          # A3 (Req 2): USMCA applies to BOTH 301 flavors. Zero-effect on baseline —
+          # 301 is China-only and China isn't CA/MX, so rate_301 is 0 on CA/MX rows
+          # (0 * (1 - share) = 0); rate_301_cs is all-zero until A2 classifies codes
+          # in. A re-scope scenario (301 -> CA/MX) then receives USMCA preference.
+          rate_301 = rate_301 * (1 - usmca_share),
+          rate_301_cs = rate_301_cs * (1 - usmca_share),
           # Apply USMCA shares to 232 auto/MHD (heading products with usmca_exempt flag)
           # Steel/aluminum 232 are NOT USMCA-eligible — only heading-level tariffs
           # Auto/MHD products use adjusted USMCA share: usmca_share * us_auto_content_share
@@ -2754,6 +2859,16 @@ calculate_rates_for_revision <- function(
           rate_s122 = if_else(
             country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
             0, rate_s122
+          ),
+          # A3 (Req 2): USMCA on BOTH 301 flavors (binary fallback). Zero-effect on
+          # baseline (301 is China-only; China isn't CA/MX).
+          rate_301 = if_else(
+            country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
+            0, rate_301
+          ),
+          rate_301_cs = if_else(
+            country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
+            0, rate_301_cs
           ),
           # Binary fallback: 232 for USMCA-eligible CA/MX auto/MHD
           # Auto/MHD: scale by (1 - us_auto_content_share); others: zero

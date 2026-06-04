@@ -145,6 +145,11 @@ default_stacking_policy <- function(cty_china = '5700') {
     rate_ieepa_fent  = list(net = 'net_fentanyl',    class = 'content_split',
                             additive_countries = cty_china),
     rate_301         = list(net = 'net_301',         class = 'additive'),
+    # Section 301, content-split flavor: yields to a 232 like the reciprocal/122
+    # (scaled by nonmetal_share when rate_232 > 0), vs the legacy additive rate_301.
+    # All-zero in baseline until codes are classified into it (A2), so adding it
+    # here contributes 0 to total_additional regardless of position (FP-safe).
+    rate_301_cs      = list(net = 'net_301_cs',      class = 'content_split'),
     rate_s122        = list(net = 'net_s122',        class = 'content_split'),
     rate_section_201 = list(net = 'net_section_201', class = 'additive'),
     rate_other       = list(net = 'net_other',       class = 'additive')

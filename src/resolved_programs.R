@@ -37,9 +37,10 @@ RESOLVED_AUTHORITIES <- tibble::tribble(
   'rate_ieepa_recip', 'ieepa_reciprocal',  'recip',      2L,
   'rate_ieepa_fent',  'ieepa_fentanyl',    'fentanyl',   3L,
   'rate_301',         'section_301',       's301',       4L,
-  'rate_s122',        'section_122',       's122',       5L,
-  'rate_section_201', 'section_201',       's201',       6L,
-  'rate_other',       'other',             'other',      7L
+  'rate_301_cs',      'section_301_cs',    's301cs',     5L,
+  'rate_s122',        'section_122',       's122',       6L,
+  'rate_section_201', 'section_201',       's201',       7L,
+  'rate_other',       'other',             'other',      8L
 )
 
 #' Is resolution-time stacking via the resolved-program table enabled?

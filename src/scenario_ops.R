@@ -43,7 +43,8 @@ RATE_DRIVEN_AUTHORITIES <- c('section_232', 'section_122')
 # normalization is Phase 8, but ops address it by the logical program name here).
 S232_RATE_FIELD <- c(steel = 'steel_rate', aluminum = 'aluminum_rate',
                      copper = 'copper_rate', autos = 'auto_rate', mhd = 'mhd_rate',
-                     wood = 'wood_rate', semiconductors = 'semi_rate')
+                     wood = 'wood_rate', semiconductors = 'semi_rate',
+                     pharmaceuticals = 'pharma_rate')
 # Only the metals/autos primary programs carry country exemption lists.
 S232_EXEMPT_FIELD <- c(steel = 'steel_exempt', aluminum = 'aluminum_exempt',
                        autos = 'auto_exempt')
@@ -62,7 +63,8 @@ S232_EXEMPT_FIELD <- c(steel = 'steel_exempt', aluminum = 'aluminum_exempt',
   pos <- function(x) isTRUE(x > 0)
   pos(r$steel_rate) || pos(r$aluminum_rate) || pos(r$auto_rate) || isTRUE(r$auto_has_deals) ||
     pos(r$wood_rate) || pos(r$wood_furniture_rate) || pos(r$mhd_rate) || pos(r$copper_rate) ||
-    pos(r$semi_rate) || pos(r$aluminum_derivative_rate) || pos(r$steel_derivative_rate)
+    pos(r$semi_rate) || pos(r$pharma_rate) ||
+    pos(r$aluminum_derivative_rate) || pos(r$steel_derivative_rate)
 }
 # Invalidate the cached heading-program activation gates after a 232 rate mutation.
 # The calculator reads attr(spec, 'heading_gates') and SKIPS any heading whose gate

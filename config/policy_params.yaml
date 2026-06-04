@@ -162,6 +162,20 @@ section_232_headings:
     default_rate: 0.25
     usmca_exempt: false
     end_use_exemption_share: 0.0   # uncalibrated, see todo.md Phase 5
+  # Pharmaceuticals (chapter 30) — DORMANT 232 sub-program (register-then-activate).
+  # No Ch99 backing in baseline => extract_section232_rates sets pharma_rate = 0 and
+  # compute_heading_gates gates this OFF, so the heading loop skips it => byte-
+  # identical to golden. A scenario activates it via
+  # set_rate(section_232, program='pharmaceuticals', rate=X). usmca_exempt: true
+  # routes it through the generic s232_usmca_eligible path (full (1 - usmca_share)
+  # scaling; ch30 isn't auto/MHD). Reciprocal/s122 displacement rides the normal
+  # rate_232 nonmetal_share machinery — verified by the check_pharma fixture (ch30
+  # metal content must resolve nonmetal_share = 0; if it leaks, give pharma an
+  # explicit full-value entry per docs/counterfactual_generality_ground_truth.md).
+  pharmaceuticals:
+    prefixes: ['30']
+    default_rate: 0.25
+    usmca_exempt: true
 
 # --- Section 232 country exemptions (pre-March 2025) ---
 # TRQ/quota agreements and full exemptions from Proclamations 9705/9704.
@@ -346,10 +360,19 @@ swiss_framework:
 authority_columns:
   section_232:      rate_232
   section_301:      rate_301
+  section_301_content_split: rate_301_cs
   ieepa_reciprocal: rate_ieepa_recip
   ieepa_fentanyl:   rate_ieepa_fent
   section_122:      rate_s122
   other:            rate_other
+
+# --- Section 301 content-split classification (A2) ---
+# Ch99 codes listed here ride rate_301_cs (content_split: yields to a 232 like the
+# reciprocal/122, and is USMCA-eligible) instead of the legacy-additive rate_301.
+# EMPTY in baseline => rate_301_cs is all-zero everywhere => byte-identical. The team
+# supplies the real list of content-split 301 actions (e.g. new country-specific Ch99
+# codes). A code here is removed from the additive rate_301 bucket (no double-count).
+section_301_content_split_codes: []
 
 # --- Section 301 rates (Ch99 pattern -> rate) ---
 # Used by 06_calculate_rates.R and 08_weighted_etr.R

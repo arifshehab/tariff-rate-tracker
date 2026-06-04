@@ -18,8 +18,16 @@ library(here)
 #'   equivalents. Set FALSE when using --use-hts-dates or for utilities that
 #'   need raw HTS timing. See docs/policy_timing.md.
 #' @return List with raw params plus convenience fields
-load_policy_params <- function(yaml_path = here('config', 'policy_params.yaml'),
+load_policy_params <- function(yaml_path = NULL,
                                use_policy_dates = TRUE) {
+  # TARIFF_POLICY_PARAMS overrides the config path (mirrors TARIFF_TS_DIR /
+  # TARIFF_SCENARIO_OPS) so a fixture can build against a config variant — e.g.
+  # a populated section_301_content_split_codes — without editing the tracked
+  # file. Unset (the production/gate path) => the canonical config => byte-identical.
+  if (is.null(yaml_path)) {
+    env_path <- Sys.getenv('TARIFF_POLICY_PARAMS', '')
+    yaml_path <- if (nzchar(env_path)) env_path else here('config', 'policy_params.yaml')
+  }
   if (!file.exists(yaml_path)) {
     stop('Policy params YAML not found: ', yaml_path)
   }

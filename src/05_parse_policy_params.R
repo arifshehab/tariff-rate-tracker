@@ -1016,9 +1016,16 @@ extract_section232_rates <- function(ch99_data) {
     message('  Semiconductor 232: ', round(semi_rate * 100), '%')
   }
 
+  # Pharmaceuticals (chapter 30): DORMANT register-then-activate 232 sub-program.
+  # No Ch99 code is assigned in baseline, so pharma_rate is 0 here (byte-identical).
+  # A scenario activates it via set_rate(section_232, program='pharmaceuticals', ...),
+  # which writes the resolved pharma_rate and flips has_232 via .s232_recompute_has_232
+  # (scenario_ops.R) — keep that formula in lockstep with the has_232 OR-gate below.
+  pharma_rate <- 0
+
   has_232 <- (steel_rate > 0 || aluminum_rate > 0 || auto_rate > 0 || auto_has_deals ||
               wood_rate > 0 || wood_furniture_rate > 0 || mhd_rate > 0 || copper_rate > 0 ||
-              semi_rate > 0 ||
+              semi_rate > 0 || pharma_rate > 0 ||
               aluminum_derivative_rate > 0 || steel_derivative_rate > 0)
 
   coverage_parts <- c()
@@ -1041,6 +1048,7 @@ extract_section232_rates <- function(ch99_data) {
     mhd_rate = mhd_rate,
     copper_rate = copper_rate,
     semi_rate = semi_rate,
+    pharma_rate = pharma_rate,
     steel_exempt = steel_exempt,
     aluminum_exempt = aluminum_exempt,
     auto_exempt = auto_exempt,

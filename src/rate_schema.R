@@ -11,7 +11,7 @@ library(tidyverse)
 #' Canonical column vector for rate output
 RATE_SCHEMA <- c(
   'hts10', 'country', 'base_rate', 'statutory_base_rate',
-  'rate_232', 'rate_301', 'rate_ieepa_recip', 'rate_ieepa_fent',
+  'rate_232', 'rate_301', 'rate_301_cs', 'rate_ieepa_recip', 'rate_ieepa_fent',
   'rate_s122', 'rate_section_201', 'rate_other',
   'metal_share',
   'total_additional', 'total_rate',
@@ -30,7 +30,7 @@ enforce_rate_schema <- function(df) {
   # Defaults by column
   defaults <- list(
     hts10 = NA_character_, country = NA_character_,
-    base_rate = 0, statutory_base_rate = 0, rate_232 = 0, rate_301 = 0,
+    base_rate = 0, statutory_base_rate = 0, rate_232 = 0, rate_301 = 0, rate_301_cs = 0,
     rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0, rate_other = 0,
     metal_share = 1.0,
     total_additional = 0, total_rate = 0,
@@ -46,8 +46,8 @@ enforce_rate_schema <- function(df) {
   }
 
   # Fill NAs in numeric rate columns (bind_rows can introduce NAs)
-  rate_cols <- c('base_rate', 'statutory_base_rate', 'rate_232', 'rate_301', 'rate_ieepa_recip',
-                 'rate_ieepa_fent', 'rate_s122', 'rate_section_201', 'rate_other',
+  rate_cols <- c('base_rate', 'statutory_base_rate', 'rate_232', 'rate_301', 'rate_301_cs',
+                 'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_s122', 'rate_section_201', 'rate_other',
                  'total_additional', 'total_rate')
   for (col in rate_cols) {
     if (col %in% names(df)) {
@@ -286,7 +286,7 @@ add_blanket_pairs <- function(rates, products, covered_hts10, country_rates,
     anti_join(existing, by = c('hts10', 'country')) %>%
     left_join(country_rates, by = 'country') %>%
     mutate(
-      rate_232 = 0, rate_301 = 0, rate_ieepa_recip = 0,
+      rate_232 = 0, rate_301 = 0, rate_301_cs = 0, rate_ieepa_recip = 0,
       rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0, rate_other = 0
     )
 

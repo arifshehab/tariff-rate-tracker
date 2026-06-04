@@ -219,13 +219,17 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     # Use shared net authority decomposition from helpers.R
     net_data <- compute_net_authority_contributions(rev_data, cty_china = CTY_CHINA,
                                                      stacking_method = stacking_method)
+    # A2: content-split 301 (net_301_cs) is reported UNDER Section 301 here, so the
+    # daily decomposition needs no new column — byte-identical in baseline, where
+    # net_301_cs = 0. Guard the tpc_additive path, which omits net_301_cs.
+    if (!'net_301_cs' %in% names(net_data)) net_data$net_301_cs <- 0
 
     row <- tibble(
       revision = revision,
       valid_from = valid_from,
       valid_until = valid_until,
       mean_232 = mean(net_data$net_232),
-      mean_301 = mean(net_data$net_301),
+      mean_301 = mean(net_data$net_301 + net_data$net_301_cs),
       mean_ieepa = mean(net_data$net_ieepa),
       mean_fentanyl = mean(net_data$net_fentanyl),
       mean_s122 = mean(net_data$net_s122),
@@ -238,8 +242,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       if (nrow(wt_data) > 0) {
         wt_net <- compute_net_authority_contributions(wt_data, cty_china = CTY_CHINA,
                                                       stacking_method = stacking_method)
+        if (!'net_301_cs' %in% names(wt_net)) wt_net$net_301_cs <- 0
         row$etr_232 <- sum(wt_net$net_232 * wt_net$imports) / total_imports
-        row$etr_301 <- sum(wt_net$net_301 * wt_net$imports) / total_imports
+        row$etr_301 <- sum((wt_net$net_301 + wt_net$net_301_cs) * wt_net$imports) / total_imports
         row$etr_ieepa <- sum(wt_net$net_ieepa * wt_net$imports) / total_imports
         row$etr_fentanyl <- sum(wt_net$net_fentanyl * wt_net$imports) / total_imports
         row$etr_s122 <- sum(wt_net$net_s122 * wt_net$imports) / total_imports
