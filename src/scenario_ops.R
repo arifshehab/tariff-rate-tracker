@@ -64,6 +64,18 @@ S232_EXEMPT_FIELD <- c(steel = 'steel_exempt', aluminum = 'aluminum_exempt',
     pos(r$wood_rate) || pos(r$wood_furniture_rate) || pos(r$mhd_rate) || pos(r$copper_rate) ||
     pos(r$semi_rate) || pos(r$aluminum_derivative_rate) || pos(r$steel_derivative_rate)
 }
+# Invalidate the cached heading-program activation gates after a 232 rate mutation.
+# The calculator reads attr(spec, 'heading_gates') and SKIPS any heading whose gate
+# is FALSE; it has a `%||% compute_heading_gates(s232_rates)` fallback (06_calculate_rates.R)
+# that recomputes the gates from the (now-mutated) resolved payload whenever the cache
+# is absent. Dropping the stale cache here therefore makes a set_rate that activates a
+# dormant heading (e.g. copper before its Ch99 codes existed) actually land, and makes
+# a disable that zeros a heading correctly flip its gate OFF. Doing it via cache-drop
+# (rather than recompute) keeps scenario_ops free of a calculator dependency. Codex F1.
+.s232_drop_gate_cache <- function(spec) {
+  attr(spec, 'heading_gates') <- NULL
+  spec
+}
 
 #' Apply a list of operations to a spec set, in listed order.
 #'
@@ -83,7 +95,11 @@ apply_operations <- function(specs, operations = list()) {
 #' Apply one operation. Dispatches on `op$op`. Fail-loud on anything unsupported.
 apply_operation <- function(specs, op, idx = NA_integer_) {
   verb <- op$op %||% stop(sprintf('operation[%s]: missing `op` verb', idx))
-  auth <- op$authority %||% stop(sprintf('operation[%s] (%s): missing `authority`', idx, verb))
+  # add_program may omit `authority` — it defaults to the `other` catch-all (Phase 8,
+  # honoring op_add_program's documented default); every other verb requires it. Codex F8.
+  auth <- op$authority %||%
+    (if (identical(verb, 'add_program')) 'other'
+     else stop(sprintf('operation[%s] (%s): missing `authority`', idx, verb)))
   if (is.null(specs[[auth]])) {
     stop(sprintf('operation[%s] (%s): unknown authority "%s" (have: %s)',
                  idx, verb, auth, paste(names(specs), collapse = ', ')))
@@ -169,7 +185,9 @@ op_disable <- function(specs, op, idx) {
       r$s122_rate <- 0
       r$has_s122  <- FALSE
     }
-    specs[[auth]] <- .op_set_resolved(spec, r)
+    spec <- .op_set_resolved(spec, r)
+    if (auth == 'section_232') spec <- .s232_drop_gate_cache(spec)  # Codex F1: gates recompute -> OFF
+    specs[[auth]] <- spec
     return(specs)
   }
   stop(sprintf(paste0('operation[%s] (disable): authority "%s" is not disable-able. ',
@@ -229,7 +247,9 @@ op_set_rate <- function(specs, op, idx) {
     r$s122_rate <- rate
     r$has_s122  <- rate > 0
   }
-  specs[[auth]] <- .op_set_resolved(spec, r)
+  spec <- .op_set_resolved(spec, r)
+  if (auth == 'section_232') spec <- .s232_drop_gate_cache(spec)  # Codex F1
+  specs[[auth]] <- spec
   specs
 }
 
@@ -252,7 +272,9 @@ op_set_exempt <- function(specs, op, idx) {
   r <- .op_get_resolved(spec)
   if (is.null(r)) stop(sprintf('operation[%s] (set_exempt): section_232 has no resolved payload', idx))
   r[[field]] <- as.character(countries)
-  specs[[auth]] <- .op_set_resolved(spec, r)
+  spec <- .op_set_resolved(spec, r)
+  spec <- .s232_drop_gate_cache(spec)  # Codex F1 (exemptions don't move gates; recompute is a harmless no-op)
+  specs[[auth]] <- spec
   specs
 }
 

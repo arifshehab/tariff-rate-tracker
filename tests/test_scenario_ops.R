@@ -144,6 +144,26 @@ expect_error(apply_operations(rspecs, list(
   list(op = 'set_exempt', authority = 'section_232', program = 'copper', countries = '1220'))),
   'set_exempt on a program with no exemption list (copper) errors')
 
+cat('\n--- Codex F1: a 232 rate op invalidates the cached heading_gates attr ---\n')
+# The calc reads attr(spec,'heading_gates') and SKIPS FALSE-gated headings, with a
+# `%||% compute_heading_gates(s232_rates)` fallback that recomputes from the mutated
+# payload when the cache is absent. A set_rate/disable that changes a heading rate
+# MUST drop the stale cache so the recompute reflects it — else a scenario that
+# activates copper is silently skipped (the bug Codex F1 caught).
+gated <- rspecs
+attr(gated[['section_232']], 'heading_gates') <- list(copper = FALSE, semiconductors = FALSE)
+g1 <- apply_operations(gated, list(
+  list(op = 'set_rate', authority = 'section_232', program = 'copper', rate = 0.50)))
+check(is.null(attr(g1[['section_232']], 'heading_gates', exact = TRUE)),
+      'set_rate 232/copper drops the stale heading_gates cache (calc then recomputes copper=TRUE)')
+g2 <- apply_operations(gated, list(list(op = 'disable', authority = 'section_232')))
+check(is.null(attr(g2[['section_232']], 'heading_gates', exact = TRUE)),
+      'disable 232 drops the stale heading_gates cache (calc then recomputes gates OFF)')
+g3 <- apply_operations(gated, list(list(op = 'set_rate', authority = 'section_122', rate = 0.10)))
+check(identical(attr(g3[['section_232']], 'heading_gates', exact = TRUE),
+                list(copper = FALSE, semiconductors = FALSE)),
+      's122 set_rate leaves the 232 gate cache untouched (different authority)')
+
 # =============================================================================
 # Phase 8 — add_program (new coverage) + the no-Ch99 seeder's pure helpers
 # =============================================================================
@@ -194,5 +214,17 @@ expect_error(apply_operations(np, list(drone_op)),
   'add_program with a duplicate program id errors')
 expect_error(resolve_product_scope(list(chapters = '88'), prods),
   'unrecognized product_scope errors (never silently covers nothing)')
+
+cat('\n--- Codex F8: add_program without `authority` defaults to `other` ---\n')
+np2 <- apply_operations(nc_specs, list(
+  list(op = 'add_program',
+       program = list(id = 'drone_no_auth', rate = list(flat = 0.25),
+                      product_scope = list(prefixes = '8806'), country_scope = list(include = 'all')))))
+check(length(np2[['other']]$programs) == 2L, 'add_program with no `authority` landed on `other`')
+check(identical(np2[['other']]$programs[[2]]$id, 'drone_no_auth'),
+      'the defaulted-to-other program carries the given id')
+# every other verb still requires authority
+expect_error(apply_operations(specs, list(list(op = 'disable'))),
+  'a non-add_program verb without `authority` still errors')
 
 cat(sprintf('\nALL %d SCENARIO_OPS ASSERTIONS PASSED\n', pass))

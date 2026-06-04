@@ -680,8 +680,12 @@ run_test('no unknown country_type in current ch99 data', {
 
 message('\n--- Test 13: Section 301 scope consistency ---')
 
-run_test('stacking excludes rate_301 for non-China countries', {
-  # Non-China row with rate_301 > 0 — stacking should NOT include it
+run_test('stacking treats rate_301 as additive; scope is enforced upstream', {
+  # Phase 2e: rate_301 is ADDITIVE in the stacker with no country check.
+  # 301 country scope is enforced UPSTREAM in the calculator, not here — so a
+  # non-China row carrying rate_301 > 0 stacks it at full rate. This is what
+  # makes the proven "301 -> Vietnam" re-scope possible. With rate_232 = 0 the
+  # content_split authorities (recip, s122) also apply at full rate.
   ts_301 <- tibble(
     hts10 = '8703230000', country = '4280',  # Germany, not China
     base_rate = 0.05, statutory_base_rate = 0.05,
@@ -691,8 +695,8 @@ run_test('stacking excludes rate_301 for non-China countries', {
     total_additional = 0, total_rate = 0
   )
   stacked <- apply_stacking_rules(ts_301)
-  # 301 should be excluded: total = recip + s122 = 0.25, NOT 0.50
-  stopifnot(abs(stacked$total_additional - 0.25) < 1e-10)
+  # recip + 301 + s122 = 0.15 + 0.25 + 0.10 = 0.50 (301 included, not excluded)
+  stopifnot(abs(stacked$total_additional - 0.50) < 1e-10)
 })
 
 run_test('stacking includes rate_301 for China', {

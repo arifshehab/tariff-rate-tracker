@@ -371,7 +371,7 @@ compute_weighted_etrs <- function(data, policy_params = NULL) {
 
     rated %>% select(hs10, cty_code, partner, imports, date, label,
                       total_rate, net_232, net_ieepa, net_fentanyl, net_301,
-                      net_s122, net_section_201)
+                      net_s122, net_section_201, net_other)
   }
 
   results <- policy_dates %>% pmap_dfr(.rate_snapshot)
@@ -406,7 +406,7 @@ compute_weighted_etrs <- function(data, policy_params = NULL) {
 
         rated %>% select(hs10, cty_code, partner, imports, date, label,
                           total_rate, net_232, net_ieepa, net_fentanyl, net_301,
-                          net_s122, net_section_201)
+                          net_s122, net_section_201, net_other)
       })
     message('  Policy-aligned flows: ', nrow(policy_aligned))
   }
@@ -496,6 +496,7 @@ aggregate_etrs <- function(results, imports_gtap, total_imports, partner_totals,
       etr_301 = sum(net_301 * imports) / total_imports,
       etr_s122 = sum(net_s122 * imports) / total_imports,
       etr_section_201 = sum(net_section_201 * imports) / total_imports,
+      etr_other = sum(net_other * imports) / total_imports,
       .groups = 'drop'
     ) %>%
     mutate(label = factor(label, levels = POLICY_DATES$label))
@@ -650,7 +651,7 @@ plot_etrs <- function(etrs, tpc_etrs = NULL, output_dir) {
   # --- Plot 3: Authority decomposition (stacked bars) + TPC total line ---
   auth_long <- etrs$by_authority %>%
     select(date, label, etr_232, etr_ieepa, etr_fentanyl, etr_301, etr_s122,
-           etr_section_201) %>%
+           etr_section_201, etr_other) %>%
     pivot_longer(cols = starts_with('etr_'),
                  names_to = 'authority', values_to = 'etr') %>%
     mutate(
@@ -660,11 +661,12 @@ plot_etrs <- function(etrs, tpc_etrs = NULL, output_dir) {
         authority == 'etr_fentanyl' ~ 'IEEPA Fentanyl',
         authority == 'etr_301' ~ 'Section 301',
         authority == 'etr_s122' ~ 'Section 122',
-        authority == 'etr_section_201' ~ 'Section 201'
+        authority == 'etr_section_201' ~ 'Section 201',
+        authority == 'etr_other' ~ 'Other'
       ),
       authority = factor(authority, levels = c(
         'IEEPA Reciprocal', 'IEEPA Fentanyl', 'Section 301',
-        'Section 232', 'Section 122', 'Section 201'
+        'Section 232', 'Section 122', 'Section 201', 'Other'
       ))
     ) %>%
     filter(etr > 1e-6)  # hide authorities with negligible contribution
@@ -699,7 +701,8 @@ plot_etrs <- function(etrs, tpc_etrs = NULL, output_dir) {
       'Section 301' = '#3498db',
       'Section 232' = '#2ecc71',
       'Section 122' = '#9b59b6',
-      'Section 201' = '#1abc9c'
+      'Section 201' = '#1abc9c',
+      'Other' = '#95a5a6'
     )) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
     theme_etr

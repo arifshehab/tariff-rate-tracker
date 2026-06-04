@@ -192,12 +192,39 @@ build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
 #'   latest revision present in the snapshots (by effective_date).
 #' @return list(metadata, timeseries_path, output_dir)
 assemble_timeseries <- function(output_dir, rev_dates, pp_build,
-                                last_successful_rev = NULL, scenario = 'baseline') {
+                                last_successful_rev = NULL, scenario = 'baseline',
+                                expected_revisions = NULL, allow_partial = FALSE) {
   message('\n', strrep('=', 60))
   message('Combining snapshots into time series...')
 
   # Load all snapshot files (including pre-existing from incremental)
   all_snapshot_files <- list.files(output_dir, pattern = '^snapshot_.*\\.rds$', full.names = TRUE)
+
+  # Completeness gate (Finding 3): if the caller declares which revisions it
+  # expected this run, fail loud when any are missing from disk — a dropped
+  # *middle* revision is otherwise invisible (the interval encoding stretches
+  # the prior revision over the gap, reading as policy stability). The check is
+  # opt-in (expected_revisions = NULL => skip), and when every expected revision
+  # is present (the normal case) `missing_revs` is empty and this is a no-op —
+  # no stop(), no behavior change, byte-identical output. Compare against
+  # revision *ids* present on disk, mirroring how the timeseries is assembled.
+  if (!is.null(expected_revisions)) {
+    revs_on_disk <- sub('^snapshot_', '', tools::file_path_sans_ext(basename(all_snapshot_files)))
+    missing_revs <- setdiff(expected_revisions, revs_on_disk)
+    if (length(missing_revs) > 0 && !allow_partial) {
+      stop('assemble_timeseries: ', length(missing_revs), ' of ',
+           length(expected_revisions),
+           ' expected revision(s) have no snapshot on disk: ',
+           paste(missing_revs, collapse = ', '),
+           '. The assembled panel would silently stretch a neighbouring ',
+           'revision over the gap. Pass allow_partial = TRUE to assemble anyway.')
+    }
+    if (length(missing_revs) > 0) {
+      warning('assemble_timeseries: assembling PARTIAL panel (allow_partial = TRUE) — ',
+              length(missing_revs), ' expected revision(s) missing: ',
+              paste(missing_revs, collapse = ', '))
+    }
+  }
 
   # Use data.table::rbindlist instead of purrr::map_dfr — at full scale
   # (~195M rows) map_dfr peaks at ~2x memory and OOMs around 10 GB. rbindlist
@@ -285,6 +312,14 @@ assemble_timeseries <- function(output_dir, rev_dates, pp_build,
     n_rows = nrow(timeseries),
     scenario = scenario
   )
+  # Record the completeness reconciliation only when the caller declared an
+  # expected set — keeps the metadata shape unchanged in the normal path that
+  # doesn't pass expected_revisions.
+  if (!is.null(expected_revisions)) {
+    revs_on_disk <- sub('^snapshot_', '', tools::file_path_sans_ext(basename(all_snapshot_files)))
+    metadata$expected_revisions <- expected_revisions
+    metadata$skipped_revisions  <- setdiff(expected_revisions, revs_on_disk)
+  }
   saveRDS(metadata, file.path(output_dir, 'metadata.rds'))
 
   return(list(
@@ -311,6 +346,9 @@ assemble_timeseries <- function(output_dir, rev_dates, pp_build,
 #' @param tpc_path Path to TPC validation data; defaults to local_paths config
 #' @param scenario Scenario name (default: 'baseline')
 #' @param start_from NULL for full backfill; revision ID for incremental
+#' @param allow_partial If TRUE, assemble the panel even when some attempted
+#'   revisions failed to build (default FALSE => fail loud on a missing
+#'   revision; Finding 3)
 #' @return List with metadata and final timeseries path
 build_full_timeseries <- function(
   archive_dir = 'data/hts_archives',
@@ -322,7 +360,8 @@ build_full_timeseries <- function(
   start_from = NULL,
   stacking_method = 'mutual_exclusion',
   use_policy_dates = TRUE,
-  parallel_cfg = NULL
+  parallel_cfg = NULL,
+  allow_partial = FALSE
 ) {
   start_time <- Sys.time()
 
@@ -513,9 +552,15 @@ build_full_timeseries <- function(
   }
 
   # ---- Bind snapshots -> timeseries (+ intervals, parquet, metadata) ----
+  # Reconcile the revisions this run attempted (revisions_to_process — already
+  # trimmed for incremental mode) against the snapshots on disk, so a revision
+  # that errored mid-loop fails the assembly loud rather than silently
+  # publishing a panel with a stretched-over gap (Finding 3).
   result <- assemble_timeseries(output_dir, rev_dates, pp_build,
                                 last_successful_rev = last_successful_rev,
-                                scenario = scenario)
+                                scenario = scenario,
+                                expected_revisions = revisions_to_process,
+                                allow_partial = allow_partial)
 
   # ---- Summary ----
   end_time <- Sys.time()
@@ -661,6 +706,7 @@ if (sys.nframe() == 0) {
   refresh_usmca <- '--refresh-usmca' %in% args
   do_publish_internal <- '--publish-internal' %in% args
   do_publish_git      <- '--publish-git' %in% args
+  allow_partial    <- '--allow-partial' %in% args     # opt out of the completeness gate
   use_policy_dates <- !('--use-hts-dates' %in% args)  # default: policy dates
   unweighted <- '--unweighted' %in% args
   start_from <- NULL
@@ -845,7 +891,8 @@ if (sys.nframe() == 0) {
   }
   result <- build_full_timeseries(start_from = start_from,
                                    use_policy_dates = use_policy_dates,
-                                   parallel_cfg = parallel_cfg)
+                                   parallel_cfg = parallel_cfg,
+                                   allow_partial = allow_partial)
 
   # --- Step D: Summary ---
   if (!is.null(result)) {

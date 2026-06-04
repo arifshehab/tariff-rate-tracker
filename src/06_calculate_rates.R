@@ -223,6 +223,42 @@ compute_heading_gates <- function(s232_rates) {
 }
 
 
+#' Map a Section 232 heading config name -> the resolved s232_rates field a scenario
+#' set_rate writes (scenario_ops.R::S232_RATE_FIELD). Only headings that are BOTH
+#' addressable by set_rate AND carry the policy rate in the resolved payload (equal
+#' to the YAML default in baseline) are mapped. Excluded — kept on the YAML default:
+#' buses (default 0.10, but rides the mhd_rate>0 gate so the field would mis-rate it),
+#' auto_parts (no own rate field), wood_furniture/kitchen_cabinets (no set_rate program).
+HEADING_RESOLVED_RATE_FIELD <- c(
+  autos_passenger    = 'auto_rate',
+  autos_light_trucks = 'auto_rate',
+  copper             = 'copper_rate',
+  softwood           = 'wood_rate',
+  mhd_vehicles       = 'mhd_rate',
+  mhd_parts          = 'mhd_rate',
+  semiconductors     = 'semi_rate'
+)
+
+#' Resolve a Section 232 heading's applied rate. Reads the spec-resolved field FIRST
+#' so a scenario set_rate(section_232, <program>, x) actually lands (Codex F2);
+#' falls back to the YAML default_rate when the heading isn't spec-mapped or its
+#' resolved rate is 0 (e.g. autos active only via deals, auto_rate == 0). Byte-
+#' identical in baseline: for an active mapped heading the resolved (parser-extracted)
+#' rate equals default_rate, so this returns the same value the old `cfg$default_rate`
+#' did. Verified by the full 41-revision byte-identical sweep.
+resolve_heading_rate <- function(tariff_name, cfg, s232_rates) {
+  # NB: HEADING_RESOLVED_RATE_FIELD is a named CHARACTER vector — `[[` on an absent
+  # name throws "subscript out of bounds" (unlike a list), and the heading loop
+  # iterates every config heading (incl. unmapped auto_parts/buses), so guard on
+  # membership before indexing.
+  if (tariff_name %in% names(HEADING_RESOLVED_RATE_FIELD)) {
+    v <- s232_rates[[HEADING_RESOLVED_RATE_FIELD[[tariff_name]]]]
+    if (!is.null(v) && length(v) == 1L && !is.na(v) && v > 0) return(v)
+  }
+  cfg$default_rate %||% s232_rates$auto_rate
+}
+
+
 #' Check if country applies to a Chapter 99 entry
 #'
 #' @param country Census country code
@@ -1408,7 +1444,7 @@ calculate_rates_for_revision <- function(
 
         heading_product_lists[[tariff_name]] <- list(
           products = matched,
-          rate = cfg$default_rate %||% s232_rates$auto_rate,
+          rate = resolve_heading_rate(tariff_name, cfg, s232_rates),
           usmca_exempt = cfg$usmca_exempt %||% FALSE
         )
 
@@ -2772,6 +2808,15 @@ calculate_rates_for_revision <- function(
   # => byte-identical. (Weight provisioning for pairs absent from the weight base
   # is handled downstream in 08, not here.)
   rates <- apply_new_coverage_programs(rates, specs, products, countries)
+
+  # F5: the statutory 'other' snapshot (step 6 above) was taken BEFORE new coverage,
+  # and add_blanket_pairs may have introduced pairs that snapshot never saw — leaving
+  # statutory_rate_other stale/zero for add_program coverage, which the pre-stacking
+  # statutory export (generate_etrs_config.R) then hands downstream under-counted.
+  # Re-sync it here: 'other' is additive (stacking never scales it down), so the
+  # pre-stacking statutory value equals the live rate_other. No-op in baseline
+  # (apply_new_coverage_programs is dormant => rate_other unchanged since the snapshot).
+  rates <- rates %>% mutate(statutory_rate_other = rate_other)
 
   # 8. Re-apply stacking rules with updated IEEPA and 232 rates. Phase 3b: when
   # enabled (TARIFF_RESOLVED_STACKING), route through the resolved-program long

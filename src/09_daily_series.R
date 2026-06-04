@@ -1187,7 +1187,8 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
                                           census_codes_path = here('resources', 'census_codes.csv'),
                                           policy_params = NULL,
                                           snapshot_out_dir = NULL,
-                                          operations = NULL) {
+                                          operations = NULL,
+                                          allow_partial = FALSE) {
 
   message('\n  Building alternative timeseries: ', variant_name)
 
@@ -1294,6 +1295,28 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
   # Build revision intervals from saved snapshots (without loading data)
   snap_files <- list.files(tmp_dir, pattern = '^snapshot_.*\\.rds$', full.names = TRUE)
   revs_built <- sub('^snapshot_', '', tools::file_path_sans_ext(basename(snap_files)))
+
+  # Completeness gate (Finding 3): a dropped *middle* revision is invisible
+  # downstream — build_rev_intervals stretches the prior revision's window over
+  # the gap, so a partial panel reads as policy stability. Fail loud unless the
+  # caller explicitly opts into a partial build. When every expected revision
+  # built (the normal case), `missing_revs` is empty and this is a no-op — no
+  # stop(), no behavior change, byte-identical output.
+  missing_revs <- setdiff(revisions_to_process, revs_built)
+  if (length(missing_revs) > 0 && !allow_partial) {
+    stop('build_alternative_timeseries(', variant_name, '): ',
+         length(missing_revs), ' of ', length(revisions_to_process),
+         ' expected revision(s) did not build (snapshot missing): ',
+         paste(missing_revs, collapse = ', '),
+         '. The published panel would silently stretch a neighbouring ',
+         'revision over the gap. Pass allow_partial = TRUE to publish anyway.')
+  }
+  if (length(missing_revs) > 0) {
+    warning('build_alternative_timeseries(', variant_name,
+            '): publishing PARTIAL panel (allow_partial = TRUE) — ',
+            length(missing_revs), ' revision(s) skipped: ',
+            paste(missing_revs, collapse = ', '))
+  }
 
   rev_intervals <- build_rev_intervals(
     revs_built, rev_dates,

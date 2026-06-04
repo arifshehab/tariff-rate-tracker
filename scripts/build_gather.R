@@ -37,6 +37,7 @@ suppressMessages({
 args <- commandArgs(trailingOnly = TRUE)
 use_policy_dates <- !('--use-hts-dates' %in% args)
 unweighted <- '--unweighted' %in% args
+allow_partial <- '--allow-partial' %in% args   # opt out of the completeness gate
 # Where the array tasks wrote their snapshots. Overridable (TARIFF_TS_DIR) so the
 # gather can read an isolated candidate build without touching data/timeseries —
 # mirrors scripts/build_revision.R. Downstream (daily/ETR) honors TARIFF_OUTPUT_DIR.
@@ -61,6 +62,31 @@ ordered <- rev_dates %>%
   pull(revision)
 if (length(ordered) == 0) stop('No snapshots found in ', output_dir, ' — run the array build first.')
 message('Gathering ', length(ordered), ' revisions: ', ordered[1], ' .. ', ordered[length(ordered)])
+
+# Completeness gate (Finding 3): the array dispatches one task per revision that
+# has a JSON archive (the same set list_revisions.R prints to size the array). If
+# a task died, its snapshot is simply absent — and because the interval encoding
+# stretches the prior revision over the gap, the assembled panel reads as policy
+# stability rather than a missing revision. Reconcile the expected (available)
+# set against what landed on disk and fail loud unless --allow-partial is set.
+# When the array fully succeeded (the normal case), `missing_revs` is empty and
+# this is a no-op — no stop(), identical assembly path.
+available <- get_available_revisions_all_years(all_revs, here('data', 'hts_archives'))
+expected_revs <- all_revs[all_revs %in% available]
+missing_revs <- setdiff(expected_revs, ordered)
+if (length(missing_revs) > 0 && !allow_partial) {
+  stop('build_gather: ', length(missing_revs), ' of ', length(expected_revs),
+       ' expected revision(s) have no snapshot in ', output_dir, ': ',
+       paste(missing_revs, collapse = ', '),
+       '. An array task likely failed; the assembled panel would silently ',
+       'stretch a neighbouring revision over the gap. Re-run the failed ',
+       'task(s), or pass --allow-partial to gather anyway.')
+}
+if (length(missing_revs) > 0) {
+  warning('build_gather: gathering PARTIAL panel (--allow-partial) — ',
+          length(missing_revs), ' expected revision(s) missing: ',
+          paste(missing_revs, collapse = ', '))
+}
 
 # ---- 1. Deltas from cached parses (consecutive revisions) ----
 message('Computing deltas from cached parses...')
@@ -92,7 +118,9 @@ products_last %>%
   write_csv(here('data', 'processed', 'products_raw.csv'))
 
 # ---- 3. Assemble timeseries ----
-result <- assemble_timeseries(output_dir, rev_dates, pp, scenario = 'baseline')
+result <- assemble_timeseries(output_dir, rev_dates, pp, scenario = 'baseline',
+                              expected_revisions = expected_revs,
+                              allow_partial = allow_partial)
 
 # ---- 4. Downstream (mirrors 00_build_timeseries.R main block) ----
 ts <- readRDS(result$timeseries_path)
