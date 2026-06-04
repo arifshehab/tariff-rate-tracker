@@ -785,10 +785,35 @@ calculate_rates_for_revision <- function(
             ' (DIAGNOSTIC — produces legally-incorrect output)')
   }
 
-  # Load IEEPA product exemptions
+  # Load IEEPA product exemptions. The list is date-windowed: Annex II has
+  # been amended repeatedly (electronics Apr 5 2025, EO 14346 metals Sept 8,
+  # agricultural expansion Nov 13; copper/wood REMOVED when their 232
+  # programs began Aug 1 / Oct 14). effective_date_start/_end columns are
+  # stamped by scripts/build_annex_ii_dates.R from the chapter-99 change
+  # records; blank = always active. Without the filter the static list
+  # applied amendments retroactively (extreme-eta review item 3).
   ieepa_exempt_path <- here('resources', 'ieepa_exempt_products.csv')
   ieepa_exempt_products <- if (file.exists(ieepa_exempt_path)) {
-    read_csv(ieepa_exempt_path, col_types = cols(hts10 = col_character()))$hts10
+    ie_raw <- read_csv(ieepa_exempt_path,
+                       col_types = cols(hts10 = col_character(),
+                                        .default = col_character()))
+    rd_exempt <- as.Date(effective_date)
+    n_before <- nrow(ie_raw)
+    if ('effective_date_start' %in% names(ie_raw)) {
+      ie_raw <- ie_raw %>%
+        filter(is.na(effective_date_start) |
+                 as.Date(effective_date_start) <= rd_exempt)
+    }
+    if ('effective_date_end' %in% names(ie_raw)) {
+      ie_raw <- ie_raw %>%
+        filter(is.na(effective_date_end) |
+                 as.Date(effective_date_end) >= rd_exempt)
+    }
+    if (nrow(ie_raw) < n_before) {
+      message('  IEEPA exempt list: ', n_before - nrow(ie_raw),
+              ' entries outside their effective window at ', effective_date)
+    }
+    ie_raw$hts10
   } else {
     warning('ieepa_exempt_products.csv not found — all products subject to IEEPA')
     character(0)
@@ -2676,13 +2701,36 @@ calculate_rates_for_revision <- function(
     }
 
     if (!is.null(usmca_product_shares) && nrow(usmca_product_shares) > 0) {
-      # Census SPI shares: apply to all CA/MX products
+      # Census SPI shares: apply to all CA/MX products.
+      # Missing or zero-trade HTS10 pairs fall back to the HS8-level
+      # value-weighted share (attr 'hs8_shares' from the h2_average loader)
+      # before defaulting to 0 — handles statistical splits/concordance
+      # drift like 2709.00.20.10 (extreme-eta review item 6).
+      hs8_shares <- attr(usmca_product_shares, 'hs8_shares')
       rates <- rates %>%
         left_join(
           usmca_product_shares,
           by = c('hts10', 'country' = 'cty_code'),
           relationship = 'many-to-one'
-        ) %>%
+        )
+      if (!is.null(hs8_shares) && nrow(hs8_shares) > 0) {
+        n_na <- sum(is.na(rates$usmca_share) &
+                      rates$country %in% c(CTY_CANADA, CTY_MEXICO))
+        rates <- rates %>%
+          mutate(.hs8 = substr(hts10, 1, 8)) %>%
+          left_join(hs8_shares,
+                    by = c('.hs8' = 'hts8', 'country' = 'cty_code'),
+                    relationship = 'many-to-one') %>%
+          mutate(usmca_share = coalesce(usmca_share, usmca_share_hs8)) %>%
+          select(-.hs8, -usmca_share_hs8)
+        n_filled <- n_na - sum(is.na(rates$usmca_share) &
+                                 rates$country %in% c(CTY_CANADA, CTY_MEXICO))
+        if (n_filled > 0) {
+          message('  USMCA shares: HS8 fallback filled ', n_filled,
+                  ' of ', n_na, ' missing CA/MX product shares')
+        }
+      }
+      rates <- rates %>%
         mutate(
           usmca_share = if_else(
             country %in% c(CTY_CANADA, CTY_MEXICO),
