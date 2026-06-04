@@ -217,7 +217,7 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   )
 
   # Record revision context as set-level metadata (not read in Phase 1; useful
-  # for per-revision persistence in Phase 7 / debugging). Kept off the specs so
+  # for per-revision persistence in Phase 8 / debugging). Kept off the specs so
   # it never perturbs the embedded-object identity the parity gate relies on.
   attr(specs, 'revision_id')     <- revision_id
   attr(specs, 'effective_date')  <- effective_date

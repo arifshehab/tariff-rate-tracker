@@ -18,7 +18,7 @@
 #   * Any op on section_232 / ieepa_* / section_122 rates: those rates still come
 #     from the embedded raw objects (232/ieepa) or internal extraction (s122), not
 #     normalized spec fields — making them spec-authoritative is the deferred
-#     Phase 7 (embed/seed) work. `disable` of these needs that first.
+#     Phase 6 (embed/seed) work. `disable` of these needs that first.
 #   * add_program (no-Ch99 seeding), set_rate/floor on embed authorities,
 #     set_product_scope. Deferred.
 #
@@ -60,7 +60,7 @@ apply_operation <- function(specs, op, idx = NA_integer_) {
     disable           = op_disable(specs, op, idx),
     stop(sprintf('operation[%s]: verb "%s" is not supported in Phase 2. Supported: %s. ',
                  idx, verb, 'set_country_scope, set_active, disable'),
-         'Rate/coverage ops on 232/IEEPA/s122 need the Phase 7 embed/seed work.')
+         'Rate/coverage ops on 232/IEEPA/s122 need the Phase 6 embed/seed work.')
   )
 }
 
@@ -88,7 +88,7 @@ apply_operation <- function(specs, op, idx = NA_integer_) {
   if (!auth %in% SCOPE_DRIVEN_AUTHORITIES) {
     stop(sprintf(paste0('operation[%s] (%s): authority "%s" is not scope-driven in ',
                         'Phase 2 — only %s have their country scope read from the spec. ',
-                        '(232/IEEPA/s122 scope is embed/internal; deferred to Phase 7.)'),
+                        '(232/IEEPA/s122 scope is embed/internal; deferred to Phase 6 embed/seed.)'),
                  idx, verb, auth, paste(SCOPE_DRIVEN_AUTHORITIES, collapse = ', ')))
   }
 }
