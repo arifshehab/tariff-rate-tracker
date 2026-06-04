@@ -239,7 +239,8 @@ export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_dat
         kitchen_cabinets = s232_rates_check$wood_rate > 0 || s232_rates_check$wood_furniture_rate > 0,
         mhd_vehicles     = s232_rates_check$mhd_rate > 0,
         mhd_parts        = s232_rates_check$mhd_rate > 0,
-        buses            = s232_rates_check$mhd_rate > 0
+        buses            = s232_rates_check$mhd_rate > 0,
+        semiconductors   = s232_rates_check$semi_rate > 0
       )
     }
   }
