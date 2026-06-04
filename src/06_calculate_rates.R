@@ -753,9 +753,18 @@ calculate_rates_for_revision <- function(
   # byte-identical). The internal re-extraction at :724-726 / :1276-1278 still
   # fires as before. Phase 2 makes the spec's normalized fields authoritative.
   if (!is.null(specs)) {
-    ieepa_rates    <- attr(specs[['ieepa_reciprocal']], 'raw_ieepa',    exact = TRUE)
-    s232_rates     <- attr(specs[['section_232']],      'raw_s232',     exact = TRUE)
-    fentanyl_rates <- attr(specs[['ieepa_fentanyl']],   'raw_fentanyl', exact = TRUE)
+    # Phase 6b: rates now live in the spec's normalized programs (rate$resolved),
+    # reconstructed via *_from_specs(). The transitional stopifnot proves the
+    # reconstruction equals the soon-to-be-removed raw_* attr on the real grid;
+    # both the asserts and the raw_* embeds are dropped in the 6b cleanup step.
+    ieepa_rates    <- ieepa_rates_from_specs(specs)
+    s232_rates     <- s232_rates_from_specs(specs)
+    fentanyl_rates <- fentanyl_rates_from_specs(specs)
+    stopifnot(
+      identical(ieepa_rates,    attr(specs[['ieepa_reciprocal']], 'raw_ieepa',    exact = TRUE)),
+      identical(s232_rates,     attr(specs[['section_232']],      'raw_s232',     exact = TRUE)),
+      identical(fentanyl_rates, attr(specs[['ieepa_fentanyl']],   'raw_fentanyl', exact = TRUE))
+    )
   }
 
   # Date-gate Ch99 entries: drop rows whose legal effective_date_offset is

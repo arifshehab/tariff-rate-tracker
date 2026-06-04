@@ -74,6 +74,14 @@ check(identical(s122_rates_from_specs(specs), S122_SENTINEL),
       's122 rate reachable via s122_rates_from_specs (programs[[1]]$rate$resolved)')
 check(identical(specs[['section_122']]$programs[[1]]$rate$resolved, S122_SENTINEL),
       's122 payload stored verbatim in programs[[1]]$rate$resolved')
+check(identical(s232_rates_from_specs(specs), s232),
+      's232 21-field list reachable via s232_rates_from_specs (parked on programs[[1]])')
+check(identical(ieepa_rates_from_specs(specs), ieepa),
+      'ieepa tibble reachable via ieepa_rates_from_specs')
+check(identical(attr(ieepa_rates_from_specs(specs), 'universal_baseline', exact = TRUE), 0.10),
+      'universal_baseline rides along on the relocated ieepa payload')
+check(identical(fentanyl_rates_from_specs(specs), fent),
+      'fentanyl tibble reachable via fentanyl_rates_from_specs')
 check(identical(attr(attr(specs[['ieepa_reciprocal']], 'raw_ieepa', exact = TRUE),
                      'universal_baseline', exact = TRUE), 0.10),
       'universal_baseline attribute survives the embed')

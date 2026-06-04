@@ -132,6 +132,10 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       full_prog('semiconductors')
     )
   )
+  # Phase 6b: park the 21-field s232 list whole on programs[[1]]$rate$resolved
+  # (authority-wide; per-program split deferred to P8). raw_s232 kept for the
+  # calc's transitional identity assert (dropped in 6b cleanup).
+  section_232$programs[[1]]$rate$resolved <- s232_rates
   attr(section_232, 'raw_s232') <- s232_rates
   # Phase 2c: precompute the heading-program activation gates from the SAME
   # date-gated ch99 + authoritative s232 value the calc uses, so the calc reads
@@ -154,6 +158,9 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       country_scope = list(include = 'all'),   # universal_baseline default lives in raw
       rate = list(by_country = 'from_raw', default_unlisted_rate = 'from_raw')))
   )
+  # Phase 6b: relocate into the program (the universal_baseline attr on the
+  # tibble rides along verbatim). raw_ieepa kept for the transitional assert.
+  ieepa_reciprocal$programs[[1]]$rate$resolved <- ieepa_rates
   attr(ieepa_reciprocal, 'raw_ieepa') <- ieepa_rates
 
   # --- ieepa_fentanyl — content_split except China (additive), as data ------
@@ -171,6 +178,8 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       country_scope = list(include = fentanyl_scope),
       rate = list(by_country = 'from_raw')))
   )
+  # Phase 6b: relocate into the program. raw_fentanyl kept for the transitional assert.
+  ieepa_fentanyl$programs[[1]]$rate$resolved <- fentanyl_rates
   attr(ieepa_fentanyl, 'raw_fentanyl') <- fentanyl_rates
 
   # --- section_301 — China gate as data (no raw embed; footnote-seeded) -----
