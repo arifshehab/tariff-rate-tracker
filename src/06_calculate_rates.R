@@ -2755,8 +2755,16 @@ calculate_rates_for_revision <- function(
     }
   }
 
-  # 8. Re-apply stacking rules with updated IEEPA and 232 rates
-  rates <- apply_stacking_rules(rates, CTY_CHINA, stacking_method = stacking_method)
+  # 8. Re-apply stacking rules with updated IEEPA and 232 rates. Phase 3b: when
+  # enabled (TARIFF_RESOLVED_STACKING), route through the resolved-program long
+  # table — the scenario/new-coverage substrate — and collapse back; default OFF
+  # keeps the fast vectorized wide path (bit-identical). The resolved path
+  # reproduces the wide path within the floating-point floor.
+  if (use_resolved_stacking() && stacking_method == 'mutual_exclusion') {
+    rates <- resolve_and_collapse(rates, default_stacking_policy(CTY_CHINA))
+  } else {
+    rates <- apply_stacking_rules(rates, CTY_CHINA, stacking_method = stacking_method)
+  }
 
   # 9a. Add revision metadata
   rates <- rates %>%

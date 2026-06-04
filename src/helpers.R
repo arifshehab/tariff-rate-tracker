@@ -12,6 +12,7 @@ library(here)
 source(here('src', 'policy_params.R'))
 source(here('src', 'revisions.R'))
 source(here('src', 'stacking.R'))
+source(here('src', 'resolved_programs.R'))  # Phase 3b: resolved-program table (needs stacking.R)
 source(here('src', 'rate_schema.R'))
 source(here('src', 'data_loaders.R'))
 
