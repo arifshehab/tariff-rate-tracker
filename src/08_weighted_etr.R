@@ -354,6 +354,21 @@ compute_weighted_etrs <- function(data, policy_params = NULL) {
       ) %>%
       mutate(date = date, label = label)
 
+    # Phase 8b (fork #2): a product-country pair that carries a tariff rate but has
+    # NO 2024 import weight is excluded by this inner_join. That is the CORRECT ETR
+    # treatment — a zero-weight pair contributes nothing to a weighted average
+    # either way — and we must NOT fabricate a weight. But report the exclusion
+    # LOUDLY so a new-coverage scenario's no-trade pairs (e.g. a tariff on products
+    # a country didn't import in 2024) are visible, not silently dropped. Computed
+    # from counts (no second join): rated snapshot pairs minus those that matched.
+    n_rated <- sum(snapshot_net$total_rate > 0)
+    n_kept  <- rated %>% filter(total_rate > 0) %>% distinct(hs10, cty_code) %>% nrow()
+    if (n_rated - n_kept > 0) {
+      message('  [', label, '] ', n_rated - n_kept, ' of ', n_rated, ' rated product-country ',
+              'pairs have no 2024 import weight — excluded from the weighted ETR ',
+              '(zero modeled weight; weights are NOT fabricated)')
+    }
+
     rated %>% select(hs10, cty_code, partner, imports, date, label,
                       total_rate, net_232, net_ieepa, net_fentanyl, net_301,
                       net_s122, net_section_201)
