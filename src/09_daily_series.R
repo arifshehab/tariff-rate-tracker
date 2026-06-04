@@ -302,12 +302,22 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   }
 
   # --- Per-revision aggregates (with generic expiry splitting) ---
-  # Phase 3c: split points come from the unified timeline splitter (src/timeline.R),
-  # fed the legacy expiry boundaries. Provably identical sub-intervals to the old
-  # get_expiry_split_points path (boundary E+1 == old split+1), so output is
-  # unchanged — this just routes splitting through the one seam. Extending the
-  # boundary set (spec active windows / annex / Ch99 offsets) is the next step and
-  # is what catches mid-interval activations the old splitter missed.
+  # Phase 3c: the unified splitter (src/timeline.R) owns interval splitting, fed the
+  # EXPIRY boundaries (SECTION_122 / SWISS) — the schedule boundaries that fall
+  # strictly INSIDE a revision interval on the baseline grid (intervals are
+  # gapless/exclusive, valid_until = next_rev - 1, so every revision-dated policy
+  # event sits on an edge, not inside). Splits are therefore IDENTICAL to the legacy
+  # get_expiry_split_points path — verified on the REAL grid
+  # (tests/test_timeline_realdata.R).
+  #
+  # collect_schedule_boundaries() is the comprehensive collector (invalidation +
+  # expiries + spec active windows). It is NOT fed here because the real-data test
+  # surfaced that IEEPA invalidation (policy_params) precedes its revision row
+  # (2026_rev_4) by 4 days, i.e. it lands mid-interval in 2026_rev_3 — feeding it
+  # would add a split AND, to be correct, needs invalidation zeroing wired. That is
+  # a behavior/model change (and a modeling question: 02-20 vs 02-24), deliberately
+  # OUT of this parity refactor and flagged for a follow-up. The collector is
+  # validated and ready for that fix + for scenario effective_from dates.
   exp_bounds <- expiry_boundaries(policy_params)
   split_and_aggregate <- function(agg_fn) {
     rev_intervals %>%
