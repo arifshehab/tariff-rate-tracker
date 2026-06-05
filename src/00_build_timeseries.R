@@ -1027,7 +1027,8 @@ if (sys.nframe() == 0) {
       message(strrep('=', 70))
 
       tryCatch(
-        run_daily_series(ts, imports = NULL, policy_params = pp),
+        run_daily_series(ts, imports = NULL, policy_params = pp,
+                         weight_mode = 'unweighted'),
         error = function(e) message('Daily series failed: ', conditionMessage(e))
       )
 

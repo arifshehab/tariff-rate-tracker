@@ -54,7 +54,7 @@ echo "Array task ${SLURM_ARRAY_TASK_ID} -> revision ${REV} on $(hostname)"
 echo "Start: $(date -Iseconds) | Mem: ${SLURM_MEM_PER_NODE:-?} MB"
 echo "=========================================================="
 
-Rscript scripts/build_revision.R "$REV" ${USE_HTS_DATES:+--use-hts-dates}
+Rscript scripts/build_revision.R "$REV" ${USE_HTS_DATES:+--use-hts-dates} ${BUILD_REVISION_ARGS:-}
 RC=$?
 
 echo "Task ${SLURM_ARRAY_TASK_ID} (${REV}) exit: $RC at $(date -Iseconds)"

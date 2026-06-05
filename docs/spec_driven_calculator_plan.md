@@ -254,6 +254,17 @@ This plan consolidates and supersedes the scattered phase docs (`parallel_full_p
 
 ## Progress log
 
+- **2026-06-05 — Daily gather aggregation pushed into the array tasks.** Follow-up
+  to the no-monolith gather: each `scripts/build_revision.R` task now writes a
+  small `daily_part_<rev>.rds` from the in-memory snapshot after the snapshot is
+  built. `build_gather.R` validates the part cache against final intervals,
+  weight mode, and snapshot mtimes, then binds it; stale/missing parts (including
+  scheduled revisions that shorten the tip interval) fall back to the existing
+  snapshot-streaming path. Verified by full `GATHER_ARGS="--unweighted"` Slurm
+  run: array `13805179` completed 43/43 tasks (`0:0`; heaviest tasks 3:31-3:36),
+  gather `13805180` used `43 precomputed daily aggregate part(s)` and completed
+  in 4:11. End-to-end from first array task start to gather completion: 12:54
+  including scheduler gaps.
 - **2026-06-05 — Gather monolith removed from the check/publish path.** Follow-up
   to the Plank-3 parity bottleneck: daily series already had a per-snapshot
   streaming path, and the quality report was rewritten to stream the same

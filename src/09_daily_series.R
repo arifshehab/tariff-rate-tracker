@@ -401,6 +401,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     daily_by_country = daily_by_country,
     daily_by_authority = daily_by_authority,
     daily_by_category = daily_by_category,
+    agg_overall = agg_overall,
     agg_by_country = agg_by_country,
     agg_by_authority = agg_by_authority,
     agg_by_category = agg_by_category
@@ -848,6 +849,132 @@ save_daily_outputs <- function(daily, out_dir = actual_daily_dir()) {
 }
 
 
+#' Build authoritative snapshot intervals without loading snapshot contents.
+#'
+#' Shared by the streaming path and the array-task part cache so both validate
+#' against the same final interval table.
+build_snapshot_intervals_for_daily <- function(snapshot_dir, rev_dates,
+                                               policy_params = NULL) {
+  horizon_end <- as.Date(
+    if (!is.null(policy_params)) policy_params$SERIES_HORIZON_END %||% Sys.Date() else Sys.Date()
+  )
+  snaps <- list.files(snapshot_dir, pattern = '^snapshot_.*\\.rds$')
+  revs_built <- sub('^snapshot_(.*)\\.rds$', '\\1', snaps)
+  rev_intervals <- rev_dates %>%
+    filter(revision %in% revs_built) %>%
+    arrange(effective_date) %>%
+    mutate(valid_from = effective_date,
+           valid_until = lead(effective_date) - 1) %>%
+    mutate(valid_until = if_else(is.na(valid_until), horizon_end, valid_until)) %>%
+    select(revision, valid_from, valid_until)
+  if (nrow(rev_intervals) == 0) stop('No snapshots found in ', snapshot_dir)
+  rev_intervals
+}
+
+
+daily_part_path <- function(snapshot_dir, revision) {
+  file.path(snapshot_dir, paste0('daily_part_', revision, '.rds'))
+}
+
+
+#' Build and save one array-task daily aggregate part from an in-memory snapshot.
+#'
+#' The output is intentionally small compared with the snapshot and is safe to
+#' bind in gather. It is valid only for the stored interval and weight mode; the
+#' gather path verifies both before using it.
+write_daily_part_for_snapshot <- function(snapshot, revision, valid_from, valid_until,
+                                          output_dir, imports = NULL,
+                                          policy_params = NULL,
+                                          stacking_method = 'mutual_exclusion') {
+  weight_mode <- if (is.null(imports)) 'unweighted' else 'weighted'
+
+  snapshot <- enforce_rate_schema(snapshot)
+  snapshot$revision <- revision
+  snapshot$valid_from <- as.Date(valid_from)
+  snapshot$valid_until <- as.Date(valid_until)
+
+  daily <- suppressMessages(
+    build_daily_aggregates(snapshot, imports = imports,
+                           policy_params = policy_params,
+                           stacking_method = stacking_method)
+  )
+
+  part <- list(
+    schema_version = 1L,
+    metadata = list(
+      revision = revision,
+      valid_from = as.Date(valid_from),
+      valid_until = as.Date(valid_until),
+      weight_mode = weight_mode,
+      n_snapshot_rows = nrow(snapshot),
+      created_at = Sys.time()
+    ),
+    daily_overall = daily$daily_overall,
+    daily_by_country = daily$daily_by_country,
+    daily_by_authority = daily$daily_by_authority,
+    daily_by_category = daily$daily_by_category
+  )
+  path <- daily_part_path(output_dir, revision)
+  saveRDS(part, path)
+  message('  Wrote daily aggregate part: ', path, ' (', weight_mode, ')')
+  invisible(path)
+}
+
+
+#' Bind precomputed array-task daily parts if they exactly match final intervals.
+#'
+#' Returns NULL when the cache is incomplete, stale, or for the wrong weight mode.
+#' Callers should then fall back to the snapshot-streaming path.
+load_daily_parts_if_complete <- function(snapshot_dir, rev_dates,
+                                         policy_params = NULL,
+                                         weight_mode = c('weighted', 'unweighted')) {
+  weight_mode <- match.arg(weight_mode)
+  rev_intervals <- build_snapshot_intervals_for_daily(snapshot_dir, rev_dates, policy_params)
+
+  parts <- vector('list', nrow(rev_intervals))
+  for (i in seq_len(nrow(rev_intervals))) {
+    row <- rev_intervals[i, ]
+    path <- daily_part_path(snapshot_dir, row$revision)
+    snapshot_path <- file.path(snapshot_dir, paste0('snapshot_', row$revision, '.rds'))
+    if (!file.exists(path)) {
+      message('Daily part cache incomplete: missing ', basename(path))
+      return(NULL)
+    }
+    if (!file.exists(snapshot_path) || file.info(path)$mtime < file.info(snapshot_path)$mtime) {
+      message('Daily part cache stale for ', row$revision,
+              ' (part older than snapshot)')
+      return(NULL)
+    }
+    part <- tryCatch(readRDS(path), error = function(e) {
+      message('Daily part cache unreadable: ', basename(path), ': ', conditionMessage(e))
+      NULL
+    })
+    if (is.null(part) || !is.list(part) || is.null(part$metadata)) return(NULL)
+
+    meta <- part$metadata
+    valid <- identical(as.character(meta$revision), as.character(row$revision)) &&
+      identical(as.Date(meta$valid_from), as.Date(row$valid_from)) &&
+      identical(as.Date(meta$valid_until), as.Date(row$valid_until)) &&
+      identical(as.character(meta$weight_mode), weight_mode)
+    if (!valid) {
+      message('Daily part cache stale for ', row$revision,
+              ' (expected ', row$valid_from, '..', row$valid_until,
+              ', ', weight_mode, ')')
+      return(NULL)
+    }
+    parts[[i]] <- part
+  }
+
+  message('Using ', length(parts), ' precomputed daily aggregate part(s) from ', snapshot_dir)
+  list(
+    daily_overall      = bind_rows(lapply(parts, `[[`, 'daily_overall')),
+    daily_by_country   = bind_rows(lapply(parts, `[[`, 'daily_by_country')),
+    daily_by_authority = bind_rows(lapply(parts, `[[`, 'daily_by_authority')),
+    daily_by_category  = bind_rows(lapply(parts, `[[`, 'daily_by_category'))
+  )
+}
+
+
 #' Run full daily series pipeline
 #'
 #' Loads import weights (if not provided), builds daily aggregates, saves outputs.
@@ -874,19 +1001,9 @@ save_daily_outputs <- function(daily, out_dir = actual_daily_dir()) {
 build_daily_aggregates_streaming <- function(snapshot_dir, rev_dates,
                                               imports = NULL, policy_params = NULL,
                                               cores = NULL) {
-  horizon_end <- as.Date(policy_params$SERIES_HORIZON_END %||% Sys.Date())
-  snaps <- list.files(snapshot_dir, pattern = '^snapshot_.*\\.rds$')
-  revs_built <- sub('^snapshot_(.*)\\.rds$', '\\1', snaps)
   # Same interval logic assemble_timeseries() uses (00_build_timeseries.R) so the
   # tip extends to the horizon and boundaries match the combined-ts path exactly.
-  rev_intervals <- rev_dates %>%
-    filter(revision %in% revs_built) %>%
-    arrange(effective_date) %>%
-    mutate(valid_from = effective_date,
-           valid_until = lead(effective_date) - 1) %>%
-    mutate(valid_until = if_else(is.na(valid_until), horizon_end, valid_until)) %>%
-    select(revision, valid_from, valid_until)
-  if (nrow(rev_intervals) == 0) stop('No snapshots found in ', snapshot_dir)
+  rev_intervals <- build_snapshot_intervals_for_daily(snapshot_dir, rev_dates, policy_params)
 
   # Revisions are independent — fan the per-snapshot work across cores. Default
   # from TARIFF_DAILY_CORES, else the Slurm allocation, else serial. Each worker
@@ -957,12 +1074,22 @@ build_daily_aggregates_streaming <- function(snapshot_dir, rev_dates,
 #'     time, never building the 48 GB combined panel. Identical outputs, far less
 #'     memory/time. This is the preferred path for builds and the parity gate.
 run_daily_series <- function(ts = NULL, imports = NULL, policy_params = NULL,
-                             snapshot_dir = NULL, rev_dates = NULL) {
-  if (is.null(imports)) imports <- load_import_weights()
+                             snapshot_dir = NULL, rev_dates = NULL,
+                             weight_mode = NULL) {
+  if (is.null(imports) && !identical(weight_mode, 'unweighted')) {
+    imports <- load_import_weights(weight_mode = weight_mode)
+  }
   if (!is.null(snapshot_dir)) {
     if (is.null(rev_dates)) rev_dates <- load_revision_dates()
-    daily <- build_daily_aggregates_streaming(snapshot_dir, rev_dates,
-                                               imports = imports, policy_params = policy_params)
+    weight_mode <- if (is.null(imports)) 'unweighted' else 'weighted'
+    daily <- load_daily_parts_if_complete(snapshot_dir, rev_dates,
+                                          policy_params = policy_params,
+                                          weight_mode = weight_mode)
+    if (is.null(daily)) {
+      message('Falling back to snapshot-streaming daily aggregation.')
+      daily <- build_daily_aggregates_streaming(snapshot_dir, rev_dates,
+                                                imports = imports, policy_params = policy_params)
+    }
   } else {
     daily <- build_daily_aggregates(ts, imports = imports, policy_params = policy_params)
   }

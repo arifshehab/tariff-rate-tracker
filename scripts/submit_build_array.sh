@@ -37,8 +37,15 @@ fi
 echo "Revisions to build: $N"
 echo "  first: $(head -1 "$REVLIST")  last: $(tail -1 "$REVLIST")"
 
+BUILD_REVISION_ARGS="${BUILD_REVISION_ARGS:-}"
+if [[ " ${GATHER_ARGS:-} " == *" --unweighted "* && " $BUILD_REVISION_ARGS " != *" --unweighted "* ]]; then
+  BUILD_REVISION_ARGS="${BUILD_REVISION_ARGS:+$BUILD_REVISION_ARGS }--unweighted"
+fi
+echo "  build revision args: ${BUILD_REVISION_ARGS:-<none>}"
+
 echo "--- Submitting array build (0-$((N - 1))) ---"
-ARRAY_JOB=$(REVLIST="$REVLIST" sbatch --parsable --array=0-$((N - 1)) scripts/build_array_task.sh)
+ARRAY_JOB=$(REVLIST="$REVLIST" BUILD_REVISION_ARGS="$BUILD_REVISION_ARGS" \
+  sbatch --parsable --array=0-$((N - 1)) scripts/build_array_task.sh)
 echo "Array job: $ARRAY_JOB"
 
 if [ -n "${NO_GATHER:-}" ]; then

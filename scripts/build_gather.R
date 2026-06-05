@@ -9,7 +9,9 @@
 #   1. deltas        — compare consecutive cached parses -> delta_<rev>.rds
 #   2. products_raw  — data/processed/products_raw.csv from the latest revision
 #                      (matches the serial loop's "last write wins")
-#   3. downstream    — daily series + quality report, streamed from snapshots
+#   3. downstream    — daily series from array-written aggregate parts when
+#                      complete, otherwise streamed from snapshots; quality report
+#                      streams snapshots
 #   4. metadata      — metadata.rds freshness marker for publish
 #
 # Mirrors the serial build's post-loop + downstream so the array build's outputs
@@ -140,18 +142,20 @@ rev_dates <- build_scheduled_activations(
   census_codes = census_codes, archive_dir = here('data', 'hts_archives'),
   tpc_path = tpc_path)
 
-# ---- 3. Downstream — every summary STREAMS from the per-revision snapshots ----
-# Both the daily series and the quality report read ONE snapshot at a time,
-# recomputing/using intervals exactly as assemble_timeseries did — so their
-# outputs are identical to the combined-panel path (daily is parity-gated;
-# quality verified by a one-off equivalence diff). Daily fans across
-# SLURM_CPUS_PER_TASK; quality currently streams serially.
+# ---- 3. Downstream ----
+# Daily prefers the small daily_part_<rev>.rds files written by the array tasks
+# while their snapshots were still in memory. The loader validates weight mode
+# and final intervals first; missing/stale parts (including scheduled revisions
+# that shorten the tip interval) fall back to snapshot-streaming, which reads one
+# snapshot at a time and remains parity-equivalent to the combined-panel path.
+# Quality currently streams snapshots serially.
 # Neither needs the 204M-row rate_timeseries.rds. (Weighted-ETR / 08 was removed —
 # the daily series already emits the import-weighted ETR columns it duplicated.)
 # Import weights load OUTSIDE tryCatch so a missing-weights failure aborts loudly.
 imports <- if (unweighted) NULL else { ensure_import_weights(); load_import_weights() }
 tryCatch(run_daily_series(snapshot_dir = output_dir, rev_dates = rev_dates,
-                          imports = imports, policy_params = pp),
+                          imports = imports, policy_params = pp,
+                          weight_mode = if (unweighted) 'unweighted' else NULL),
          error = function(e) message('Daily series failed: ', conditionMessage(e)))
 quality <- tryCatch(
   run_quality_report(snapshot_dir = output_dir, rev_dates = rev_dates),

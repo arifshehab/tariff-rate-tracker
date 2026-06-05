@@ -191,6 +191,7 @@ Pass `--with-artifacts` to include the heavier artifact-dependent integration ch
 | Path | Description |
 |---|---|
 | `data/timeseries/snapshot_*.rds` | per-revision product-country rate snapshots; canonical build panel |
+| `data/timeseries/daily_part_*.rds` | per-revision daily aggregate cache written by the Slurm array tasks; gather validates and binds these when complete, otherwise falls back to snapshot streaming |
 | `data/timeseries/metadata.rds` | finalized-build marker and data-as-of metadata |
 | `data/timeseries/delta_*.rds` | revision-to-revision diffs |
 | `output/actual/daily/daily_overall.csv` | daily aggregate mean and weighted ETR series |
