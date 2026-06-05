@@ -116,8 +116,9 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   ieepa_until <- pp$IEEPA_INVALIDATION_DATE
 
   # --- section_232 — the genuinely multi-program authority ------------------
-  # Programs are a Phase-2 scaffold; the resolved 21-field rate list (rates,
-  # exempt lists, deals, overrides) lives on programs[[1]]$rate$resolved (Phase 6b).
+  # Per-program rates are de-blobbed into each program's rate$default (Plank 4a);
+  # the residual 21-field list (exempt lists, deals, overrides, derivatives, flags,
+  # has_232) lives on programs[[1]]$rate$resolved until the later stages drain it.
   metal_prog <- function(id, type) authority_program(
     id = id, country_scope = list(include = 'all', exclude = list()),
     stacking = list(class = 'primary_metal'), metal = list(type = type, content = 'full'))
@@ -136,7 +137,13 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       full_prog('autos'),
       full_prog('mhd'),
       full_prog('wood'),
-      full_prog('semiconductors')
+      full_prog('semiconductors'),
+      # Plank 4a / S1b: pharmaceuticals is a register-then-activate dormant program
+      # (pharma_rate = 0 in baseline → gate FALSE → byte-identical). It existed only
+      # as a logical set_rate name (scenario_ops::S232_RATE_FIELD) over the blob;
+      # giving it a real program makes the heading-name→program-id read uniform and
+      # lets a scenario set_rate(section_232, 'pharmaceuticals', x) land on the spec.
+      full_prog('pharmaceuticals')
     )
   )
   # Park the (still-blobbed) 21-field s232 list on programs[[1]]$rate$resolved.
@@ -144,13 +151,15 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   # shrinks as each stage lands. Read via s232_rates_from_specs().
   section_232$programs[[1]]$rate$resolved <- s232_rates
   if (!is.null(s232_rates)) {
-    # Plank 4a / S1a: de-blob the blanket metal + auto BASE rates into each
-    # program's compositional rate$default (rate_type='surcharge' — additive). The
-    # calc reads these via resolve_rate() (s232_spec_rate at 06:~1600); the rest of
-    # the list (exempts, overrides, deals, derivatives, flags, the heading scalars)
-    # stays on the resolved blob until S1b/S2/S3. Setting default to the scalar
-    # VERBATIM (incl. 0 — a real, non-hollow value) keeps the per-country base
-    # byte-identical to the old `s232_rates$steel_rate` read.
+    # Plank 4a / S1a+S1b: de-blob every program's BASE rate into its compositional
+    # rate$default (rate_type='surcharge' — additive). The calc reads these via
+    # resolve_rate() — the blanket metals/autos in the country_232 build (S1a) and
+    # the heading programs (copper/mhd/wood/semi/pharma) through compute_heading_gates
+    # / resolve_heading_rate (S1b). Setting default to the scalar VERBATIM (incl. 0 —
+    # a real, non-hollow value) keeps every read byte-identical to the old
+    # `s232_rates$<field>` read. The non-rate fields (exempt lists, country overrides,
+    # deals, derivatives, auto_has_deals/auto_has_parts, wood_furniture_rate, has_232)
+    # stay on the resolved blob until S2/S3.
     .s232_set_default <- function(spec, prog_id, value) {
       pos <- which(vapply(spec$programs,
                           function(p) identical(p$id, prog_id), logical(1)))
@@ -158,14 +167,22 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       spec$programs[[pos]]$rate$rate_type <- 'surcharge'
       spec
     }
-    section_232 <- .s232_set_default(section_232, 'steel',    s232_rates$steel_rate    %||% 0)
-    section_232 <- .s232_set_default(section_232, 'aluminum', s232_rates$aluminum_rate %||% 0)
-    section_232 <- .s232_set_default(section_232, 'autos',    s232_rates$auto_rate     %||% 0)
-    # Phase 2c/6c: precompute the heading-program activation gates from the
-    # authoritative s232 value (unchanged in S1a — gate machinery is repointed to
-    # the spec in S1b). compute_heading_gates is a pure function of s232_rates
-    # (which carries the date-gated auto_has_parts flag) — no live-ch99 grep here.
-    attr(section_232, 'heading_gates') <- compute_heading_gates(s232_rates)
+    section_232 <- .s232_set_default(section_232, 'steel',          s232_rates$steel_rate    %||% 0)
+    section_232 <- .s232_set_default(section_232, 'aluminum',       s232_rates$aluminum_rate %||% 0)
+    section_232 <- .s232_set_default(section_232, 'autos',          s232_rates$auto_rate     %||% 0)
+    section_232 <- .s232_set_default(section_232, 'copper',         s232_rates$copper_rate   %||% 0)
+    section_232 <- .s232_set_default(section_232, 'mhd',            s232_rates$mhd_rate      %||% 0)
+    section_232 <- .s232_set_default(section_232, 'wood',           s232_rates$wood_rate     %||% 0)
+    section_232 <- .s232_set_default(section_232, 'semiconductors', s232_rates$semi_rate     %||% 0)
+    section_232 <- .s232_set_default(section_232, 'pharmaceuticals',s232_rates$pharma_rate   %||% 0)
+    # Phase 2c/6c: precompute the heading-program activation gates. Since S1b
+    # compute_heading_gates reads the program rates off the spec (rate$default via
+    # s232_spec_rate) + the non-rate flags off the resolved blob, so pass both. At
+    # build time the defaults equal the blob scalars, so the baseline cache is
+    # unchanged; a scenario set_rate mutates the default and drops this cache so it
+    # recomputes from the spec.
+    attr(section_232, 'heading_gates') <-
+      compute_heading_gates(list(section_232 = section_232), s232_rates)
   }
 
   # --- ieepa_reciprocal — blanket, country-level ----------------------------

@@ -24,7 +24,7 @@ get_country_constants <- function(pp) list(CTY_CHINA = '5700', CTY_CANADA = '122
                                             CTY_MEXICO = '2010')
 filter_active_ch99    <- function(ch99_data, effective_date) ch99_data
 HEADING_GATES_SENTINEL <- list(autos_passenger = TRUE, copper = FALSE)
-compute_heading_gates <- function(s232_rates) HEADING_GATES_SENTINEL   # Phase 6c: pure fn of s232_rates
+compute_heading_gates <- function(specs, s232_rates) HEADING_GATES_SENTINEL  # S1b: (specs, s232_rates)
 S122_SENTINEL <- list(s122_rate = 0.10, has_s122 = TRUE)   # Phase 6a
 extract_section122_rates <- function(ch99_data) S122_SENTINEL
 
@@ -96,6 +96,19 @@ check(identical(resolve_rate(.prog('autos')$rate)$value, 0),
       'calc-side read: resolve_rate(autos program) = 0 (not NA) — baseline-safe')
 check(identical(s232_rates_from_specs(specs), s232),
       'S1a coexistence: the residual resolved blob is still parked on programs[[1]] verbatim')
+
+cat('\n--- Plank 4a / S1b: heading programs de-blobbed + dormant pharmaceuticals program ---\n')
+prog_ids <- vapply(s232_progs, function(p) p$id, character(1))
+check(length(s232_progs) == 8L && 'pharmaceuticals' %in% prog_ids,
+      'section_232 has 8 programs incl. the dormant pharmaceuticals (S1b)')
+check(identical(.prog('copper')$rate$default, 0) &&
+      identical(.prog('mhd')$rate$default, 0) &&
+      identical(.prog('wood')$rate$default, 0) &&
+      identical(.prog('semiconductors')$rate$default, 0) &&
+      identical(.prog('pharmaceuticals')$rate$default, 0),
+      'copper/mhd/wood/semi/pharma base rates -> rate$default = 0 (absent in stub)')
+check(identical(resolve_rate(.prog('pharmaceuticals')$rate)$value, 0),
+      'calc-side read: resolve_rate(pharmaceuticals) = 0 (dormant, baseline-safe)')
 
 cat('\n--- normalized scaffold (not read in Phase 1, but should be faithful) ---\n')
 check(identical(specs[['section_301']]$programs[[1]]$country_scope$include, '5700'),

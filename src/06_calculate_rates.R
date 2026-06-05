@@ -207,28 +207,42 @@ calculate_rates_fast <- function(products, ch99_data, countries,
 #' the AuthoritySpec adapter compute the gates from one source — no drift. Keyed
 #' by the `section_232_headings` config names (NOT spec program ids).
 #'
-#' @param s232_rates extract_section232_rates() output. Carries `auto_has_parts`
-#'   (the date-gated 9903.94.0[5-9] presence flag) since Phase 6c, so the gates
-#'   are a PURE function of s232_rates — no live-Ch99 argument, and a scenario
-#'   that mutates s232_rates recomputes gates without needing ch99.
+#' @param specs the authority_spec_set (or NULL for the specs-less dual-signature
+#'   callers). S1b: the per-program RATE inputs come from the spec (rate$default via
+#'   resolve_rate / s232_spec_rate) so a scenario set_rate lands; NULL falls back to
+#'   the blob inside s232_spec_rate.
+#' @param s232_rates extract_section232_rates() output. The NON-rate gate inputs —
+#'   `auto_has_deals`, `auto_has_parts` (the date-gated 9903.94.0[5-9] flag),
+#'   `wood_furniture_rate` — still ride here (not de-blobbed until S2/S3); scenario
+#'   disable mutates them on the resolved blob.
 #' @return named logical list, one entry per known heading program
-compute_heading_gates <- function(s232_rates) {
+compute_heading_gates <- function(specs, s232_rates) {
+  # S1b: program rates from the spec; non-rate flags from the resolved blob. At
+  # baseline the spec default == the blob scalar, so the gates are byte-identical.
+  pr <- function(id, field) s232_spec_rate(specs, s232_rates, id, field)
+  auto   <- pr('autos',           'auto_rate')
+  copper <- pr('copper',          'copper_rate')
+  wood   <- pr('wood',            'wood_rate')
+  mhd    <- pr('mhd',             'mhd_rate')
+  semi   <- pr('semiconductors',  'semi_rate')
+  pharma <- pr('pharmaceuticals', 'pharma_rate')
+  wood_furn <- s232_rates$wood_furniture_rate
   list(
-    autos_passenger    = s232_rates$auto_rate > 0 || s232_rates$auto_has_deals,
-    autos_light_trucks = s232_rates$auto_rate > 0 || s232_rates$auto_has_deals,
+    autos_passenger    = auto > 0 || s232_rates$auto_has_deals,
+    autos_light_trucks = auto > 0 || s232_rates$auto_has_deals,
     auto_parts         = isTRUE(s232_rates$auto_has_parts),
-    copper             = s232_rates$copper_rate > 0,
-    softwood           = s232_rates$wood_rate > 0 || s232_rates$wood_furniture_rate > 0,
-    wood_furniture     = s232_rates$wood_rate > 0 || s232_rates$wood_furniture_rate > 0,
-    kitchen_cabinets   = s232_rates$wood_rate > 0 || s232_rates$wood_furniture_rate > 0,
-    mhd_vehicles       = s232_rates$mhd_rate > 0,
-    mhd_parts          = s232_rates$mhd_rate > 0,
-    buses              = s232_rates$mhd_rate > 0,
-    semiconductors     = s232_rates$semi_rate > 0,
+    copper             = copper > 0,
+    softwood           = wood > 0 || wood_furn > 0,
+    wood_furniture     = wood > 0 || wood_furn > 0,
+    kitchen_cabinets   = wood > 0 || wood_furn > 0,
+    mhd_vehicles       = mhd > 0,
+    mhd_parts          = mhd > 0,
+    buses              = mhd > 0,
+    semiconductors     = semi > 0,
     # Pharma is a register-then-activate dormant sub-program: pharma_rate is 0 in
     # baseline (gate FALSE => heading skipped => byte-identical). isTRUE() guards
-    # the case where an older cached s232_rates predates the pharma_rate field.
-    pharmaceuticals    = isTRUE(s232_rates$pharma_rate > 0)
+    # the case where an older cached payload predates the pharma_rate field.
+    pharmaceuticals    = isTRUE(pharma > 0)
   )
 }
 
@@ -250,23 +264,40 @@ HEADING_RESOLVED_RATE_FIELD <- c(
   pharmaceuticals    = 'pharma_rate'
 )
 
-#' Resolve a Section 232 heading's applied rate. Reads the spec-resolved field FIRST
-#' so a scenario set_rate(section_232, <program>, x) actually lands (Codex F2);
-#' falls back to the YAML default_rate when the heading isn't spec-mapped or its
-#' resolved rate is 0 (e.g. autos active only via deals, auto_rate == 0). Byte-
-#' identical in baseline: for an active mapped heading the resolved (parser-extracted)
-#' rate equals default_rate, so this returns the same value the old `cfg$default_rate`
-#' did. Verified by the full 41-revision byte-identical sweep.
-resolve_heading_rate <- function(tariff_name, cfg, s232_rates) {
-  # NB: HEADING_RESOLVED_RATE_FIELD is a named CHARACTER vector — `[[` on an absent
-  # name throws "subscript out of bounds" (unlike a list), and the heading loop
-  # iterates every config heading (incl. unmapped auto_parts/buses), so guard on
-  # membership before indexing.
-  if (tariff_name %in% names(HEADING_RESOLVED_RATE_FIELD)) {
-    v <- s232_rates[[HEADING_RESOLVED_RATE_FIELD[[tariff_name]]]]
+#' Map a Section 232 heading config name -> the spec PROGRAM id whose rate$default
+#' carries its rate (S1b). Parallel to HEADING_RESOLVED_RATE_FIELD (the blob-field
+#' fallback name): resolve_heading_rate reads the program's de-blobbed default via
+#' s232_spec_rate, falling back to the blob field for the specs-less callers.
+HEADING_RESOLVED_PROGRAM <- c(
+  autos_passenger    = 'autos',
+  autos_light_trucks = 'autos',
+  copper             = 'copper',
+  softwood           = 'wood',
+  mhd_vehicles       = 'mhd',
+  mhd_parts          = 'mhd',
+  semiconductors     = 'semiconductors',
+  pharmaceuticals    = 'pharmaceuticals'
+)
+
+#' Resolve a Section 232 heading's applied rate. S1b: reads the heading program's
+#' de-blobbed rate$default off the spec (via s232_spec_rate / resolve_rate) so a
+#' scenario set_rate(section_232, <program>, x) lands (Codex F2); falls back to the
+#' YAML default_rate when the heading isn't spec-mapped or its resolved rate is 0
+#' (e.g. autos active only via deals, auto_rate == 0), and to the blob field for the
+#' specs-less dual-signature callers. Byte-identical in baseline: the program default
+#' equals the parser-extracted scalar == the old cfg$default_rate value. Verified by
+#' the full byte-identical revision sweep.
+resolve_heading_rate <- function(tariff_name, cfg, specs, s232_rates) {
+  # HEADING_RESOLVED_PROGRAM/_RATE_FIELD are named CHARACTER vectors keyed by the
+  # config heading name; the heading loop iterates every config heading (incl.
+  # unmapped auto_parts/buses), so guard on membership before indexing.
+  if (tariff_name %in% names(HEADING_RESOLVED_PROGRAM)) {
+    v <- s232_spec_rate(specs, s232_rates,
+                        HEADING_RESOLVED_PROGRAM[[tariff_name]],
+                        HEADING_RESOLVED_RATE_FIELD[[tariff_name]])
     if (!is.null(v) && length(v) == 1L && !is.na(v) && v > 0) return(v)
   }
-  cfg$default_rate %||% s232_rates$auto_rate
+  cfg$default_rate %||% s232_spec_rate(specs, s232_rates, 'autos', 'auto_rate')
 }
 
 
@@ -1454,7 +1485,7 @@ calculate_rates_for_revision <- function(
       # date-gated ch99 + authoritative s232 value), else compute inline. One
       # source ⇒ byte-identical baseline.
       heading_gates <- attr(specs[['section_232']], 'heading_gates', exact = TRUE) %||%
-        compute_heading_gates(s232_rates)
+        compute_heading_gates(specs, s232_rates)
 
       # Adding a heading to policy_params.yaml without registering its gate here
       # would silently activate the heading on every revision (gate_val = NULL →
@@ -1482,7 +1513,7 @@ calculate_rates_for_revision <- function(
 
         heading_product_lists[[tariff_name]] <- list(
           products = matched,
-          rate = resolve_heading_rate(tariff_name, cfg, s232_rates),
+          rate = resolve_heading_rate(tariff_name, cfg, specs, s232_rates),
           usmca_exempt = cfg$usmca_exempt %||% FALSE
         )
 

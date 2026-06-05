@@ -95,17 +95,38 @@ expect_error(apply_operations(specs, list(list(op = 'set_country_scope', authori
 # =============================================================================
 cat('\n--- Phase 6d: set_rate / set_exempt / disable (rate-driven authorities) ---\n')
 
-# A spec set carrying resolved rate payloads (the thin cut: programs[[1]]$rate$resolved).
-s232_resolved <- list(
-  steel_rate = 0.25, aluminum_rate = 0.10, copper_rate = 0, auto_rate = 0, mhd_rate = 0,
-  wood_rate = 0, wood_furniture_rate = 0, semi_rate = 0,
-  aluminum_derivative_rate = 0, steel_derivative_rate = 0, auto_has_deals = FALSE,
+# S1b: section_232 is multi-program — each program's rate lives in rate$default; the
+# NON-rate fields (flags/derivatives/deals/exempts/has_232) are a residual blob on
+# programs[[1]] (steel). Mirrors the adapter's S1a+S1b shape.
+s232_residual <- list(
+  auto_has_deals = FALSE, auto_has_parts = FALSE, wood_furniture_rate = 0,
+  aluminum_derivative_rate = 0, steel_derivative_rate = 0,
   steel_exempt = character(0), aluminum_exempt = '1220', auto_exempt = character(0),
   auto_deal_rates = data.frame(), wood_deal_rates = data.frame(), has_232 = TRUE)
+mk_s232_prog <- function(id, default, type = 'none') authority_program(
+  id = id,
+  stacking = list(class = if (type == 'none') 'primary_full' else 'primary_metal'),
+  metal = list(type = type),
+  rate = list(default = default, rate_type = 'surcharge'))
+mk_s232 <- function(defaults = list(), residual = s232_residual) {
+  progs <- list(
+    mk_s232_prog('steel',           defaults$steel    %||% 0, 'steel'),
+    mk_s232_prog('aluminum',        defaults$aluminum %||% 0, 'aluminum'),
+    mk_s232_prog('copper',          defaults$copper   %||% 0, 'copper'),
+    mk_s232_prog('autos',           defaults$autos    %||% 0),
+    mk_s232_prog('mhd',             defaults$mhd      %||% 0),
+    mk_s232_prog('wood',            defaults$wood     %||% 0),
+    mk_s232_prog('semiconductors',  defaults$semi     %||% 0),
+    mk_s232_prog('pharmaceuticals', defaults$pharma   %||% 0))
+  progs[[1]]$rate$resolved <- residual   # residual blob rides on steel (programs[[1]])
+  authority_spec('section_232', stacking = list(class = 'primary_metal'), programs = progs)
+}
+.s232p     <- function(specs, id) { pr <- specs[['section_232']]$programs
+  pr[[which(vapply(pr, function(p) identical(p$id, id), logical(1)))]] }
+.s232_resid <- function(specs) specs[['section_232']]$programs[[1]]$rate$resolved
+
 rspecs <- authority_spec_set(
-  authority_spec('section_232', stacking = list(class = 'primary_metal'),
-    programs = list(authority_program('steel', stacking = list(class = 'primary_metal'),
-      metal = list(type = 'steel'), rate = list(resolved = s232_resolved)))),
+  mk_s232(list(steel = 0.25, aluminum = 0.10)),
   authority_spec('ieepa_reciprocal', stacking = list(class = 'content_split'),
     programs = list(authority_program('reciprocal', rate = list(resolved = data.frame(country = '5700', rate = 0.10))))),
   authority_spec('section_122', stacking = list(class = 'content_split'),
@@ -114,21 +135,21 @@ rspecs <- authority_spec_set(
 
 b <- apply_operations(rspecs, list(
   list(op = 'set_rate', authority = 'section_232', program = 'steel', rate = 0.50)))
-check(identical(b[['section_232']]$programs[[1]]$rate$resolved$steel_rate, 0.50),
-      'set_rate 232/steel -> 0.50')
-check(isTRUE(b[['section_232']]$programs[[1]]$rate$resolved$has_232),
-      'has_232 stays TRUE after a steel bump')
-check(identical(rspecs[['section_232']]$programs[[1]]$rate$resolved$steel_rate, 0.25),
+check(identical(.s232p(b, 'steel')$rate$default, 0.50),
+      'set_rate 232/steel -> rate$default 0.50 (de-blobbed, S1b)')
+check(isTRUE(.s232_resid(b)$has_232),
+      'has_232 (residual gate) stays TRUE after a steel bump')
+check(identical(.s232p(rspecs, 'steel')$rate$default, 0.25),
       'original specs NOT mutated (copy-on-modify isolation)')
 
-# set_rate turns a dormant metal ON -> has_232 flips FALSE->TRUE
-off <- s232_resolved; off$steel_rate <- 0; off$aluminum_rate <- 0; off$has_232 <- FALSE
-offspec <- authority_spec_set(authority_spec('section_232', stacking = list(class = 'primary_metal'),
-  programs = list(authority_program('copper', stacking = list(class = 'primary_metal'),
-    metal = list(type = 'copper'), rate = list(resolved = off)))))
+# set_rate turns a dormant metal ON -> has_232 flips FALSE->TRUE (recompute reads the spec default)
+off_res <- s232_residual; off_res$has_232 <- FALSE
+offspec <- authority_spec_set(mk_s232(list(), residual = off_res))   # all defaults 0, gate OFF
 con <- apply_operations(offspec, list(
   list(op = 'set_rate', authority = 'section_232', program = 'copper', rate = 0.50)))
-check(isTRUE(con[['section_232']]$programs[[1]]$rate$resolved$has_232),
+check(identical(.s232p(con, 'copper')$rate$default, 0.50),
+      'set_rate 232/copper -> rate$default 0.50 (dormant metal activated)')
+check(isTRUE(.s232_resid(con)$has_232),
       'has_232 flips FALSE->TRUE when a dormant metal (copper) is turned on')
 
 s <- apply_operations(rspecs, list(list(op = 'set_rate', authority = 'section_122', rate = 0.10)))
@@ -139,14 +160,14 @@ check(is.null(s[['section_122']]$programs[[1]]$rate$resolved),
 
 e <- apply_operations(rspecs, list(
   list(op = 'set_exempt', authority = 'section_232', program = 'steel', countries = c('1220', '2010'))))
-check(identical(e[['section_232']]$programs[[1]]$rate$resolved$steel_exempt, c('1220', '2010')),
-      'set_exempt 232/steel -> {Canada, Mexico}')
+check(identical(.s232_resid(e)$steel_exempt, c('1220', '2010')),
+      'set_exempt 232/steel -> {Canada, Mexico} (still on the residual blob; de-blobbed in S2)')
 
 d <- apply_operations(rspecs, list(list(op = 'disable', authority = 'section_232')))
-check(identical(d[['section_232']]$programs[[1]]$rate$resolved$steel_rate, 0),
-      'disable 232 zeros steel_rate')
-check(isFALSE(d[['section_232']]$programs[[1]]$rate$resolved$has_232),
-      'disable 232 -> has_232 FALSE')
+check(identical(.s232p(d, 'steel')$rate$default, 0) && identical(.s232p(d, 'copper')$rate$default, 0),
+      'disable 232 zeros every program rate$default')
+check(isFALSE(.s232_resid(d)$has_232),
+      'disable 232 -> has_232 FALSE (residual gate)')
 
 # section_122 (Plank 3): set_rate then disable round-trips the rate$default scalar.
 d122 <- apply_operations(rspecs, list(
