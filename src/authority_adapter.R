@@ -86,6 +86,45 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
   stats::setNames(lk$rate, lk$hts8)
 }
 
+# ---- Section 232 blanket per-country overlay (Plank 4a / S2 blanket slice) ----
+#
+# Build the merged per-country rate overlay for a §232 METAL program (steel/aluminum)
+# as a `by_country` layer, draining the residual blob's exempt lists + HTS country
+# overrides + (config) S232_COUNTRY_EXEMPTIONS into one structured map. Reproduces the
+# calculator's imperative country_232 build (06_calculate_rates.R: the exempt mutate +
+# the two override loops + the config-exemption loop) in EXACT application order, baked
+# per-revision so resolve_rate(product=NULL, country) returns the same scalar:
+#   1. exempt -> 0   — call is_232_exempt() over the SAME `countries` the calc uses, so
+#                      the ISO/EU census expansion is bit-identical by construction
+#                      (no re-derivation; this is why there is no EU27/ISO source-mismatch).
+#   2. HTS country overrides — already census-keyed, EU-expanded, max-collapsed by the
+#                      parser (extract_country_specific_overrides); copied verbatim.
+#   3. config S232_COUNTRY_EXEMPTIONS — date-gated (is.null(expiry) || rev_date < expiry,
+#                      strict `<`); applies_to selects the metal; already census + EU27.
+# Last write wins (override beats exempt-zero; config beats override) — matching the calc.
+# Returns a named numeric (names = census codes) or NULL when the overlay is empty (then
+# the program resolves to rate$default = base for every country, exactly as before S2).
+.s232_blanket_by_country <- function(s232_rates, pp, countries, effective_date,
+                                     exempt_field, override_field, metal) {
+  bc <- c()
+  exempt_hit <- vapply(countries, function(cty) is_232_exempt(cty, s232_rates[[exempt_field]]),
+                       logical(1), USE.NAMES = FALSE)
+  if (any(exempt_hit)) {
+    bc <- stats::setNames(rep(0, sum(exempt_hit)), as.character(countries[exempt_hit]))
+  }
+  ov <- s232_rates[[override_field]]
+  for (cty in names(ov)) bc[[as.character(cty)]] <- as.numeric(ov[[cty]])
+  rev_date <- as.Date(effective_date)
+  for (ex in pp$S232_COUNTRY_EXEMPTIONS) {
+    if (!(is.null(ex$expiry_date) || rev_date < ex$expiry_date)) next
+    if (metal %in% ex$applies_to) {
+      for (cty in as.character(ex$countries)) bc[[cty]] <- as.numeric(ex$rate)
+    }
+  }
+  if (!length(bc)) return(NULL)
+  bc
+}
+
 # ---- the adapter ------------------------------------------------------------
 
 #' Re-package the bespoke per-authority parser outputs into an authority_spec_set.
@@ -175,6 +214,24 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
     section_232 <- .s232_set_default(section_232, 'wood',           s232_rates$wood_rate     %||% 0)
     section_232 <- .s232_set_default(section_232, 'semiconductors', s232_rates$semi_rate     %||% 0)
     section_232 <- .s232_set_default(section_232, 'pharmaceuticals',s232_rates$pharma_rate   %||% 0)
+    # Plank 4a / S2 (blanket slice): drain the steel/aluminum exempt lists + HTS country
+    # overrides + config exemptions into each metal program's compositional rate$by_country
+    # overlay (merged in calc application order, baked per-revision). The calc reads the
+    # per-country metal rate via resolve_rate(product=NULL, country) (s232_blanket_metal_rate),
+    # falling back to the imperative blob build for the specs-less callers. auto_exempt is
+    # left on the blob (auto_rate never sets rate_232 — autos flow through the heading path).
+    .s232_set_by_country <- function(spec, prog_id, bc) {
+      if (is.null(bc)) return(spec)
+      pos <- which(vapply(spec$programs, function(p) identical(p$id, prog_id), logical(1)))
+      spec$programs[[pos]]$rate$by_country <- bc
+      spec
+    }
+    section_232 <- .s232_set_by_country(section_232, 'steel',
+      .s232_blanket_by_country(s232_rates, pp, countries, effective_date,
+                               'steel_exempt', 'steel_country_overrides', 'steel'))
+    section_232 <- .s232_set_by_country(section_232, 'aluminum',
+      .s232_blanket_by_country(s232_rates, pp, countries, effective_date,
+                               'aluminum_exempt', 'aluminum_country_overrides', 'aluminum'))
     # Phase 2c/6c: precompute the heading-program activation gates. Since S1b
     # compute_heading_gates reads the program rates off the spec (rate$default via
     # s232_spec_rate) + the non-rate flags off the resolved blob, so pass both. At

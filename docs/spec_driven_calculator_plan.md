@@ -170,8 +170,14 @@ scripts/submit_plank3_units.sh` (47+19+21 assertions) + `scripts/submit_plank3_p
       `.s232_recompute_has_232` repointed to read program rates off the spec (heading→program-id via the new
       `HEADING_RESOLVED_PROGRAM` map). The non-rate gate inputs (`auto_has_deals`/`auto_has_parts`,
       `wood_furniture_rate`, derivatives) stay on the residual blob. Unit: adapter 31/31, scenario_ops 48/48.
-    - **S2 ⬜ NEXT** — country deals/overrides/exempts → `overrides`/`by_country` (floors = `floor_static`,
-      ORIGINAL base = current code; EU27 left unversioned). HIGH risk. **See the handoff notes below.**
+    - **S2 ⬜ NEXT (DESIGN LOCKED 2026-06-05 — see the locked subsection below)** — country deals/overrides/
+      exempts de-blobbed. 4 separately-gated sub-commits. **Blanket (exempt + metal HTS overrides + config
+      exemptions) → ONE merged `by_country`** (NOT `overrides` — corrects the stale "→ `overrides`/`by_country`"
+      framing: a per-country read is `resolve_rate(product=NULL)`, which SKIPS both override forms, so HTS
+      overrides parked in `overrides` would silently never be read). **Deals split by CONCEPT** (John's call):
+      `overrides` (flat product×country, scope-label form) + a NEW `floors` field; the calc expands the scope
+      label to HTS at run time and keeps the floor/surcharge math (decision 8). floors = `floor_static` vs the
+      ORIGINAL base; EU27 unversioned. HIGH risk concentrated in the deals slice.
     - **S3 ⬜** — delete UK annex deal, model Taiwan aircraft as a scoped 0, drain the residual blob. MED.
   - **Gate-tooling fix landed (commit `134759f`, src/parity.R):** the `--unweighted` build drops the
     un-gated weighted/ETR columns (`weighted_etr*`, `etr_*`, `*_imports_b`) the golden carries; the
@@ -220,25 +226,69 @@ scripts/submit_plank3_units.sh` (47+19+21 assertions) + `scripts/submit_plank3_p
      for every stage). Verdict in `output/parity_results_<ts>/` + the summary slurm log (`47 passed / 0 failed`
      = GREEN). No `--no-config-check` needed unless a stage edits `config/policy_params.yaml`.
 
-**S2 plan (my view — the riskiest stage; slice finer if the first gate is red):**
-- Six scattered deal flows in `06_calculate_rates.R`, all currently reading the residual blob inside the
-  `country_232` build: HTS country overrides (`~1607-1618`, e.g. UK steel 9903.81.94), auto deals
-  (`~1823-1878`), wood deals (`~1900-1929`), config-level `S232_COUNTRY_EXEMPTIONS` (`~1625-1644`), the
-  steel/aluminum/auto `*_exempt` lists (`~1597-1599`), and the Russia surcharge. Move the SOURCE OF TRUTH
-  into structured `overrides` (product×country, via `resolve_rate`'s entry form `{products, countries, rate}`)
-  and `by_country` layers; repoint the deal loops to read per (product, country) through `s232_spec_rate`-style
-  spec reads.
-- **#1 PARITY RISK — floor-base semantics.** Auto/wood deals compute `pmax(deal_rate − base, 0)` against the
-  **ORIGINAL pre-232 MFN base** (calc `~1860/1912`), i.e. `rate_type = floor_static` (`floor_base = 'original'`),
-  **NOT** `floor_post_mfn`. Encode them as `floor_static`. Do NOT "fix" to post-MFN even if it looks cleaner —
-  the golden was built with original-base floors; that's a Pass-2 correctness question, out of scope.
-- **Other gotchas that will bite:** EU membership is expanded **unversioned** (one atomic 27-code set) — leave
-  it (parity-neutral; versioning is a deferred follow-up, see [counterfactual-generality-gap] memory).
-  Census-vs-ISO key formats; expiry `<` vs `<=`; and the **application order** (HTS overrides win after the
-  blanket; config exemptions win after HTS overrides). Reproduce each exactly.
-- **Recommendation:** if S2's first gate is RED, re-slice it (HTS overrides | auto/wood deals | config
-  exemptions | exempt lists are four different semantics — gate them separately to localize). Before gating,
-  adversarially re-derive the floor math on 2–3 known deal products by hand vs the golden snapshot.
+**S2 LOCKED DESIGN (2026-06-05).** Settled via a fan-out workflow (5 mappers → architecture decision →
+per-slice adversarial parity verdicts) + two decisions from John. The adversarial pass verified the 3 blanket
+slices parity-safe (high confidence) and caught two real blockers in the deals slice (below). **4 separately-
+gated sub-commits, cheapest→riskiest:**
+
+1. **HTS metal overrides** (`steel_country_overrides`/`aluminum_country_overrides`, calc `06:1665-1678`) →
+   `by_country` on the steel/aluminum programs. Cleanest: parser already census-keys + EU-expands + `max()`-
+   collapses these (`05:625-661`), so the adapter copies them straight in. Do FIRST to prove the
+   `by_country`-over-`default` plumbing.
+2. **Exempt lists** (`steel_exempt`/`aluminum_exempt`, calc `06:1657-1662`) → `by_country = 0` entries, MERGED
+   OVER slice 1 (exempt runs *before* the override loop, so the override must win → in a flat `by_country` map
+   that means write exempt-zeros first, then overrides). Adapter must **census-expand each ISO/EU token via the
+   same three paths `is_232_exempt` uses** (identity-census, `ISO_TO_CENSUS[iso]`, `EU→EU27_CODES`), because the
+   blob keys are ISO/EU-tokens, not census. **Baseline is parity-trivial here** (the `*_exempt` lists are EMPTY
+   in the golden — steel/alum resolve via the increase branches), so the risk is the WRITE path, not the read.
+   **Leave `auto_exempt` on the blob** — `auto_rate` never sets `rate_232` (autos flow through the heading path),
+   so `auto_exempt`'s only effect is `s232_country_codes` membership, swamped by the heading-present union; zero
+   parity benefit, real edge-case risk.
+3. **Config exemptions** (`S232_COUNTRY_EXEMPTIONS`, calc `06:1685-1700`) → `by_country` on steel/aluminum,
+   MERGED OVER slices 1+2 (config runs last → wins). Source is `pp$S232_COUNTRY_EXEMPTIONS` (config, already
+   census + EU27-expanded). The adapter is per-revision, so it **pre-resolves the date gate** `is.null(expiry) ||
+   rev_date < expiry` (**strict `<`**) and bakes only the active entries. The Russia entry (rate=2.0, expiry NULL,
+   permanent) flows through here — it is the last config entry, NOT a separate field, and is IN scope. (Distinct
+   from the annex-era Russia surcharge at `06:2207-2264`, which reads `annex_cfg`/config, NOT the blob → OUT of S2.)
+4. **Auto + wood deals** (calc `06:1882-1989`) — **THE RISKY SLICE.** Split by CONCEPT (John's call), each as a
+   structured field the CALC reads (NOT `resolve_rate`), carrying a product **scope label** the calc expands at
+   run time (so products stay calc-time → no new parity surface):
+   - **flat product×country overrides** (the surcharge deals: UK vehicles 7.5%, UK wood 10%) → `overrides`
+     entries in **scope form** `{scope, countries, rate}` (e.g. `scope = 'vehicles'`). These have NO `products`
+     key, so `resolve_rate` auto-skips them (`hit_p` requires products → always FALSE) → reader-invisible by
+     construction; the calc reads them by scope.
+   - **floors** (EU/JP/KR vehicle 15%, UK parts 10%, EU/JP/KR wood 15%) → a NEW `floors` field, entries
+     `{scope, countries, floor}`; the calc applies `pmax(floor − base, 0)` against the ORIGINAL pre-232 MFN base
+     (`floor_static` / `floor_base='original'` — the #1 parity risk; do NOT "fix" to post-MFN, Pass-2 concern).
+   - The adapter **census-expands each deal's ISO/EU country at build time** (mirroring `iso_to_census_vec`:
+     `EU → names(pp$eu27_codes)` = 27 codes unversioned; ISO → `ISO_TO_CENSUS`), and tags each entry with the
+     deal's `program` as the scope label. Surcharge entries flat-REPLACE `rate_232`; floors `pmax`. No
+     product×country cell is double-hit (vehicles/parts disjoint; wood once-per-country), so order is preserved
+     but non-observable.
+
+**THE ONLY Plank-0 touch in S2 — additive `validate_rate` extension (deals slice only):** (a) accept the
+`{scope, countries, rate}` form on `overrides` entries (today `validate_rate:333` requires non-empty `products`);
+(b) whitelist a `floors` key + a light shape check (mirrors the overrides-entry check but with `floor` instead of
+`rate`). Both are additive and parity-safe — no existing spec uses scope-form or floors; existing callers
+unchanged; `resolve_rate` is NOT modified (scope/floors entries are inherently reader-invisible). This is the
+small validator addition, NOT the rejected "per-entry rate_type in resolve_rate" keystone change.
+
+**scenario_ops obligations (move write-path with read-path, per slice — do NOT split across commits):**
+- **Exempt slice:** `op_set_exempt` (steel/aluminum) must write the `by_country = 0` entry instead of the residual
+  blob `*_exempt` field, AND census-expand ISO/EU at write time (the old path expanded at READ via `is_232_exempt`;
+  the new path must expand at write or the exemption silently no-ops). The existing test asserting set_exempt
+  writes the blob (`tests/test_scenario_ops.R:~162-164`) must be **rewritten** to assert `by_country`.
+- **Deals slice:** `op_disable` ALREADY drains the deal tibbles (`scenario_ops.R:217-219`) — it must be repointed
+  to clear the new `overrides`(scope)/`floors` fields in lockstep, or `disable(section_232)` silently stops
+  draining deals. (The deals design's "no scenario op touches deals" was FALSE — adversarial catch.)
+- **has_232 stays a residual gate** in ALL slices (no program added/removed → the three formulas stay in
+  lockstep untouched). `auto_has_deals`/`auto_has_parts`/`wood_furniture_rate`/derivatives stay on the blob (S3 /
+  decision-8). `extract_section232_rates` (parser) is unchanged — the adapter re-packages its output, as in S1a/S1b.
+
+**Gate-red protocol:** a red gate means a re-packaging detail drifted (application/merge order, census/EU
+expansion, strict-`<` boundary, or the floor base regressed to post-MFN) — re-derive the detail; do NOT reach for
+a schema change. Before gating the deals slice, hand-re-derive the floor math on UK auto parts (floor 0.10), EU
+auto vehicles (floor 0.15), UK wood (surcharge 0.10) vs the golden snapshot.
 
 **S3 plan:**
 - **UK annex deal** (`06:2134-2145`, a `case_when` gating UK × annex-1a/1b × chapters 72/73/76): delete only
@@ -354,6 +404,22 @@ This plan consolidates and supersedes the scattered phase docs (`parallel_full_p
 
 ## Progress log
 
+- **2026-06-05 — Plank 4a S2 DESIGN LOCKED (no code yet).** Settled the hardest stage via a fan-out workflow
+  (5 parallel mappers → 1 architecture-decision agent → 4 slices each designed then adversarially parity-
+  verified, 14 agents) + two decisions from John. Outcome: (1) **blanket slices (exempt / metal HTS overrides /
+  config exemptions) → ONE merged `by_country`**, NOT `overrides` — the adversarial pass proved a per-country
+  read is `resolve_rate(product=NULL)`, which short-circuits both override forms (corrects the plan doc). (2)
+  **Deals split by CONCEPT** (John rejected the lumped "deals" bucket): flat product×country surcharge deals →
+  `overrides` scope-form `{scope, countries, rate}`; floor deals → a NEW `floors` field `{scope, countries,
+  floor}`; the calc expands the scope label at run time and keeps the floor/surcharge math (decision 8), so
+  products stay calc-time (no new parity surface). The ONLY Plank-0 touch = an additive `validate_rate`
+  extension (accept the scope-form on `overrides` + whitelist `floors`); `resolve_rate` untouched (scope/floors
+  entries are reader-invisible). Adversarial pass caught two real blockers the design agent missed: storing
+  deals under any existing layer crashes `validate_rate` (whitelist + the overrides `products` requirement), and
+  `op_disable` already drains the deal tibbles (`scenario_ops.R:217-219`) so it must be repointed in lockstep.
+  Slice order cheapest→riskiest: HTS overrides → exempt (steel/alum only; `auto_exempt` stays on blob, zero
+  observable effect) → config exemptions → deals. Full locked design in the "S2 LOCKED DESIGN" subsection.
+  **Next = implement slice 1 (HTS overrides) in a worktree, unit-test, hand to John for the live parity gate.**
 - **2026-06-05 — Plank 4a S1a + S1b landed (both parity GREEN 47/47); gate-tooling bug fixed.**
   Read-path decision = FULL REPOINT (no shim). **S1a** (`2a2232e`): blanket steel/aluminum/auto base
   rates → each program's `rate$default`; new `s232_spec_rate()` helper (spec-first, blob-fallback for

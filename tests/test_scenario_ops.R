@@ -160,8 +160,10 @@ check(is.null(s[['section_122']]$programs[[1]]$rate$resolved),
 
 e <- apply_operations(rspecs, list(
   list(op = 'set_exempt', authority = 'section_232', program = 'steel', countries = c('1220', '2010'))))
-check(identical(.s232_resid(e)$steel_exempt, c('1220', '2010')),
-      'set_exempt 232/steel -> {Canada, Mexico} (still on the residual blob; de-blobbed in S2)')
+check(identical(.s232p(e, 'steel')$rate$by_country, stats::setNames(c(0, 0), c('1220', '2010'))),
+      'set_exempt 232/steel -> rate$by_country {Canada,Mexico} = 0 (de-blobbed to by_country, S2)')
+check(identical(.s232_resid(e)$steel_exempt, character(0)),
+      'set_exempt 232/steel no longer writes the residual blob steel_exempt (S2)')
 
 d <- apply_operations(rspecs, list(list(op = 'disable', authority = 'section_232')))
 check(identical(.s232p(d, 'steel')$rate$default, 0) && identical(.s232p(d, 'copper')$rate$default, 0),

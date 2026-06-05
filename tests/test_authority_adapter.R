@@ -27,6 +27,9 @@ HEADING_GATES_SENTINEL <- list(autos_passenger = TRUE, copper = FALSE)
 compute_heading_gates <- function(specs, s232_rates) HEADING_GATES_SENTINEL  # S1b: (specs, s232_rates)
 S122_SENTINEL <- list(s122_rate = 0.10, has_s122 = TRUE)   # Phase 6a
 extract_section122_rates <- function(ch99_data) S122_SENTINEL
+# S2 (blanket slice): the adapter calls is_232_exempt over `countries` to build the
+# steel/aluminum by_country overlay. Census-only stub (the test data uses census codes).
+is_232_exempt <- function(census_code, exempt_list) isTRUE(census_code %in% exempt_list)
 
 source(here('src', 'authority_adapter.R'))
 
@@ -96,6 +99,16 @@ check(identical(resolve_rate(.prog('autos')$rate)$value, 0),
       'calc-side read: resolve_rate(autos program) = 0 (not NA) — baseline-safe')
 check(identical(s232_rates_from_specs(specs), s232),
       'S1a coexistence: the residual resolved blob is still parked on programs[[1]] verbatim')
+
+cat('\n--- Plank 4a / S2: steel/aluminum exempt + overrides + config -> rate$by_country ---\n')
+check(identical(.prog('steel')$rate$by_country, stats::setNames(0, '1220')),
+      'steel exempt list ({Canada}) de-blobbed to rate$by_country = {1220: 0} (S2)')
+check(is.null(.prog('aluminum')$rate$by_country),
+      'aluminum (no exempt/override/config) -> no by_country overlay (NULL)')
+check(identical(resolve_rate(.prog('steel')$rate, product = NULL, country = '1220')$value, 0),
+      'calc read: resolve_rate(steel, country=Canada) = 0 (exempt via by_country)')
+check(identical(resolve_rate(.prog('steel')$rate, product = NULL, country = '5700')$value, 0.50),
+      'calc read: resolve_rate(steel, country=China) = 0.50 (base; not in by_country)')
 
 cat('\n--- Plank 4a / S1b: heading programs de-blobbed + dormant pharmaceuticals program ---\n')
 prog_ids <- vapply(s232_progs, function(p) p$id, character(1))

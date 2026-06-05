@@ -36,12 +36,15 @@
 # Authorities whose country scope the calculator reads from the spec (Phase 2e).
 SCOPE_DRIVEN_AUTHORITIES <- c('section_301', 'section_201')
 
-# section_232 (Plank 4a / S1a+S1b): each program's rate is de-blobbed into its
-# compositional rate$default; set_rate / disable mutate the per-program defaults
-# (and recompute the has_232 gate). The NON-rate fields — auto_has_deals/
-# auto_has_parts, wood_furniture_rate, the derivative rates, the deal tibbles, the
-# exempt lists, and the has_232 gate flag — remain a residual blob on programs[[1]]$
-# rate$resolved (drained in S2/S3); set_exempt still mutates that residual blob.
+# section_232 (Plank 4a / S1a+S1b+S2): each program's rate is de-blobbed into its
+# compositional rate layers — rate$default (base) + rate$by_country (S2 blanket slice:
+# steel/aluminum exempt lists + HTS country overrides + config exemptions, merged into
+# one per-country overlay). set_rate / disable mutate the per-program defaults (and
+# recompute has_232); set_exempt(steel/aluminum) now writes the by_country overlay, and
+# disable also clears it. The NON-rate fields still on the residual blob (programs[[1]]$
+# rate$resolved, drained in later slices/S3): auto_has_deals/auto_has_parts,
+# wood_furniture_rate, the derivative rates, the deal tibbles, auto_exempt, and the
+# has_232 gate flag.
 RATE_DRIVEN_AUTHORITIES <- c('section_232')
 
 # Authorities whose scalar rate the calculator reads from the compositional
@@ -204,10 +207,13 @@ op_disable <- function(specs, op, idx) {
   }
   if (auth %in% RATE_DRIVEN_AUTHORITIES) {   # section_232 (S1b: per-program rate$default + residual blob)
     spec <- specs[[auth]]
-    # Zero every program's de-blobbed default rate (the 8 logical programs).
+    # Zero every program's de-blobbed default rate (the 8 logical programs) AND drop the
+    # S2 per-country overlay (else a steel/aluminum by_country override would survive a
+    # disable and keep emitting that country's rate).
     for (prog in names(S232_RATE_FIELD)) {
       pos <- .find_program_index(spec, prog, idx, 'disable')
-      spec$programs[[pos]]$rate$default <- 0
+      spec$programs[[pos]]$rate$default    <- 0
+      spec$programs[[pos]]$rate$by_country <- NULL
     }
     # Zero the residual non-rate gate inputs still on the blob, and force has_232 OFF.
     r <- .op_get_resolved(spec)
@@ -309,12 +315,28 @@ op_set_exempt <- function(specs, op, idx) {
   prog <- op$program %||% stop(sprintf(
     'operation[%s] (set_exempt): needs `program` (one of %s)',
     idx, paste(names(S232_EXEMPT_FIELD), collapse = ', ')))
-  field <- S232_EXEMPT_FIELD[[prog]]
-  if (is.null(field)) stop(sprintf(
+  if (is.null(S232_EXEMPT_FIELD[[prog]])) stop(sprintf(
     'operation[%s] (set_exempt): no exemption list for section_232 program "%s" (have: %s)',
     idx, prog, paste(names(S232_EXEMPT_FIELD), collapse = ', ')))
   countries <- op$countries %||% stop(sprintf('operation[%s] (set_exempt): missing `countries`', idx))
   spec <- specs[[auth]]
+  if (prog %in% c('steel', 'aluminum')) {
+    # Plank 4a / S2: steel/aluminum exemptions are de-blobbed into the program's
+    # compositional rate$by_country overlay (a 0 entry per exempt census code). Merge the
+    # requested countries (census codes) over any baseline by_country, leaving the
+    # HTS-override / config-exemption entries intact (set_exempt only adds exempt-0s).
+    pos <- .find_program_index(spec, prog, idx, 'set_exempt')
+    bc <- spec$programs[[pos]]$rate$by_country
+    existing <- if (is.null(bc) || .rate_is_hollow(bc)) NULL else
+      stats::setNames(as.numeric(bc), names(bc))
+    add <- stats::setNames(rep(0, length(countries)), as.character(countries))
+    spec$programs[[pos]]$rate$by_country <- c(existing[setdiff(names(existing), names(add))], add)
+    spec <- .s232_drop_gate_cache(spec)
+    specs[[auth]] <- spec
+    return(specs)
+  }
+  # autos — still on the residual blob (auto rate is heading-driven, not de-blobbed in S2)
+  field <- S232_EXEMPT_FIELD[[prog]]
   r <- .op_get_resolved(spec)
   if (is.null(r)) stop(sprintf('operation[%s] (set_exempt): section_232 has no resolved payload', idx))
   r[[field]] <- as.character(countries)

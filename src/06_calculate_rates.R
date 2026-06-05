@@ -322,6 +322,41 @@ s232_spec_rate <- function(specs, s232_rates, program_id, blob_field) {
 }
 
 
+#' Read a §232 METAL program's per-country blanket rate (Plank 4a / S2 blanket slice).
+#'
+#' Spec path: resolve_rate(product=NULL, country) reads the merged by_country overlay
+#' (exempt-0 + HTS overrides + config exemptions, baked by the adapter in application
+#' order) over rate$default (the base), returning the same scalar the old imperative
+#' country_232 build produced. Blob fallback (specs-less dual-signature callers, retained
+#' until Plank 7): reproduce the OLD imperative exempt -> override -> config build
+#' verbatim. Vectorized over `countries`; returns a numeric vector in that order.
+s232_blanket_metal_rate <- function(specs, s232_rates, pp, effective_date, countries,
+                                     program_id, exempt_field, override_field, metal, base) {
+  if (!is.null(specs) && !is.null(specs[['section_232']])) {
+    progs <- specs[['section_232']]$programs
+    pos <- which(vapply(progs, function(p) identical(p$id, program_id), logical(1)))
+    if (length(pos) == 1L) {
+      prog_rate <- progs[[pos]]$rate
+      return(vapply(countries, function(cty) {
+        v <- resolve_rate(prog_rate, product = NULL, country = cty)$value
+        if (is.na(v)) base else v
+      }, numeric(1), USE.NAMES = FALSE))
+    }
+  }
+  # Blob fallback (specs-less callers): old imperative build, exempt -> override -> config.
+  out <- ifelse(vapply(countries, function(cty) is_232_exempt(cty, s232_rates[[exempt_field]]),
+                       logical(1), USE.NAMES = FALSE), 0, base)
+  ov <- s232_rates[[override_field]]
+  for (cty in names(ov)) { idx <- countries == cty; if (any(idx)) out[idx] <- ov[[cty]] }
+  rev_date <- as.Date(effective_date)
+  for (ex in pp$S232_COUNTRY_EXEMPTIONS) {
+    if (!(is.null(ex$expiry_date) || rev_date < ex$expiry_date)) next
+    if (metal %in% ex$applies_to) { aff <- countries %in% ex$countries; if (any(aff)) out[aff] <- ex$rate }
+  }
+  out
+}
+
+
 #' Check if country applies to a Chapter 99 entry
 #'
 #' @param country Census country code
@@ -1644,64 +1679,30 @@ calculate_rates_for_revision <- function(
     }
 
     # --- Build per-country rate lookup ---
-    # S1a (Plank 4a): the blanket steel/aluminum + auto BASE rates are de-blobbed —
-    # read from the spec's rate$default via resolve_rate (s232_spec_rate). The exempt
-    # zeroing below + the country overrides / config exemptions further down still
-    # read the resolved blob (relocated in S2). Specs-less callers fall back to the
-    # blob scalar (Plank 7).
+    # S1a: blanket steel/aluminum/auto BASE rates are de-blobbed (rate$default, read via
+    # s232_spec_rate). S2 (blanket slice): the steel/aluminum exempt lists + HTS country
+    # overrides + config S232_COUNTRY_EXEMPTIONS are de-blobbed into each metal program's
+    # rate$by_country overlay (built by the adapter in calc application order). The calc
+    # reads the merged per-country metal rate via resolve_rate (s232_blanket_metal_rate),
+    # so the old exempt-mutate + override-loops + config-loop are gone. Specs-less callers
+    # fall back to the imperative blob build inside the helper (Plank 7). auto_exempt stays
+    # on the blob (auto_rate never sets rate_232 — autos flow through the heading path).
     steel_base    <- s232_spec_rate(specs, s232_rates, 'steel',    'steel_rate')
     aluminum_base <- s232_spec_rate(specs, s232_rates, 'aluminum', 'aluminum_rate')
     auto_base     <- s232_spec_rate(specs, s232_rates, 'autos',    'auto_rate')
+    steel_rate_vec    <- s232_blanket_metal_rate(
+      specs, s232_rates, pp, effective_date, countries,
+      'steel', 'steel_exempt', 'steel_country_overrides', 'steel', steel_base)
+    aluminum_rate_vec <- s232_blanket_metal_rate(
+      specs, s232_rates, pp, effective_date, countries,
+      'aluminum', 'aluminum_exempt', 'aluminum_country_overrides', 'aluminum', aluminum_base)
     country_232 <- tibble(country = countries) %>%
       mutate(
-        steel_exempt = map_lgl(country, ~is_232_exempt(.x, s232_rates$steel_exempt)),
-        alum_exempt = map_lgl(country, ~is_232_exempt(.x, s232_rates$aluminum_exempt)),
-        auto_exempt = map_lgl(country, ~is_232_exempt(.x, s232_rates$auto_exempt)),
-        steel_rate = if_else(steel_exempt, 0, steel_base),
-        aluminum_rate = if_else(alum_exempt, 0, aluminum_base),
-        auto_rate = if_else(auto_exempt, 0, auto_base)
+        auto_exempt   = map_lgl(country, ~is_232_exempt(.x, s232_rates$auto_exempt)),
+        steel_rate    = steel_rate_vec,
+        aluminum_rate = aluminum_rate_vec,
+        auto_rate     = if_else(auto_exempt, 0, auto_base)
       )
-
-    # --- Apply HTS-extracted 232 country overrides (e.g., UK deal rates) ---
-    # These come from country-specific ch99 entries (e.g., 9903.81.94 UK steel 25%)
-    for (cty in names(s232_rates$steel_country_overrides)) {
-      idx <- country_232$country == cty
-      if (any(idx)) {
-        country_232$steel_rate[idx] <- s232_rates$steel_country_overrides[[cty]]
-      }
-    }
-    for (cty in names(s232_rates$aluminum_country_overrides)) {
-      idx <- country_232$country == cty
-      if (any(idx)) {
-        country_232$aluminum_rate[idx] <- s232_rates$aluminum_country_overrides[[cty]]
-      }
-    }
-
-    # --- Apply config-level 232 country exemptions (TRQ/quota agreements) ---
-    # These override rates for countries with trade agreements not encoded in HTS JSON.
-    # Date-bounded: only apply if this revision's effective_date is before the expiry.
-    rev_date <- as.Date(effective_date)
-    n_config_overrides <- 0L
-    for (exemption in pp$S232_COUNTRY_EXEMPTIONS) {
-      # Check if exemption is active for this revision date
-      is_active <- is.null(exemption$expiry_date) || rev_date < exemption$expiry_date
-      if (!is_active) next
-
-      affected <- country_232$country %in% exemption$countries
-      if (!any(affected)) next
-
-      if ('steel' %in% exemption$applies_to) {
-        country_232$steel_rate[affected] <- exemption$rate
-      }
-      if ('aluminum' %in% exemption$applies_to) {
-        country_232$aluminum_rate[affected] <- exemption$rate
-      }
-      n_config_overrides <- n_config_overrides + sum(affected)
-    }
-    if (n_config_overrides > 0) {
-      message('  232 country exemptions (config): ', n_config_overrides,
-              ' country overrides applied for ', effective_date)
-    }
 
     n_steel_countries <- sum(country_232$steel_rate > 0)
     n_alum_countries <- sum(country_232$aluminum_rate > 0)
