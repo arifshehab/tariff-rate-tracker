@@ -2558,11 +2558,15 @@ calculate_rates_for_revision <- function(
   #     invalidated IEEPA. Product exemptions from Annex II list; 232 mutual
   #     exclusion handled by apply_stacking_rules().
   #     Section 122 has a 150-day statutory limit; gate on expiry unless finalized.
-  # Phase 6a/6b: when a spec set drives the calc, Section 122 comes from the spec's
-  # normalized program (rate$resolved via s122_rates_from_specs), not a re-extraction
-  # here. %||% guards a spec built without an s122 payload.
+  # Plank 3: Section 122 is de-blobbed — the rate lives in the spec's compositional
+  # rate$default layer; the calc READS it via resolve_rate() (value > 0 is the
+  # has_s122 gate, matching the old blob's has_s122 ≡ rate>0). The specs-less `else`
+  # re-extraction is RETAINED for the dual-signature callers (test_tpc_comparison,
+  # run_tests_daily_series) and removed in Plank 7, alongside the 301/201 fallbacks.
   s122_rates <- if (!is.null(specs)) {
-    s122_rates_from_specs(specs) %||% extract_section122_rates(ch99_data)
+    s122_value <- resolve_rate(specs[['section_122']]$programs[[1]]$rate)$value
+    if (isTRUE(s122_value > 0)) list(s122_rate = s122_value, has_s122 = TRUE)
+    else                        list(s122_rate = 0,          has_s122 = FALSE)
   } else {
     extract_section122_rates(ch99_data)
   }

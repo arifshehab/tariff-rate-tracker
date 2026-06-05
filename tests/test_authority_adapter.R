@@ -2,11 +2,12 @@
 # authority_adapter unit tests
 # =============================================================================
 # Pure-logic checks for src/authority_adapter.R — the lossless re-packaging.
-# The crux of parity (Phase 6b): the raw per-authority objects (s232_rates /
-# ieepa_rates / fentanyl_rates / s122) are parked VERBATIM in their owning
-# program's rate$resolved slot and read back via *_from_specs() UNCHANGED —
-# same R objects, with ieepa's `universal_baseline` attribute intact — both in
-# memory and across saveRDS/readRDS. No model data needed.
+# The crux of parity (Phase 6b): the raw per-authority BLOB objects (s232_rates /
+# ieepa_rates / fentanyl_rates) are parked VERBATIM in their owning program's
+# rate$resolved slot and read back via *_from_specs() UNCHANGED — same R objects,
+# with ieepa's `universal_baseline` attribute intact — both in memory and across
+# saveRDS/readRDS. section_122 was DE-BLOBBED in Plank 3: its scalar blanket rate
+# lives in the compositional rate$default layer (no rate$resolved). No model data.
 #
 # get_country_constants() / load_policy_params() (normally from
 # 05_parse_policy_params.R) are stubbed so this runs without the parser
@@ -67,10 +68,12 @@ check(identical(ieepa_rates_from_specs(specs), ieepa),
       'ieepa tibble reachable via ieepa_rates_from_specs')
 check(identical(fentanyl_rates_from_specs(specs), fent),
       'fentanyl tibble reachable via fentanyl_rates_from_specs')
-check(identical(s122_rates_from_specs(specs), S122_SENTINEL),
-      's122 list reachable via s122_rates_from_specs')
-check(identical(specs[['section_122']]$programs[[1]]$rate$resolved, S122_SENTINEL),
-      's122 payload stored verbatim in programs[[1]]$rate$resolved')
+check(identical(specs[['section_122']]$programs[[1]]$rate$default, S122_SENTINEL$s122_rate),
+      's122 blanket rate structured into rate$default (Plank 3, de-blobbed)')
+check(identical(specs[['section_122']]$programs[[1]]$rate$rate_type, 'surcharge'),
+      's122 rate_type = surcharge (additive blanket duty)')
+check(is.null(specs[['section_122']]$programs[[1]]$rate$resolved),
+      's122 carries NO resolved blob (de-blobbed in Plank 3)')
 check(identical(attr(ieepa_rates_from_specs(specs), 'universal_baseline', exact = TRUE), 0.10),
       'universal_baseline attribute rides along on the relocated ieepa payload')
 check(is.null(attr(specs[['section_232']], 'raw_s232', exact = TRUE)),
@@ -93,8 +96,8 @@ saveRDS(specs, tmp)
 specs2 <- readRDS(tmp)
 check(identical(s232_rates_from_specs(specs2), s232),
       's232 program rate$resolved survives saveRDS/readRDS')
-check(identical(specs2[['section_122']]$programs[[1]]$rate$resolved, S122_SENTINEL),
-      's122 program rate$resolved survives saveRDS/readRDS')
+check(identical(specs2[['section_122']]$programs[[1]]$rate$default, S122_SENTINEL$s122_rate),
+      's122 program rate$default survives saveRDS/readRDS')
 check(identical(attr(ieepa_rates_from_specs(specs2),
                      'universal_baseline', exact = TRUE), 0.10),
       'universal_baseline survives saveRDS/readRDS (rides along on relocated payload)')

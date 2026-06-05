@@ -12,12 +12,14 @@
 # SUPPORTED operations (each READS off the spec; never a silent no-op):
 #   * set_country_scope / set_active for the scope-driven authorities (section_301,
 #     section_201). Flagship: `set_country_scope section_301 -> {China, Vietnam}`.
-#   * set_rate / set_exempt for the rate-driven authorities, now that Phase 6b/6c
-#     made their rates spec-native (programs[[1]]$rate$resolved): section_232
-#     (per-program: steel/aluminum/copper/autos/mhd/wood/semiconductors) and
-#     section_122 (scalar). set_rate recomputes the s232 has_232 OR-gate / s122
-#     has_s122 so a scenario can turn a dormant authority ON. Flagship: bump steel.
-#   * disable — empties scope (301/201) OR zeros the resolved rates (232/s122).
+#   * set_rate / set_exempt for the rate-bearing authorities: section_232
+#     (per-program steel/aluminum/copper/autos/mhd/wood/semiconductors, still a
+#     resolved blob until Plank 4a; set_rate recomputes the has_232 OR-gate so a
+#     scenario can turn a dormant metal ON) and section_122 (Plank 3: the scalar
+#     blanket rate lives in the compositional rate$default layer — set_rate writes
+#     it, the calc's value>0 gate turns s122 ON/OFF).
+#   * disable — empties scope (301/201), zeros section_232's resolved rates, or
+#     zeros section_122's rate$default (value 0 => the calc gate is OFF).
 #   * add_program — add a NEW-COVERAGE tariff with no Ch99 backing (Phase 8). The
 #     program carries a flat rate + product/country scope, rides rate_other, and is
 #     applied by the calc's no-Ch99 seeder (src/new_coverage.R) before stacking.
@@ -35,8 +37,13 @@
 SCOPE_DRIVEN_AUTHORITIES <- c('section_301', 'section_201')
 
 # Authorities whose resolved rate payload (programs[[1]]$rate$resolved) the
-# calculator reads (Phase 6b/6c) — set_rate / set_exempt / disable mutate it.
-RATE_DRIVEN_AUTHORITIES <- c('section_232', 'section_122')
+# calculator reads as a verbatim blob — set_rate / set_exempt / disable mutate it.
+# (section_232 only, until Plank 4a normalizes it into structured layers.)
+RATE_DRIVEN_AUTHORITIES <- c('section_232')
+
+# Authorities whose scalar rate the calculator reads from the compositional
+# rate$default layer (Plank 3, de-blobbed) — set_rate / disable mutate that scalar.
+DEFAULT_RATE_AUTHORITIES <- c('section_122')
 
 # section_232: program id -> the rate field it owns in the resolved 21-field
 # s232_rates list (the thin cut parks the whole list on programs[[1]]; per-program
@@ -171,30 +178,35 @@ op_disable <- function(specs, op, idx) {
     }
     return(specs)
   }
-  if (auth %in% RATE_DRIVEN_AUTHORITIES) {
+  # section_122 (Plank 3): zero the compositional rate$default scalar — the calc's
+  # value>0 gate then reads OFF (the structured equivalent of has_s122 = FALSE).
+  if (auth %in% DEFAULT_RATE_AUTHORITIES) {
+    for (pos in seq_along(specs[[auth]]$programs)) {
+      specs[[auth]]$programs[[pos]]$rate$default <- 0
+    }
+    return(specs)
+  }
+  if (auth %in% RATE_DRIVEN_AUTHORITIES) {   # section_232 (resolved blob)
     spec <- specs[[auth]]
     r <- .op_get_resolved(spec)
     if (is.null(r)) stop(sprintf('operation[%s] (disable): %s has no resolved rate payload', idx, auth))
-    if (auth == 'section_232') {
-      for (f in S232_RATE_FIELD) r[[f]] <- 0
-      r$aluminum_derivative_rate <- 0
-      r$steel_derivative_rate    <- 0
-      r$auto_has_deals           <- FALSE
-      if (!is.null(r$auto_deal_rates)) r$auto_deal_rates <- r$auto_deal_rates[0, , drop = FALSE]
-      if (!is.null(r$wood_deal_rates)) r$wood_deal_rates <- r$wood_deal_rates[0, , drop = FALSE]
-      r$has_232 <- FALSE
-    } else if (auth == 'section_122') {
-      r$s122_rate <- 0
-      r$has_s122  <- FALSE
-    }
+    for (f in S232_RATE_FIELD) r[[f]] <- 0
+    r$aluminum_derivative_rate <- 0
+    r$steel_derivative_rate    <- 0
+    r$auto_has_deals           <- FALSE
+    if (!is.null(r$auto_deal_rates)) r$auto_deal_rates <- r$auto_deal_rates[0, , drop = FALSE]
+    if (!is.null(r$wood_deal_rates)) r$wood_deal_rates <- r$wood_deal_rates[0, , drop = FALSE]
+    r$has_232 <- FALSE
     spec <- .op_set_resolved(spec, r)
-    if (auth == 'section_232') spec <- .s232_drop_gate_cache(spec)  # Codex F1: gates recompute -> OFF
+    spec <- .s232_drop_gate_cache(spec)  # Codex F1: gates recompute -> OFF
     specs[[auth]] <- spec
     return(specs)
   }
   stop(sprintf(paste0('operation[%s] (disable): authority "%s" is not disable-able. ',
-                      'Supported: %s (scope) + %s (rate). IEEPA disable is a deferred follow-up.'),
+                      'Supported: %s (scope) + %s (default-rate) + %s (resolved-rate). ',
+                      'IEEPA disable is a deferred follow-up.'),
                idx, auth, paste(SCOPE_DRIVEN_AUTHORITIES, collapse = ', '),
+               paste(DEFAULT_RATE_AUTHORITIES, collapse = ', '),
                paste(RATE_DRIVEN_AUTHORITIES, collapse = ', ')))
 }
 
@@ -227,30 +239,33 @@ op_set_active <- function(specs, op, idx) {
 #' semiconductors) and recomputes has_232; section_122 is scalar (sets has_s122).
 op_set_rate <- function(specs, op, idx) {
   auth <- op$authority
-  .require_rate_driven(auth, idx, 'set_rate')
   rate <- op$rate %||% stop(sprintf('operation[%s] (set_rate): missing `rate`', idx))
   if (!is.numeric(rate) || length(rate) != 1L || is.na(rate)) {
     stop(sprintf('operation[%s] (set_rate): `rate` must be a single non-NA number', idx))
   }
+  # section_122 (Plank 3): the scalar blanket rate lives in the compositional
+  # rate$default layer; the calc gates on value > 0, so writing it here turns
+  # s122 ON (or OFF with rate 0). No resolved blob, no has_s122 flag to maintain.
+  if (auth %in% DEFAULT_RATE_AUTHORITIES) {
+    pos <- .find_program_index(specs[[auth]], op$program, idx, 'set_rate')
+    specs[[auth]]$programs[[pos]]$rate$default <- rate
+    return(specs)
+  }
+  .require_rate_driven(auth, idx, 'set_rate')   # section_232 (resolved blob)
   spec <- specs[[auth]]
   r <- .op_get_resolved(spec)
   if (is.null(r)) stop(sprintf('operation[%s] (set_rate): %s has no resolved rate payload', idx, auth))
-  if (auth == 'section_232') {
-    prog <- op$program %||% stop(sprintf(
-      'operation[%s] (set_rate): section_232 needs `program` (one of %s)',
-      idx, paste(names(S232_RATE_FIELD), collapse = ', ')))
-    field <- S232_RATE_FIELD[[prog]]
-    if (is.null(field)) stop(sprintf(
-      'operation[%s] (set_rate): unknown section_232 program "%s" (have: %s)',
-      idx, prog, paste(names(S232_RATE_FIELD), collapse = ', ')))
-    r[[field]] <- rate
-    r$has_232  <- .s232_recompute_has_232(r)
-  } else {   # section_122
-    r$s122_rate <- rate
-    r$has_s122  <- rate > 0
-  }
+  prog <- op$program %||% stop(sprintf(
+    'operation[%s] (set_rate): section_232 needs `program` (one of %s)',
+    idx, paste(names(S232_RATE_FIELD), collapse = ', ')))
+  field <- S232_RATE_FIELD[[prog]]
+  if (is.null(field)) stop(sprintf(
+    'operation[%s] (set_rate): unknown section_232 program "%s" (have: %s)',
+    idx, prog, paste(names(S232_RATE_FIELD), collapse = ', ')))
+  r[[field]] <- rate
+  r$has_232  <- .s232_recompute_has_232(r)
   spec <- .op_set_resolved(spec, r)
-  if (auth == 'section_232') spec <- .s232_drop_gate_cache(spec)  # Codex F1
+  spec <- .s232_drop_gate_cache(spec)  # Codex F1
   specs[[auth]] <- spec
   specs
 }

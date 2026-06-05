@@ -109,7 +109,7 @@ rspecs <- authority_spec_set(
   authority_spec('ieepa_reciprocal', stacking = list(class = 'content_split'),
     programs = list(authority_program('reciprocal', rate = list(resolved = data.frame(country = '5700', rate = 0.10))))),
   authority_spec('section_122', stacking = list(class = 'content_split'),
-    programs = list(authority_program('s122', rate = list(resolved = list(s122_rate = 0, has_s122 = FALSE)))))
+    programs = list(authority_program('s122', rate = list())))   # Plank 3: dormant => no rate$default
 )
 
 b <- apply_operations(rspecs, list(
@@ -132,8 +132,10 @@ check(isTRUE(con[['section_232']]$programs[[1]]$rate$resolved$has_232),
       'has_232 flips FALSE->TRUE when a dormant metal (copper) is turned on')
 
 s <- apply_operations(rspecs, list(list(op = 'set_rate', authority = 'section_122', rate = 0.10)))
-check(identical(s[['section_122']]$programs[[1]]$rate$resolved$s122_rate, 0.10), 'set_rate s122 -> 0.10')
-check(isTRUE(s[['section_122']]$programs[[1]]$rate$resolved$has_s122), 'has_s122 flips TRUE when s122 rate set > 0')
+check(identical(s[['section_122']]$programs[[1]]$rate$default, 0.10),
+      'set_rate s122 -> rate$default 0.10 (de-blobbed; calc gate value>0 turns it ON)')
+check(is.null(s[['section_122']]$programs[[1]]$rate$resolved),
+      's122 set_rate writes the structured rate$default layer, not a resolved blob (Plank 3)')
 
 e <- apply_operations(rspecs, list(
   list(op = 'set_exempt', authority = 'section_232', program = 'steel', countries = c('1220', '2010'))))
@@ -145,6 +147,13 @@ check(identical(d[['section_232']]$programs[[1]]$rate$resolved$steel_rate, 0),
       'disable 232 zeros steel_rate')
 check(isFALSE(d[['section_232']]$programs[[1]]$rate$resolved$has_232),
       'disable 232 -> has_232 FALSE')
+
+# section_122 (Plank 3): set_rate then disable round-trips the rate$default scalar.
+d122 <- apply_operations(rspecs, list(
+  list(op = 'set_rate', authority = 'section_122', rate = 0.15),
+  list(op = 'disable',  authority = 'section_122')))
+check(identical(d122[['section_122']]$programs[[1]]$rate$default, 0),
+      'disable s122 zeros rate$default (calc gate value>0 -> OFF)')
 
 cat('\n--- Phase 6d: fail-loud guards ---\n')
 expect_error(apply_operations(rspecs, list(list(op = 'set_rate', authority = 'section_232', rate = 0.5))),

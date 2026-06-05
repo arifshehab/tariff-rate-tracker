@@ -42,7 +42,9 @@
 ieepa_rates_from_specs    <- function(specs) .spec_resolved_rate(specs[['ieepa_reciprocal']])
 s232_rates_from_specs     <- function(specs) .spec_resolved_rate(specs[['section_232']])
 fentanyl_rates_from_specs <- function(specs) .spec_resolved_rate(specs[['ieepa_fentanyl']])
-s122_rates_from_specs     <- function(specs) .spec_resolved_rate(specs[['section_122']])
+# (section_122 was de-blobbed in Plank 3 — its rate lives in the compositional
+#  rate$default layer now, read by the calc via resolve_rate(), so it no longer
+#  needs a resolved-blob accessor here.)
 
 # ---- Section 301: resolve the additive rate tier into the spec (Plank 1) ----
 #
@@ -224,14 +226,18 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       id = 's122', product_scope = list(include = 'all'),
       country_scope = list(include = 'all')))
   )
-  # Phase 6a: embed the Section 122 rate, extracted from the SAME date-gated ch99
-  # the calc uses (filter_active_ch99 at 06:766, then extract at 06:2406), so the
-  # calc reads it off the spec instead of re-extracting — closing the gap where
-  # s122 alone ignored the spec set. Mirrors the s232 heading-gate precompute above.
-  # Phase 6b: the rate lives in the program's normalized rate$resolved slot,
-  # read back via s122_rates_from_specs(); no out-of-band attr.
-  section_122$programs[[1]]$rate$resolved <-
-    extract_section122_rates(filter_active_ch99(ch99_data, as.Date(effective_date)))
+  # Plank 3: structure the Section 122 blanket rate into the compositional
+  # rate$default layer (de-blobbed — no more rate$resolved). Extracted from the
+  # SAME date-gated ch99 the calc uses (filter_active_ch99 at 06:766). The calc
+  # READS it via resolve_rate() and gates on value > 0, so an absent program
+  # (has_s122 = FALSE) leaves the rate hollow and the gate stays OFF — exactly
+  # the old has_s122 ≡ rate>0 behavior. rate_type = 'surcharge': an additive duty.
+  s122_extracted <- extract_section122_rates(
+    filter_active_ch99(ch99_data, as.Date(effective_date)))
+  if (isTRUE(s122_extracted$has_s122)) {
+    section_122$programs[[1]]$rate$default   <- s122_extracted$s122_rate
+    section_122$programs[[1]]$rate$rate_type <- 'surcharge'
+  }
 
   # --- mfn (base layer) + other (catch-all) — inert in Phase 1 --------------
   mfn <- authority_spec(
