@@ -170,14 +170,15 @@ scripts/submit_plank3_units.sh` (47+19+21 assertions) + `scripts/submit_plank3_p
       `.s232_recompute_has_232` repointed to read program rates off the spec (heading→program-id via the new
       `HEADING_RESOLVED_PROGRAM` map). The non-rate gate inputs (`auto_has_deals`/`auto_has_parts`,
       `wood_furniture_rate`, derivatives) stay on the residual blob. Unit: adapter 31/31, scenario_ops 48/48.
-    - **S2 ⬜ NEXT (DESIGN LOCKED 2026-06-05 — see the locked subsection below)** — country deals/overrides/
-      exempts de-blobbed. 4 separately-gated sub-commits. **Blanket (exempt + metal HTS overrides + config
-      exemptions) → ONE merged `by_country`** (NOT `overrides` — corrects the stale "→ `overrides`/`by_country`"
-      framing: a per-country read is `resolve_rate(product=NULL)`, which SKIPS both override forms, so HTS
-      overrides parked in `overrides` would silently never be read). **Deals split by CONCEPT** (John's call):
-      `overrides` (flat product×country, scope-label form) + a NEW `floors` field; the calc expands the scope
-      label to HTS at run time and keeps the floor/surcharge math (decision 8). floors = `floor_static` vs the
-      ORIGINAL base; EU27 unversioned. HIGH risk concentrated in the deals slice.
+    - **S2 ✅ DONE (parity GREEN 47/47 — 2 commits, 2026-06-05)** — country deals/overrides/exempts de-blobbed.
+      **Commit 1 (blanket, `f59581c`)**: steel/aluminum exempt + metal HTS overrides + config exemptions → ONE
+      merged `rate$by_country` (NOT `overrides` — a per-country read is `resolve_rate(product=NULL)`, which SKIPS
+      both override forms; corrected the stale plan framing). Parity GREEN, 0 violations (array `13816297`).
+      **Commit 2 (deals, `6358990`)**: deals split by CONCEPT (John's call) — `overrides` (flat product×country,
+      scope-label form) + a NEW `floors` field; the calc expands the scope label to HTS at run time and keeps
+      the floor/surcharge math (decision 8; floors = `floor_static` vs ORIGINAL base). The ONLY Plank-0 touch =
+      an additive `validate_rate` extension (scope-form + `floors`); `resolve_rate` untouched. Parity GREEN
+      47/47, 0 violations (array `13817257`). `auto_exempt` + the deal-gate flags stay on the residual blob → S3.
     - **S3 ⬜** — delete UK annex deal, model Taiwan aircraft as a scoped 0, drain the residual blob. MED.
   - **Gate-tooling fix landed (commit `134759f`, src/parity.R):** the `--unweighted` build drops the
     un-gated weighted/ETR columns (`weighted_etr*`, `etr_*`, `*_imports_b`) the golden carries; the
@@ -404,7 +405,7 @@ This plan consolidates and supersedes the scattered phase docs (`parallel_full_p
 
 ## Progress log
 
-- **2026-06-05 — Plank 4a S2 IMPLEMENTED in 2 commits (Commit 1 parity GREEN; Commit 2 gating).**
+- **2026-06-05 — Plank 4a S2 DONE — both commits parity GREEN 47/47.**
   Per John: develop direct on theseus (no worktrees), run unit tests inline, gate via Slurm.
   **Commit 1 (blanket, `f59581c`) — parity GREEN 47/47, 0 violations** (array `13816297`→gather
   `13816298`→compare vs `9f9837d`). steel/aluminum exempt + HTS overrides + config exemptions →
@@ -418,7 +419,11 @@ This plan consolidates and supersedes the scattered phase docs (`parallel_full_p
   census-expanding ISO/EU at build time); calc `s232_deal_records` feeds both deal loops (math
   unchanged: floor `pmax(rate−ORIGINAL base,0)`, surcharge flat-replace; `deal$program`→`deal$scope`);
   `op_disable` clears the deal layers in lockstep. Unit gates GREEN: resolve_rate 70, authority_spec
-  19, authority_adapter 41, scenario_ops 50. Commit-2 parity gate next.
+  19, authority_adapter 41, scenario_ops 50. **Commit-2 parity GREEN 47/47, 0 violations** (array
+  `13817257`→gather `13817258`→compare `output/parity_results_20260605_162823`). **S2 COMPLETE.**
+  **Next = S3** (delete UK annex-deal hardcode, model Taiwan civil-aircraft exemption as a scope, drain
+  the last residual blob: `auto_exempt`, `auto_has_deals`/`auto_has_parts`, `wood_furniture_rate`,
+  derivatives [stay per decision 8], `has_232`).
 - **2026-06-05 — Plank 4a S2 DESIGN LOCKED (no code yet).** Settled the hardest stage via a fan-out workflow
   (5 parallel mappers → 1 architecture-decision agent → 4 slices each designed then adversarially parity-
   verified, 14 agents) + two decisions from John. Outcome: (1) **blanket slices (exempt / metal HTS overrides /
