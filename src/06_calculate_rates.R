@@ -1715,17 +1715,23 @@ calculate_rates_for_revision <- function(
     }
 
     # --- Build per-country rate lookup ---
-    # S1a: blanket steel/aluminum/auto BASE rates are de-blobbed (rate$default, read via
+    # S1a: blanket steel/aluminum BASE rates are de-blobbed (rate$default, read via
     # s232_spec_rate). S2 (blanket slice): the steel/aluminum exempt lists + HTS country
     # overrides + config S232_COUNTRY_EXEMPTIONS are de-blobbed into each metal program's
     # rate$by_country overlay (built by the adapter in calc application order). The calc
     # reads the merged per-country metal rate via resolve_rate (s232_blanket_metal_rate),
     # so the old exempt-mutate + override-loops + config-loop are gone. Specs-less callers
-    # fall back to the imperative blob build inside the helper (Plank 7). auto_exempt stays
-    # on the blob (auto_rate never sets rate_232 — autos flow through the heading path).
+    # fall back to the imperative blob build inside the helper (Plank 7).
+    # S3 (Plank 4a close-out): the dead auto_base/auto_exempt/auto_rate plumbing was removed.
+    # auto_rate NEVER set rate_232 (autos flow through the heading path; the blanket_232 join
+    # below keys only on steel/alum chapters), and the only consumer — the `auto_rate > 0`
+    # term of the s232_country_codes filter — was fully subsumed by the heading-present
+    # country union (any active autos program ⇒ heading_product_rate non-empty ⇒ that union
+    # adds all countries anyway), so the read was a verified no-op. (auto_exempt remains on
+    # the residual blob, still consumed by the independent extract_section232_rates() path in
+    # generate_etrs_config.R; only the calc's dead READ of it is dropped here.)
     steel_base    <- s232_spec_rate(specs, s232_rates, 'steel',    'steel_rate')
     aluminum_base <- s232_spec_rate(specs, s232_rates, 'aluminum', 'aluminum_rate')
-    auto_base     <- s232_spec_rate(specs, s232_rates, 'autos',    'auto_rate')
     steel_rate_vec    <- s232_blanket_metal_rate(
       specs, s232_rates, pp, effective_date, countries,
       'steel', 'steel_exempt', 'steel_country_overrides', 'steel', steel_base)
@@ -1734,17 +1740,13 @@ calculate_rates_for_revision <- function(
       'aluminum', 'aluminum_exempt', 'aluminum_country_overrides', 'aluminum', aluminum_base)
     country_232 <- tibble(country = countries) %>%
       mutate(
-        auto_exempt   = map_lgl(country, ~is_232_exempt(.x, s232_rates$auto_exempt)),
         steel_rate    = steel_rate_vec,
-        aluminum_rate = aluminum_rate_vec,
-        auto_rate     = if_else(auto_exempt, 0, auto_base)
+        aluminum_rate = aluminum_rate_vec
       )
 
     n_steel_countries <- sum(country_232$steel_rate > 0)
     n_alum_countries <- sum(country_232$aluminum_rate > 0)
-    n_auto_countries <- sum(country_232$auto_rate > 0)
-    message('  Steel: ', n_steel_countries, ' countries, aluminum: ',
-            n_alum_countries, ', auto: ', n_auto_countries)
+    message('  Steel: ', n_steel_countries, ' countries, aluminum: ', n_alum_countries)
 
     # --- Update rate_232 for products already in rates ---
     # Join heading-level rates for auto/copper/etc products
@@ -1792,7 +1794,7 @@ calculate_rates_for_revision <- function(
     # Include countries with any active 232 program (steel/aluminum/auto + heading
     # programs like copper/wood/MHD that don't have per-country exemptions)
     s232_country_codes <- country_232 %>%
-      filter(steel_rate > 0 | aluminum_rate > 0 | auto_rate > 0) %>%
+      filter(steel_rate > 0 | aluminum_rate > 0) %>%   # S3: auto_rate>0 dropped (subsumed; see above)
       pull(country)
     if (nrow(heading_product_rate) > 0) {
       s232_country_codes <- unique(c(s232_country_codes, countries))

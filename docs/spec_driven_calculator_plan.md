@@ -179,7 +179,11 @@ scripts/submit_plank3_units.sh` (47+19+21 assertions) + `scripts/submit_plank3_p
       the floor/surcharge math (decision 8; floors = `floor_static` vs ORIGINAL base). The ONLY Plank-0 touch =
       an additive `validate_rate` extension (scope-form + `floors`); `resolve_rate` untouched. Parity GREEN
       47/47, 0 violations (array `13817257`). `auto_exempt` + the deal-gate flags stay on the residual blob → S3.
-    - **S3 ⬜** — delete UK annex deal, model Taiwan aircraft as a scoped 0, drain the residual blob. MED.
+    - **S3 ✅ DONE (Plank 4a close-out) — lock-in proved no parity-safe de-blob left.** UK annex deal + Taiwan
+      aircraft exemption MUST STAY (annex-tier-context logic the spec doesn't model in Pass 1; values already
+      config-driven → deferred to Pass 2's annex axis). Residual blob is at its decision-8 floor (8 gate/derivative
+      fields stay). The only code change = removing the verified-dead `auto_exempt` calc read. **PLANK 4a CLOSED.**
+      See the "S3 — LOCKED + DONE" subsection below.
   - **Gate-tooling fix landed (commit `134759f`, src/parity.R):** the `--unweighted` build drops the
     un-gated weighted/ETR columns (`weighted_etr*`, `etr_*`, `*_imports_b`) the golden carries; the
     comparator now skips golden-only columns matching `^weighted_etr|^etr_|_imports_b$` instead of
@@ -291,15 +295,40 @@ expansion, strict-`<` boundary, or the floor base regressed to post-MFN) — re-
 a schema change. Before gating the deals slice, hand-re-derive the floor math on UK auto parts (floor 0.10), EU
 auto vehicles (floor 0.15), UK wood (surcharge 0.10) vs the golden snapshot.
 
-**S3 plan:**
-- **UK annex deal** (`06:2134-2145`, a `case_when` gating UK × annex-1a/1b × chapters 72/73/76): delete only
-  after confirming the S2 steel/aluminum `overrides` reproduce it exactly (product set = {annex members} ×
-  {those chapters}, override precedence wins). Otherwise it's a silent double-count or gap.
-- **Taiwan civil-aircraft exemption** (`06:2964-2995`): zeros `rate_232` for Taiwan aircraft HTS **only when
-  `s232_annex` is not NA** (metals annex) — so a blanket Taiwan-aircraft `rate=0` override would WRONGLY zero
-  auto/MHD/wood 232 duties on the same HTS. `resolve_rate(product, country)` has no annex context, so keep the
-  post-calc gate structure but source the product list/rate from the spec instead of the hardcoded loop.
-- Then drain the residual blob to just what decision-8 blends/derivatives still read.
+**S3 — LOCKED + DONE (2026-06-05, Plank 4a CLOSE-OUT).** A focused lock-in workflow (3 analyses + adversarial
+decision, run `wf_0ccdd059-752`, output `tasks/w0mr1sy1d.output`) settled that **S3 has no parity-safe de-blobbing
+left** — it is a close-out, not a de-blob. Stress-tested verdicts:
+- **UK annex deal** (`06:~2235-2246`): **MUST STAY.** It needs TWO different rates on the SAME UK steel/aluminum
+  chapters keyed on annex TIER (`annex_1a → uk_rate 0.25`, `annex_1b → 0.15`), and the annex tier `case_when`
+  (`06:~2204-2211`) UNCONDITIONALLY overwrites `rate_232` for non-heading products BEFORE the deal — so the
+  pre-annex S2 `by_country` UK override is clobbered and plays no role in annex-era revisions. `resolve_rate` keys
+  `by_country`/`overrides` on (product, country) only — NO annex-tier axis — so no spec layer can return
+  0.25-or-0.15-by-tier. Deleting it drops UK to the generic tier (0.50/0.25) → breaks parity on every annex-era
+  revision. The values are already config-driven (`policy_params.yaml section_232_annexes uk_rate`), NOT in the
+  residual blob. Same architectural class as the whole annex regime (tier rates, country_surcharges, subdivision-r,
+  annex-III sunset): annex-context-dependent + config-driven, none spec-foldable in Pass 1 (decision 8).
+- **Taiwan civil-aircraft exemption** (`06:~3074-3096`): **MUST STAY-AS-IS.** A spec `scope=0` cannot reproduce it:
+  it gates on `!is.na(s232_annex)` (metals-annex provenance — a context the spec lacks) AND nulls the `s232_annex`
+  column (a spec rate can add a value, never null a calc column). Verified hazard: 3 hts8 are in BOTH auto-parts
+  and MHD heading lists and keep their heading rate (0.25) while carrying `s232_annex=annex_1b`; a naive scope=0
+  keyed on (product∈TW-list, country=TW) coincides numerically today but would silently zero non-metals 232 the
+  instant a heading rate moves off annex_1b. Already maximally data-driven (config flag + country + resource-file
+  product list). Stays as a contained post-calc gate.
+- **Residual blob** (`programs[[1]]$rate$resolved`): **8 fields STAY, 1 is a no-op.** `has_232` + its non-rate gate
+  inputs (`auto_has_deals`, `auto_has_parts`, `wood_furniture_rate`) STAY (3-formula lockstep); the 4 derivative
+  fields STAY (decision 8). `auto_exempt` is a verified NO-OP (`auto_rate` never set `rate_232`; the only consumer,
+  the `auto_rate>0` filter term, was fully subsumed by the heading-present country union) → its dead calc READ was
+  removed in the S3 commit (the field stays in the parser return for the independent `generate_etrs_config.R` path).
+- **S3 commit = the `auto_exempt` dead-read removal (verified no-op) + this close-out doc.** Gate: full 43-rev array
+  (the close-out gate for Plank 4a) — bit-exact expected by construction.
+- **DEFERRED to Pass 2 (explicit boundary, not a gap):** modeling the §232 ANNEX REGIME in the spec — it needs a new
+  `s232_annex` tier axis on `resolve_rate`/the program rate model (then re-plumbing the annex tier, UK deal,
+  country_surcharges, subdivision-r, annex-III sunset, Taiwan gate through it). A structural resolver change, not a
+  de-blob. Until then the UK deal, Taiwan exemption, derivative rates, and gate-input fields legitimately stay.
+
+**With S3, PLANK 4a IS CLOSED** — §232 is an 8-program spec; the clean statutory layers (default/by_country/
+overrides/floors) are de-blobbed and read via `resolve_rate` + `s232_deal_records`. What remains on the blob is
+exactly the decision-8 designed endpoint (gate inputs + derivative blends), not debt.
 - **4b — IEEPA reciprocal + fentanyl (LATE, the big rock):** structure `by_country` +
   `default_unlisted_rate` (universal baseline) + `rate_type` (surcharge/floor_post_mfn/
   passthrough) + floor-exempt set. Relocate CA/MX exemption (`06:~1090`), floor-country
@@ -405,6 +434,16 @@ This plan consolidates and supersedes the scattered phase docs (`parallel_full_p
 
 ## Progress log
 
+- **2026-06-05 — Plank 4a S3 DONE → PLANK 4a CLOSED.** A focused lock-in workflow (`wf_0ccdd059-752`, 3 analyses +
+  adversarial decision) proved S3 has no parity-safe de-blobbing left — it's a close-out, not a de-blob. Verdicts
+  (all stress-tested): the **UK annex deal** and **Taiwan civil-aircraft exemption** MUST STAY — both are
+  annex-tier-context logic (`s232_annex` tier / metals-annex provenance) that `resolve_rate` deliberately doesn't
+  model in Pass 1, and their values are already config-driven (not blob); the **residual blob** is at its
+  decision-8 floor (8 gate/derivative fields stay; `auto_exempt` is a verified no-op). S3's only code change =
+  removing the dead `auto_exempt` calc read (`auto_rate` never set `rate_232`; the `auto_rate>0` filter term was
+  fully subsumed by the heading-country union). Modeling the §232 annex regime in the spec (a new `s232_annex` axis
+  on the resolver) is explicitly DEFERRED to Pass 2. With S3, §232 is a complete 8-program spec — clean statutory
+  layers de-blobbed, decision-8 blends/gates legitimately residual. Gate: full 43-rev array (close-out gate).
 - **2026-06-05 — Plank 4a S2 DONE — both commits parity GREEN 47/47.**
   Per John: develop direct on theseus (no worktrees), run unit tests inline, gate via Slurm.
   **Commit 1 (blanket, `f59581c`) — parity GREEN 47/47, 0 violations** (array `13816297`→gather
