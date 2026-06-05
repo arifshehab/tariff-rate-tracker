@@ -9,8 +9,8 @@
 #   1. deltas        — compare consecutive cached parses -> delta_<rev>.rds
 #   2. products_raw  — data/processed/products_raw.csv from the latest revision
 #                      (matches the serial loop's "last write wins")
-#   3. assemble      — bind snapshots -> rate_timeseries.rds (+ parquet, metadata)
-#   4. downstream    — daily series, weighted ETR, quality report
+#   3. downstream    — daily series + quality report, streamed from snapshots
+#   4. metadata      — metadata.rds freshness marker for publish
 #
 # Mirrors the serial build's post-loop + downstream so the array build's outputs
 # match a serial build within parity tolerance.
@@ -25,11 +25,10 @@ suppressPackageStartupMessages({
   library(jsonlite)
 })
 suppressMessages({
-  source(here('src', '00_build_timeseries.R'))   # build helpers + assemble_timeseries()
+  source(here('src', '00_build_timeseries.R'))   # build helpers + scheduled activations
   source(here('src', 'revisions.R'))
   source(here('src', 'policy_params.R'))
   source(here('src', '09_daily_series.R'))
-  source(here('src', '08_weighted_etr.R'))
   source(here('src', 'quality_report.R'))
   source(here('src', 'build_import_weights.R'))
 })
@@ -141,37 +140,43 @@ rev_dates <- build_scheduled_activations(
   census_codes = census_codes, archive_dir = here('data', 'hts_archives'),
   tpc_path = tpc_path)
 
-# ---- 3. Assemble timeseries ----
-result <- assemble_timeseries(output_dir, rev_dates, pp, scenario = 'baseline',
-                              last_successful_rev = last_rev,
-                              expected_revisions = expected_revs,
-                              allow_partial = allow_partial)
+# ---- 3. Downstream — every summary STREAMS from the per-revision snapshots ----
+# Both the daily series and the quality report read ONE snapshot at a time,
+# recomputing/using intervals exactly as assemble_timeseries did — so their
+# outputs are identical to the combined-panel path (daily is parity-gated;
+# quality verified by a one-off equivalence diff). Daily fans across
+# SLURM_CPUS_PER_TASK; quality currently streams serially.
+# Neither needs the 204M-row rate_timeseries.rds. (Weighted-ETR / 08 was removed —
+# the daily series already emits the import-weighted ETR columns it duplicated.)
+# Import weights load OUTSIDE tryCatch so a missing-weights failure aborts loudly.
+imports <- if (unweighted) NULL else { ensure_import_weights(); load_import_weights() }
+tryCatch(run_daily_series(snapshot_dir = output_dir, rev_dates = rev_dates,
+                          imports = imports, policy_params = pp),
+         error = function(e) message('Daily series failed: ', conditionMessage(e)))
+quality <- tryCatch(
+  run_quality_report(snapshot_dir = output_dir, rev_dates = rev_dates),
+  error = function(e) {
+    message('Quality report failed: ', conditionMessage(e))
+    NULL
+  })
 
-# ---- 4. Downstream (mirrors 00_build_timeseries.R main block) ----
-# Daily series reads the per-revision snapshots DIRECTLY (streaming, fanned across
-# SLURM_CPUS_PER_TASK), not the combined 204M-row rate_timeseries.rds — peak memory
-# ~1.2 GB/worker instead of ~48 GB, and parallel. Intervals are recomputed from
-# rev_dates inside the streaming path exactly as assemble_timeseries does, so the
-# daily outputs are identical (parity-gated). The combined panel is still assembled
-# above for the weighted ETR / quality report / publish, which haven't been moved
-# off it yet (tracked as the gather-monolith follow-up).
-if (unweighted) {
-  tryCatch(run_daily_series(snapshot_dir = output_dir, rev_dates = rev_dates,
-                            imports = NULL, policy_params = pp),
-           error = function(e) message('Daily series failed: ', conditionMessage(e)))
-  tryCatch(run_quality_report(result$timeseries_path),
-           error = function(e) message('Quality report failed: ', conditionMessage(e)))
-} else {
-  ensure_import_weights()
-  imports <- load_import_weights()
-  tryCatch(run_daily_series(snapshot_dir = output_dir, rev_dates = rev_dates,
-                            imports = imports, policy_params = pp),
-           error = function(e) message('Daily series failed: ', conditionMessage(e)))
-  ts <- readRDS(result$timeseries_path)   # weighted ETR + quality still read the combined panel
-  tryCatch(run_weighted_etr(ts, policy_params = pp),
-           error = function(e) message('Weighted ETR failed: ', conditionMessage(e)))
-  tryCatch(run_quality_report(ts = ts, timeseries_path = result$timeseries_path),
-           error = function(e) message('Quality report failed: ', conditionMessage(e)))
-}
-
-message('Gather complete: ', result$timeseries_path)
+# ---- 4. Metadata freshness marker ----
+# The combined 204M-row rate_timeseries.rds is no longer a core/publish output.
+# Publish reads the per-revision snapshots directly, but it still needs a small
+# metadata file as the "this build finalized" marker and for data-as-of info.
+present_revs <- rev_dates %>%
+  filter(file.exists(file.path(output_dir, paste0('snapshot_', revision, '.rds')))) %>%
+  arrange(effective_date) %>%
+  pull(revision)
+metadata <- list(
+  last_revision = last_rev,
+  last_build_time = Sys.time(),
+  n_revisions = length(present_revs),
+  n_rows = if (!is.null(quality$n_rows)) quality$n_rows else NA_integer_,
+  scenario = 'baseline',
+  expected_revisions = expected_revs,
+  skipped_revisions = setdiff(expected_revs, present_revs)
+)
+saveRDS(metadata, file.path(output_dir, 'metadata.rds'))
+message('Wrote metadata: ', file.path(output_dir, 'metadata.rds'))
+message('Gather complete (streaming; combined panel skipped).')

@@ -358,6 +358,107 @@ check_annex_classification <- function(ts, policy_params = NULL) {
 }
 
 
+#' Build the quality-report inputs by STREAMING the per-revision snapshots,
+#' without ever materializing the combined 204M-row panel.
+#'
+#' Mirrors build_daily_aggregates_streaming(): reads ONE snapshot at a time and
+#' enforce_rate_schema()'s it (assemble_timeseries does the same post-bind at
+#' 00_build_timeseries.R:339, filling rate-column NAs -> 0), then accumulates the
+#' exact intermediates run_quality_report() reports on. Returns the same objects
+#' the monolith path computes: {schema, rev_quality, annex_anomalies,
+#' non_china_301, n_rows, n_revisions}.
+#'
+#' Schema NA counts use UNION accounting -- a column absent from a snapshot
+#' contributes nrow(snap) NAs, exactly as bind_rows() would fill it -- so the
+#' streamed schema matches check_schema() on the bound monolith.
+#'
+#' @param snapshot_dir Directory of snapshot_<rev>.rds files
+#' @param rev_dates Revision-date table (orders snapshots by effective_date)
+#' @param pp Optional loaded policy params (for CTY_CHINA + annex date)
+build_quality_inputs_streaming <- function(snapshot_dir, rev_dates, pp = NULL) {
+  snaps <- list.files(snapshot_dir, pattern = '^snapshot_.*\\.rds$')
+  if (length(snaps) == 0) stop('No snapshots found in ', snapshot_dir)
+  rev_ids <- sub('^snapshot_(.*)\\.rds$', '\\1', snaps)
+  # Process in effective-date order so bound rows match the monolith's row order.
+  ordered <- rev_dates %>%
+    filter(revision %in% rev_ids) %>%
+    arrange(effective_date) %>%
+    pull(revision)
+  ordered <- c(ordered, setdiff(rev_ids, ordered))
+  cty_china <- if (!is.null(pp)) pp$CTY_CHINA %||% '5700' else '5700'
+
+  # Recompute the authoritative intervals from rev_dates exactly as
+  # assemble_timeseries / the daily streaming path do, and stamp them onto each
+  # snapshot. Raw snapshots carry NA valid_from/valid_until (intervals are an
+  # assemble-time product), so without this the schema check would report those
+  # two columns as 100% NA, diverging from the monolith's populated values.
+  horizon_end <- as.Date(pp$SERIES_HORIZON_END %||% Sys.Date())
+  rev_intervals <- rev_dates %>%
+    filter(revision %in% ordered) %>%
+    arrange(effective_date) %>%
+    mutate(valid_from  = effective_date,
+           valid_until = lead(effective_date) - 1,
+           valid_until = if_else(is.na(valid_until), horizon_end, valid_until)) %>%
+    select(revision, valid_from, valid_until)
+
+  n <- length(ordered)
+  rq <- vector('list', n); annex <- vector('list', n); nonchina <- vector('list', n)
+  na_by_snap <- vector('list', n); nrow_by_snap <- integer(n)
+
+  for (i in seq_len(n)) {
+    snap <- enforce_rate_schema(
+      readRDS(file.path(snapshot_dir, paste0('snapshot_', ordered[i], '.rds'))))
+    iv <- rev_intervals[match(ordered[i], rev_intervals$revision), ]
+    snap$valid_from  <- iv$valid_from
+    snap$valid_until <- iv$valid_until
+    nrow_by_snap[i] <- nrow(snap)
+    na_by_snap[[i]] <- vapply(names(snap), function(col) sum(is.na(snap[[col]])), numeric(1))
+    rq[[i]]    <- compute_revision_quality(snap)
+    annex[[i]] <- check_annex_classification(snap, pp)
+    if (all(c('rate_301', 'country') %in% names(snap))) {
+      nc <- snap %>% filter(country != cty_china & rate_301 > 0)
+      if (nrow(nc) > 0) nonchina[[i]] <- nc
+    }
+  }
+
+  total_rows <- sum(nrow_by_snap)
+  all_cols <- unique(unlist(lapply(na_by_snap, names)))
+  n_na <- setNames(numeric(length(all_cols)), all_cols)
+  for (i in seq_len(n)) {
+    present <- names(na_by_snap[[i]])
+    n_na[present] <- n_na[present] + na_by_snap[[i]][present]
+    absent <- setdiff(all_cols, present)
+    if (length(absent)) n_na[absent] <- n_na[absent] + nrow_by_snap[i]
+  }
+
+  # Reconstruct the check_schema() tibble from the accumulated counts.
+  expected <- RATE_SCHEMA
+  schema_expected <- tibble(
+    column  = expected,
+    present = expected %in% all_cols,
+    n_na    = vapply(expected, function(c) if (c %in% all_cols) as.integer(n_na[[c]]) else NA_integer_, integer(1)),
+    n_rows  = total_rows
+  ) %>% mutate(pct_na = round(n_na / n_rows * 100, 2), status = 'expected')
+  extra_cols <- setdiff(all_cols, expected)
+  schema <- if (length(extra_cols)) {
+    bind_rows(schema_expected, tibble(
+      column  = extra_cols, present = TRUE,
+      n_na    = vapply(extra_cols, function(c) as.integer(n_na[[c]]), integer(1)),
+      n_rows  = total_rows
+    ) %>% mutate(pct_na = round(n_na / n_rows * 100, 2), status = 'extra'))
+  } else schema_expected
+
+  list(
+    schema          = schema,
+    rev_quality     = bind_rows(rq) %>% arrange(effective_date),
+    annex_anomalies = bind_rows(annex),
+    non_china_301   = bind_rows(nonchina),
+    n_rows          = total_rows,
+    n_revisions     = n
+  )
+}
+
+
 #' Run full quality report
 #'
 #' @param ts Optional in-memory timeseries tibble. If supplied, skips the
@@ -369,7 +470,9 @@ check_annex_classification <- function(ts, policy_params = NULL) {
 run_quality_report <- function(
   ts = NULL,
   timeseries_path = here('data', 'timeseries', 'rate_timeseries.rds'),
-  output_dir = actual_quality_dir()
+  output_dir = actual_quality_dir(),
+  snapshot_dir = NULL,
+  rev_dates = NULL
 ) {
   message('\n', strrep('=', 70))
   message('QUALITY REPORT')
@@ -377,19 +480,41 @@ run_quality_report <- function(
 
   if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
-  if (is.null(ts)) {
-    if (!file.exists(timeseries_path)) {
-      stop('Time series file not found: ', timeseries_path)
-    }
-    ts <- readRDS(timeseries_path)
-  }
   pp <- tryCatch(load_policy_params(), error = function(e) NULL)
-  message('Loaded time series: ', nrow(ts), ' rows, ',
-          n_distinct(ts$revision), ' revisions')
+
+  # Inputs come either from the combined panel (ts / timeseries_path) or — the
+  # preferred path — by STREAMING the per-revision snapshots (no 204M-row panel).
+  # Both produce the same {schema, rev_quality, annex_anomalies, non_china_301}.
+  if (!is.null(snapshot_dir)) {
+    if (is.null(rev_dates)) rev_dates <- load_revision_dates()
+    inputs <- build_quality_inputs_streaming(snapshot_dir, rev_dates, pp)
+    message('Loaded ', inputs$n_revisions, ' revision snapshots (streaming; no combined panel), ',
+            inputs$n_rows, ' rows total')
+  } else {
+    if (is.null(ts)) {
+      if (!file.exists(timeseries_path)) {
+        stop('Time series file not found: ', timeseries_path)
+      }
+      ts <- readRDS(timeseries_path)
+    }
+    message('Loaded time series: ', nrow(ts), ' rows, ',
+            n_distinct(ts$revision), ' revisions')
+    cty_china <- if (!is.null(pp)) pp$CTY_CHINA %||% '5700' else '5700'
+    inputs <- list(
+      schema          = check_schema(ts),
+      rev_quality     = compute_revision_quality(ts),
+      annex_anomalies = check_annex_classification(ts, pp),
+      non_china_301   = if (all(c('rate_301', 'country') %in% names(ts))) {
+                          ts %>% filter(country != cty_china & rate_301 > 0)
+                        } else tibble(),
+      n_rows          = nrow(ts),
+      n_revisions     = n_distinct(ts$revision)
+    )
+  }
 
   # 1. Schema check
   message('\n--- Schema Check ---')
-  schema <- check_schema(ts)
+  schema <- inputs$schema
   missing_cols <- schema %>% filter(!present)
   if (nrow(missing_cols) > 0) {
     message('WARNING: Missing columns: ', paste(missing_cols$column, collapse = ', '))
@@ -411,7 +536,7 @@ run_quality_report <- function(
 
   # 2. Revision quality
   message('\n--- Revision Quality ---')
-  rev_quality <- compute_revision_quality(ts)
+  rev_quality <- inputs$rev_quality
   message('Revisions: ', nrow(rev_quality))
   message('Date range: ', min(rev_quality$effective_date), ' to ', max(rev_quality$effective_date))
   message('Product range: ', min(rev_quality$n_products), ' - ', max(rev_quality$n_products))
@@ -449,7 +574,7 @@ run_quality_report <- function(
 
   # 4b. Post-annex classification integrity
   message('\n--- Section 232 Annex Check ---')
-  annex_anomalies <- check_annex_classification(ts, pp)
+  annex_anomalies <- inputs$annex_anomalies
   if (nrow(annex_anomalies) == 0) {
     message('All annex-era revisions have populated s232_annex values.')
   } else {
@@ -493,10 +618,8 @@ run_quality_report <- function(
 
   # 6. Non-China Section 301 check
   message('\n--- Section 301 Scope Check ---')
-  non_china_301 <- tibble()
-  if ('rate_301' %in% names(ts) && 'country' %in% names(ts)) {
-    cty_china <- if (!is.null(pp)) pp$CTY_CHINA %||% '5700' else '5700'
-    non_china_301 <- ts %>% filter(country != cty_china & rate_301 > 0)
+  non_china_301 <- inputs$non_china_301
+  {
     if (nrow(non_china_301) > 0) {
       message('WARNING: ', nrow(non_china_301),
               ' non-China rows with rate_301 > 0 (stacking excludes 301 for non-China):')
@@ -517,9 +640,9 @@ run_quality_report <- function(
   # 7. Summary metadata
   report <- list(
     run_time = Sys.time(),
-    timeseries_path = timeseries_path,
-    n_rows = nrow(ts),
-    n_revisions = n_distinct(ts$revision),
+    timeseries_path = if (!is.null(snapshot_dir)) snapshot_dir else timeseries_path,
+    n_rows = inputs$n_rows,
+    n_revisions = inputs$n_revisions,
     n_missing_columns = sum(!schema$present),
     n_anomalies = nrow(anomalies),
     n_unknown_country = nrow(unknown_country_rows),

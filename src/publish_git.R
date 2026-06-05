@@ -13,7 +13,6 @@
 #     README.md                                       # tracked, hand-written
 #     MANIFEST.json                                   # overwritten each run
 #     data/
-#       rate_timeseries_2026-05-21.parquet            # parquet for big files
 #       daily_overall_2026-05-21.csv                  # csv for small files
 #       daily_by_country_2026-05-21.csv
 #       daily_by_authority_2026-05-21.csv
@@ -23,9 +22,9 @@
 # deletes the prior data/* before writing the new set. Historical publications
 # are recoverable via `git log -- release/`.
 #
-# CSV vs parquet: explicit per-output (see RELEASE_OUTPUTS below). The rate
-# panel is parquet-only because the CSV form is ~hundreds of MB; daily
-# aggregates are CSV-only because they're tiny (~100 KB) and grep-friendly.
+# CSV vs parquet: explicit per-output (see RELEASE_OUTPUTS below). The public
+# git release currently publishes the daily aggregate views; the full rate panel
+# is published by publish_internal as per-interval snapshot parquets.
 #
 # Usage (programmatic):
 #
@@ -49,7 +48,6 @@ RELEASE_DIR_DEFAULT <- here('release')
 #   src    — path relative to repo_root
 #   format — 'parquet' or 'csv'; the format the released file is written in
 RELEASE_OUTPUTS <- list(
-  list(name = 'rate_timeseries',     src = 'data/timeseries/rate_timeseries.rds',  format = 'parquet'),
   list(name = 'daily_overall',       src = 'output/actual/daily/daily_overall.csv',       format = 'csv'),
   list(name = 'daily_by_country',    src = 'output/actual/daily/daily_by_country.csv',    format = 'csv'),
   list(name = 'daily_by_authority',  src = 'output/actual/daily/daily_by_authority.csv',  format = 'csv'),
@@ -63,7 +61,7 @@ RELEASE_OUTPUTS <- list(
 #' @param repo_root Repo root from which outputs are read.
 #' @param publication_date Date object used in filenames. Defaults to today.
 #' @param build_flags Named list of CLI flags actually used (recorded in manifest).
-#' @param build_started_at POSIXct; staleness guard rejects panels older than this.
+#' @param build_started_at POSIXct; staleness guard skips outputs older than this.
 #'   Pass NULL to skip the guard (for standalone runs operating on existing outputs).
 #' @param dry_run If TRUE, plan only — log the write list and manifest without
 #'   touching disk.
@@ -76,26 +74,14 @@ publish_git <- function(release_dir = RELEASE_DIR_DEFAULT,
                         build_started_at = Sys.time(),
                         dry_run = FALSE) {
 
-  if (!requireNamespace('arrow', quietly = TRUE)) {
+  needs_arrow <- any(vapply(RELEASE_OUTPUTS, function(x) identical(x$format, 'parquet'), logical(1)))
+  if (needs_arrow && !requireNamespace('arrow', quietly = TRUE)) {
     stop('publish_git requires the arrow package (parquet conversion). ',
          'Install with: Rscript src/install_dependencies.R --all')
   }
   if (!requireNamespace('digest', quietly = TRUE)) {
     stop('publish_git requires the digest package (manifest sha256). ',
          'Install with: Rscript src/install_dependencies.R --all')
-  }
-
-  ts_rds <- file.path(repo_root, 'data', 'timeseries', 'rate_timeseries.rds')
-  if (!file.exists(ts_rds)) {
-    stop('Cannot publish: rate_timeseries.rds not found at ', ts_rds,
-         '. Run the build first.')
-  }
-  # Staleness guard — see publish_internal for the rationale.
-  if (!is.null(build_started_at) &&
-      file.info(ts_rds)$mtime < build_started_at) {
-    stop('Cannot publish: rate_timeseries.rds (mtime ', file.info(ts_rds)$mtime,
-         ') is older than the current build start (', build_started_at, '). ',
-         'The current build did not produce this file — refusing to publish a stale panel.')
   }
 
   date_str <- format(publication_date, '%Y-%m-%d')

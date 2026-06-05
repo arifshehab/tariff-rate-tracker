@@ -244,11 +244,9 @@ PARITY_ARTIFACTS <- list(
   daily_by_authority = list(glob = 'daily_by_authority*.csv', key_cols = c('date')),
   daily_by_country   = list(glob = 'daily_by_country*.csv',   key_cols = c('date', 'country')),
   daily_by_category  = list(glob = 'daily_by_category*.csv',  key_cols = c('date', 'gtap_code'))
-  # NOTE: weighted-ETR outputs (08_weighted_etr.R) are intentionally NOT gated here.
-  # That module is a vestigial second engine — it ignores the rate panel and
-  # re-derives rates from raw CSVs, and nothing downstream consumes its output
-  # (tariff-model + tariff-etrs each compute their own ETR). The harness gates the
-  # consumed artifacts: the rate panel (snapshot/timeseries) + the daily series.
+  # NOTE: the removed legacy weighted-ETR/TPC-overlay engine is intentionally not
+  # gated here. The harness gates the consumed artifacts: the rate panel
+  # (snapshot/timeseries) + the daily series.
 )
 
 #' Read a parity artifact (.rds or .csv) into a tibble.

@@ -4,13 +4,13 @@
 #
 # Main orchestrator: iteratively processes HTS revisions to build a time series
 # of tariff rates. Supports full backfill, incremental updates, and auto-update.
-# After building, runs downstream scripts (daily series, ETR, quality report).
+# After building, runs downstream scripts (daily series and quality report).
 #
 # Usage:
 #   Rscript src/00_build_timeseries.R              # Auto-update (default)
 #   Rscript src/00_build_timeseries.R --full        # Full rebuild from scratch
 #   Rscript src/00_build_timeseries.R --start-from rev_25  # Explicit incremental
-#   Rscript src/00_build_timeseries.R --build-only  # Skip downstream (daily/ETR/quality)
+#   Rscript src/00_build_timeseries.R --build-only  # Skip downstream (daily/quality)
 #   Rscript src/00_build_timeseries.R --core-only  # Build + downstream, but skip weighted outputs
 #   Rscript src/00_build_timeseries.R --unweighted  # Opt out of weighted outputs for this run
 #                                                   # (alternative to setting weight_mode in config/local_paths.yaml)
@@ -608,11 +608,10 @@ build_full_timeseries <- function(
 
       snapshot_paths <- c(snapshot_paths, res$snapshot_path)
 
-      # Flat CSV consumed by run_weighted_etr (08_weighted_etr.R) and the
-      # tariff-rate-tracker-blog repo. Loop iterates oldest -> newest, so the
-      # last write lands on the latest processed revision (correct for both
-      # --full and incremental modes). ch99_refs is a list-column; flatten
-      # to ';'-joined string to match 08_weighted_etr.R's str_split(., ';').
+      # Flat CSV consumed by the tariff-rate-tracker-blog repo. Loop iterates
+      # oldest -> newest, so the last write lands on the latest processed
+      # revision (correct for both --full and incremental modes). ch99_refs is
+      # a list-column; flatten to a ';'-joined string for CSV consumers.
       dir.create('data/processed', recursive = TRUE, showWarnings = FALSE)
       products %>%
         mutate(ch99_refs = vapply(ch99_refs, paste,
@@ -836,8 +835,8 @@ if (sys.nframe() == 0) {
   # branches re-log via log_parallel_config() once init_logging() has run.
   log_parallel_config(parallel_cfg)
 
-  # Capture overall build start so both publish modes can detect a stale
-  # rate_timeseries.rds (i.e. one written by an earlier run) and refuse to ship it.
+  # Capture overall build start so publish modes can detect stale outputs from
+  # an earlier run and refuse to ship them.
   build_started_at <- Sys.time()
   build_flags <- list(
     full = full_rebuild,
@@ -1009,7 +1008,6 @@ if (sys.nframe() == 0) {
   # --- Step E: Downstream (unless --build-only) ---
   if (!build_only && !is.null(result)) {
     source(here('src', '09_daily_series.R'))
-    source(here('src', '08_weighted_etr.R'))
     source(here('src', 'quality_report.R'))
 
     ts <- readRDS(result$timeseries_path)
@@ -1039,7 +1037,7 @@ if (sys.nframe() == 0) {
       )
     } else {
       message('\n', strrep('=', 70))
-      message('POST-BUILD: Daily series, ETR, quality report')
+      message('POST-BUILD: Daily series and quality report')
       message(strrep('=', 70))
 
       # Load weights OUTSIDE tryCatch so a missing-weights failure aborts the
@@ -1050,11 +1048,6 @@ if (sys.nframe() == 0) {
       tryCatch(
         run_daily_series(ts, imports = imports, policy_params = pp),
         error = function(e) message('Daily series failed: ', conditionMessage(e))
-      )
-
-      tryCatch(
-        run_weighted_etr(ts, policy_params = pp),
-        error = function(e) message('Weighted ETR failed: ', conditionMessage(e))
       )
 
       tryCatch(

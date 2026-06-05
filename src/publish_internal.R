@@ -13,9 +13,10 @@
 #   Tariff-Rate-Tracker/
 #     2026-05-08/
 #       actual/
-#         timeseries/
-#           rate_timeseries.rds
-#           rate_timeseries.parquet
+#         snapshots/
+#           valid_from=2025-01-01/rates.parquet
+#           valid_from=2025-01-27/rates.parquet
+#           ...
 #           metadata.rds
 #         daily/         <- output/actual/daily/*.csv
 #         quality/       <- output/actual/quality/*
@@ -25,10 +26,9 @@
 #         <name>/        <- output/scenarios/<name>/*   (per named what-if)
 #       manifest.json
 #
-# The rate panel lives under actual/timeseries/ so the downstream reader
-# (tariff-model src/read_rate_panel.R) finds current-law at
-# <vintage>/actual/timeseries/ and each what-if at
-# <vintage>/scenarios/<name>/timeseries/.
+# The rate panel lives under actual/snapshots/ as per-interval parquet
+# partitions. tariff-model reads the snapshot layout directly; the former
+# single rate_timeseries.rds/parquet monolith is no longer published.
 #     2026-05-09/
 #       ...
 #     latest -> 2026-05-09
@@ -96,19 +96,22 @@ publish_internal <- function(shared_root = SHARED_ROOT_DEFAULT,
          'Install with: Rscript src/install_dependencies.R --all')
   }
 
-  ts_rds <- file.path(repo_root, 'data', 'timeseries', 'rate_timeseries.rds')
-  if (!file.exists(ts_rds)) {
-    stop('Cannot publish: rate_timeseries.rds not found at ', ts_rds,
-         '. Run the build first.')
-  }
-  # Staleness guard: when called from a build run, refuse to publish a panel
-  # produced by an earlier build. Skipped when build_started_at is NULL
-  # (standalone `Rscript src/publish_internal.R` operates on whatever is on disk).
-  if (!is.null(build_started_at) &&
-      file.info(ts_rds)$mtime < build_started_at) {
-    stop('Cannot publish: rate_timeseries.rds (mtime ', file.info(ts_rds)$mtime,
-         ') is older than the current build start (', build_started_at, '). ',
-         'The current build did not produce this file — refusing to publish a stale panel.')
+  metadata_path <- file.path(repo_root, 'data', 'timeseries', 'metadata.rds')
+  # Staleness guard: when called from a build run, refuse to publish a snapshot
+  # panel that was not finalized by this build. Individual snapshots may be
+  # older on legitimate incremental builds, so metadata.rds is the freshness
+  # marker. Skipped for standalone publish and alternatives-only publishes.
+  if (!is.null(build_started_at) && !isTRUE(build_flags$alternatives_only)) {
+    if (!file.exists(metadata_path)) {
+      stop('Cannot publish: metadata.rds not found at ', metadata_path,
+           '. Run the build/gather first.')
+    }
+    meta_mtime <- file.info(metadata_path)$mtime
+    if (!is.na(meta_mtime) && meta_mtime < build_started_at) {
+      stop('Cannot publish: metadata.rds (mtime ', meta_mtime,
+           ') is older than the current build start (', build_started_at, '). ',
+           'The current build did not finalize the snapshot panel — refusing to publish stale snapshots.')
+    }
   }
 
   if (!dir.exists(shared_root)) {

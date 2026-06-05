@@ -15,8 +15,8 @@ The repo is designed to run in progressively richer modes depending on what loca
 
 | Mode | Requires | Produces |
 |---|---|---|
-| `core_plus_weights` (default) | core + import weights at `data/weights/hs10_by_country_gtap_<year>_con.rds` (or path set in `config/local_paths.yaml`) | core outputs + weighted daily fields + weighted ETR outputs |
-| `core` (opt-in via `--unweighted` or `weight_mode: unweighted`) | repo resources, config files, HTS JSON archives, required R packages | tariff timeseries, unweighted daily outputs, quality report |
+| `core_plus_weights` (default) | core + import weights at `data/weights/hs10_by_country_gtap_<year>_con.rds` (or path set in `config/local_paths.yaml`) | per-revision rate snapshots + weighted daily fields + quality report |
+| `core` (opt-in via `--unweighted` or `weight_mode: unweighted`) | repo resources, config files, HTS JSON archives, required R packages | per-revision rate snapshots, unweighted daily outputs, quality report |
 | `compare_tpc` | core + TPC benchmark CSV | comparison outputs against TPC |
 | `compare_etrs` | core + Tariff-ETRs repo path | standalone script (`src/compare_etrs.R`); wrapper in `run_comparisons.R` not yet complete |
 | `generate_etrs_config` | core (built timeseries) | ETRs-compatible config: `statutory_rates.csv.gz` + `other_params.yaml` per revision date |
@@ -177,12 +177,12 @@ Pass `--with-artifacts` to include the heavier artifact-dependent integration ch
 
 ## What runs without what
 
-| Scenario | Build runs? | Timeseries | Daily aggregates | Weighted ETR | By-category aggregates | TPC comparison |
-|---|---|---|---|---|---|---|
-| No weights, default `weight_mode: required` | Yes — pre-run auto-builds weights (~15-20 min one-time) | Yes | weighted | Yes | weighted | No |
-| No weights, `--unweighted` (or `weight_mode: unweighted`) | Yes | Yes | unweighted only | No | unweighted only | No |
-| Weights + no TPC (default) | Yes | Yes | weighted | Yes | weighted | No |
-| Weights + TPC | Yes | Yes | weighted | Yes | weighted | Yes |
+| Scenario | Build runs? | Rate snapshots | Daily aggregates | By-category aggregates | TPC comparison |
+|---|---|---|---|---|---|
+| No weights, default `weight_mode: required` | Yes — pre-run auto-builds weights (~15-20 min one-time) | Yes | weighted | weighted | No |
+| No weights, `--unweighted` (or `weight_mode: unweighted`) | Yes | Yes | unweighted only | unweighted only | No |
+| Weights + no TPC (default) | Yes | Yes | weighted | weighted | No |
+| Weights + TPC | Yes | Yes | weighted | weighted | Yes |
 
 ## Expected outputs
 
@@ -190,20 +190,19 @@ Pass `--with-artifacts` to include the heavier artifact-dependent integration ch
 
 | Path | Description |
 |---|---|
-| `data/timeseries/rate_timeseries.rds` | interval-encoded product-country tariff panel |
-| `data/timeseries/snapshot_*.rds` | per-revision rate snapshots |
+| `data/timeseries/snapshot_*.rds` | per-revision product-country rate snapshots; canonical build panel |
+| `data/timeseries/metadata.rds` | finalized-build marker and data-as-of metadata |
 | `data/timeseries/delta_*.rds` | revision-to-revision diffs |
-| `output/daily/daily_overall.csv` | daily aggregate mean and weighted ETR series |
-| `output/daily/daily_by_country.csv` | daily country-level aggregate rates |
-| `output/daily/daily_by_authority.csv` | daily authority decomposition |
-| `output/daily/daily_by_category.csv` | daily by-GTAP-sector aggregate rates (only when import weights available) |
-| `output/quality/` | build diagnostics and quality checks |
+| `output/actual/daily/daily_overall.csv` | daily aggregate mean and weighted ETR series |
+| `output/actual/daily/daily_by_country.csv` | daily country-level aggregate rates |
+| `output/actual/daily/daily_by_authority.csv` | daily authority decomposition |
+| `output/actual/daily/daily_by_category.csv` | daily by-GTAP-sector aggregate rates (only when import weights available) |
+| `output/actual/quality/` | build diagnostics and quality checks |
 
 ### Optional outputs
 
 | Path | Description |
 |---|---|
-| `output/etr/` | weighted ETR tables and plots |
 | `output/comparisons/` | benchmark comparison artifacts |
 | `output/alternative/` | rebuild-alternative variants (USMCA-share pp_override rebuilds) — one file per variant × output type (`daily_overall_<variant>.csv`, `by_authority_<variant>.csv`, `by_country_<variant>.csv`, `by_category_<variant>.csv`). AuthoritySpec scenarios: see [docs/scenarios.md](scenarios.md). |
 | `output/etrs_config/{date}/` | ETRs-compatible config directories (from `generate_etrs_config.R`) |
@@ -260,10 +259,12 @@ toggleable. Pick whichever fits the audience; they can also run together.
 | Internal | `--publish-internal` | Shared NFS tree (`/nfs/.../shared/model_data/Tariff-Rate-Tracker/<vintage>/`) | Other Budget Lab models on the same NFS share | Immutable dated vintages, all preserved on disk |
 | Git | `--publish-git` | `release/` in the repo | Public consumers reading via GitHub | Only latest on disk; history via `git log -- release/` |
 
-Both modes share the same staleness guard: they refuse to ship a
-`rate_timeseries.rds` whose mtime is older than the build start, so they
-can't accidentally mirror a panel from an earlier run. Both require the
-`arrow` and `digest` packages (optional set; `Rscript src/install_dependencies.R --all` covers them). A failed publish logs a warning but does not fail the build.
+Both modes share the same staleness principle: they refuse to ship outputs that
+predate the current build. Internal publish uses fresh `metadata.rds` as the
+snapshot-panel finalization marker; git publish skips stale daily CSVs. Internal
+publish requires `arrow` and `digest`; git publish requires `digest` and only
+needs `arrow` if a parquet output is reintroduced. A failed publish logs a
+warning but does not fail the build.
 
 ---
 
@@ -291,15 +292,17 @@ Rscript src/publish_internal.R --dry-run    # plan only, no writes
 ```
 Tariff-Rate-Tracker/
   2026-05-08/
-    timeseries/
-      rate_timeseries.rds        # R-native panel
-      rate_timeseries.parquet    # cross-language equivalent
-      metadata.rds
-    daily/                       # output/daily/*.csv
-    quality/                     # output/quality/*
-    etr/                         # output/etr/*.csv          (if built)
-    etrs_config/                 # output/etrs_config/*      (if built)
-    alternative/                 # output/alternative/*      (if --with-alternatives or --alternatives-only)
+    actual/
+      snapshots/
+        valid_from=2025-01-01/rates.parquet
+        valid_from=2025-01-27/rates.parquet
+        ...
+        metadata.rds
+      daily/                     # output/actual/daily/*.csv
+      quality/                   # output/actual/quality/*
+      etrs_config/               # output/actual/etrs_config/*      (if built)
+    scenarios/
+      <name>/                    # output/scenarios/<name>/*        (if built)
     manifest.json
   2026-05-09/
     ...
@@ -317,9 +320,9 @@ Tariff-Rate-Tracker/
 
 The shared tree is for downstream consumers, so only canonical products are mirrored — not intermediates:
 
-- ✅ `data/timeseries/rate_timeseries.rds` + `.parquet`, `metadata.rds`
-- ✅ `output/daily/`, `output/quality/`, `output/etr/`, `output/etrs_config/`, `output/alternative/`
-- ❌ `data/timeseries/snapshot_*.rds`, `delta_*.rds`, `ch99_*.rds`, `products_*.rds` (intermediates)
+- ✅ `data/timeseries/snapshot_*.rds` → `actual/snapshots/valid_from=*/rates.parquet`, plus `metadata.rds`
+- ✅ `output/actual/daily/`, `output/actual/quality/`, `output/actual/etrs_config/`, `output/scenarios/`
+- ❌ `data/timeseries/delta_*.rds`, `ch99_*.rds`, `products_*.rds` (intermediates)
 - ❌ `data/processed/`, `data/hts_archives/` (intermediates / re-downloadable raw inputs)
 - ❌ `output/comparisons/` (validation, not a product)
 
@@ -357,7 +360,6 @@ release/
   README.md                                    # tracked, hand-written
   MANIFEST.json                                # overwritten each run
   data/
-    rate_timeseries_2026-05-21.parquet         # parquet for the big panel
     daily_overall_2026-05-21.csv               # csv for small daily aggregates
     daily_by_country_2026-05-21.csv
     daily_by_authority_2026-05-21.csv
@@ -368,11 +370,12 @@ release/
 
 A deliberately narrow, public-facing subset — defined explicitly in `RELEASE_OUTPUTS` at the top of `src/publish_git.R`:
 
-- ✅ `data/timeseries/rate_timeseries.rds` → `rate_timeseries_<date>.parquet`
-- ✅ `output/daily/daily_overall.csv`, `daily_by_country.csv`, `daily_by_authority.csv`, `daily_by_category.csv` → `<name>_<date>.csv`
-- ❌ Quality, ETR, ETRs config, alternatives — internal tree only for now
+- ✅ `output/actual/daily/daily_overall.csv`, `daily_by_country.csv`, `daily_by_authority.csv`, `daily_by_category.csv` → `<name>_<date>.csv`
+- ❌ Full rate panel, quality, ETRs config, alternatives — internal tree only for now
 
-CSV vs parquet is decided per output: parquet for the rate panel (CSV would be hundreds of MB), CSV for the small daily aggregates (grep-friendly, diff-readable).
+CSV vs parquet is decided per output. The current git release uses CSV for the
+small daily aggregates (grep-friendly, diff-readable); the full rate panel is
+published only through the internal per-interval snapshot layout.
 
 #### Manifest (git)
 

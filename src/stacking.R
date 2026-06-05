@@ -233,7 +233,7 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
 
 
 # =============================================================================
-# Net Authority Decomposition (used by 08_weighted_etr, 09_daily_series)
+# Net Authority Decomposition (used by 09_daily_series)
 # =============================================================================
 
 #' Compute net authority contributions from snapshot rate columns
@@ -285,4 +285,3 @@ compute_net_authority_contributions <- function(df, cty_china = '5700',
 
   df %>% select(-all_of(contrib_cols), -nonmetal_share)
 }
-

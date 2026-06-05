@@ -254,6 +254,18 @@ This plan consolidates and supersedes the scattered phase docs (`parallel_full_p
 
 ## Progress log
 
+- **2026-06-05 — Gather monolith removed from the check/publish path.** Follow-up
+  to the Plank-3 parity bottleneck: daily series already had a per-snapshot
+  streaming path, and the quality report was rewritten to stream the same
+  `snapshot_*.rds` files instead of loading the combined `rate_timeseries.rds`.
+  The deleted legacy `08_weighted_etr.R` path was the last old ETR duplicate; the
+  live daily aggregates remain import-weighted. `build_gather.R` now streams
+  daily + quality, writes fresh `metadata.rds`, and never assembles the 204M-row
+  monolith. `publish_internal.R` publishes per-interval snapshot parquets directly
+  (`valid_from=*/rates.parquet`), and `publish_git.R` publishes only daily CSVs.
+  Gates: tier-2 gather `13800246` (6:34) + parity `13800247` GREEN 47/47;
+  quality equivalence `13800647` proved `STREAMING == MONOLITH`; final no-monolith
+  gather `13801477` completed in 6:11 (parity `13801478` submitted).
 - **2026-06-05 — Plank 3 landed (parity GREEN).** Section 122 de-blobbed: the blanket rate
   migrated from the `rate$resolved` blob into the structured `rate$default` layer
   (`rate_type='surcharge'`); calc reads it via `resolve_rate(...)$value`, gating on `value>0`

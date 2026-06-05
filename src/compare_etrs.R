@@ -24,7 +24,7 @@ cat('Tariff-ETRs data loaded:', nrow(etrs), 'rows\n')
 cat('Dates:', paste(unique(etrs$date), collapse = ', '), '\n')
 
 # ---- Load our imports for weighting ----
-# Uses same Census import data as 08_weighted_etr.R (from Tariff-ETRs cache)
+# Uses the same Census import data vintage as the daily weighted series.
 imports_raw <- readRDS(file.path(etrs_repo, 'cache', 'hs10_by_country_gtap_2024_con.rds'))
 imports <- imports_raw %>%
   group_by(hs10, cty_code) %>%

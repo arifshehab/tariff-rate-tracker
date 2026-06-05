@@ -97,21 +97,26 @@ pair_and_compare <- function(kind, gfiles, cfiles, ts) {
   only_g <- setdiff(gnames, cnames); only_c <- setdiff(cnames, gnames)
   for (f in only_g) cat(sprintf('  [%s] MISSING from candidate: %s\n', kind, f))
   for (f in only_c) cat(sprintf('  [%s] EXTRA in candidate:    %s\n', kind, f))
-  out <- list()
-  for (f in shared) {
+  compared <- lapply(shared, function(f) {
     res <- tryCatch(
       compare_parity_files(cfiles[[f]], gfiles[[f]], kind, label = paste0(kind, ':', f)),
       error = function(e) list(label = paste0(kind, ':', f), pass = FALSE,
                                n_violations = NA, n_rows_common = NA,
                                violations = NULL, error = conditionMessage(e)))
-    out[[f]] <- res
-    if (isTRUE(res$pass)) {
-      cat(sprintf('  [OK]   %-28s %d rows\n', res$label, res$n_rows_common))
+    line <- if (isTRUE(res$pass)) {
+      sprintf('  [OK]   %-28s %d rows\n', res$label, res$n_rows_common)
     } else if (!is.null(res$error)) {
-      cat(sprintf('  [ERR]  %-28s %s\n', res$label, res$error))
+      sprintf('  [ERR]  %-28s %s\n', res$label, res$error)
     } else {
-      cat(sprintf('  [FAIL] %-28s %d violation(s)\n', res$label, res$n_violations))
+      sprintf('  [FAIL] %-28s %d violation(s)\n', res$label, res$n_violations)
     }
+    list(file = f, result = res, line = line)
+  })
+
+  out <- list()
+  for (x in compared) {
+    cat(x$line)
+    out[[x$file]] <- x$result
   }
   # Record a synthetic failure for unmatched files too.
   if (length(only_g) || length(only_c)) {

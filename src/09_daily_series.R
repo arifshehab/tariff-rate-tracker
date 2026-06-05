@@ -7,7 +7,7 @@
 # by 00_build_timeseries.R -- rates only change at revision boundaries, so
 # we compute one aggregate per revision and broadcast across calendar days.
 #
-# Note: get_rates_at_date() is defined in helpers.R (shared with 08_weighted_etr.R).
+# Note: get_rates_at_date() is defined in helpers.R.
 #
 # Core functions:
 #   build_daily_aggregates(ts, date_range, imports, policy_params) - daily ETRs

@@ -6,7 +6,7 @@ This document maps the pipeline, the module structure, and the data flow for con
 
 ```
 src/
-  00_build_timeseries.R      Orchestrator: loops over HTS revisions, builds interval-encoded panel
+  00_build_timeseries.R      Orchestrator: loops over HTS revisions, writes per-revision snapshots
   01_scrape_revision_dates.R Discovers new HTS revisions from USITC API
   02_download_hts.R          Downloads HTS JSON archives to data/hts_archives/
   03_parse_chapter99.R       Extracts Chapter 99 entries (tariff programs) from JSON
@@ -14,8 +14,7 @@ src/
   05_parse_policy_params.R   Extracts IEEPA/fentanyl/232/122/USMCA rates from JSON
   06_calculate_rates.R       Core: 17-step rate calculation per revision
   07_validate_tpc.R          Optional TPC benchmark comparison
-  08_weighted_etr.R          Weighted ETR outputs (requires import weights)
-  09_daily_series.R          Daily aggregates from interval-encoded panel
+  09_daily_series.R          Daily aggregates from snapshots / interval-encoded panels
 
   policy_params.R            YAML config loader: load_policy_params(), get_country_constants()
   revisions.R                Revision lifecycle: dates, JSON paths, release names
@@ -47,15 +46,15 @@ HTS JSON archives
   05_parse_policy_params --> ieepa_rates, fentanyl_rates, s232_rates, usmca
        |
        v
-  06_calculate_rates  -->  rates (HTS10 x country, all authority columns)
+  06_calculate_rates  -->  snapshot_<revision>.rds (HTS10 x country, all authority columns)
        |                   Steps: IEEPA reciprocal -> fentanyl -> 232 base ->
        |                   232 derivatives -> 232 annex -> 301 -> 122 ->
        |                   MFN exemption -> USMCA -> stacking -> schema
-       v
-  rate_timeseries.rds (interval-encoded: valid_from / valid_until)
-       |
-       +--> 09_daily_series  -->  daily aggregates (overall, by country, by authority)
-       +--> 08_weighted_etr  -->  weighted ETR outputs (with import weights)
+      |
+      +--> 09_daily_series   -->  daily aggregates (overall, by country, by authority)
+      +--> quality_report    -->  schema/revision/anomaly diagnostics
+      +--> publish_internal  -->  per-interval snapshot parquets
+                               (valid_from=*/rates.parquet)
 ```
 
 ## Module dependencies

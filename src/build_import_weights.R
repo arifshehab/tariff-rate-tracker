@@ -2,7 +2,7 @@
 # Build import weights file (HS10 x country x GTAP)
 # =============================================================================
 #
-# Reproduces the import_weights RDS used for weighted ETR / daily series / scenarios.
+# Reproduces the import_weights RDS used for weighted daily series / scenarios.
 # Pulls monthly Census Bureau merchandise-trade IMDByymm.ZIP files (or reads a
 # user-supplied local cache), parses IMP_DETL.TXT, aggregates HS10 x country
 # consumption imports, joins the in-repo HS10 -> GTAP crosswalk, and writes RDS.
@@ -20,8 +20,7 @@
 #   Rscript src/build_import_weights.R --year 2024 --type gen \
 #       --out resources/hs10_by_country_gtap_2024_gen.rds
 #
-# Output schema (matches the file currently consumed by 08_weighted_etr.R and
-# 09_daily_series.R):
+# Output schema consumed by 09_daily_series.R:
 #   hs10 (chr, 10-digit zero-padded), gtap_code (chr, lowercase),
 #   cty_code (chr, 4-digit Census code), imports (dbl, $ for the year)
 #

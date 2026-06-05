@@ -286,8 +286,8 @@ load_local_paths <- function(yaml_path = here('config', 'local_paths.yaml')) {
 
 #' Build the standard "import weights missing" error message.
 #'
-#' Used by load_import_weights() and run_weighted_etr() so the diagnostic stays
-#' in sync between the two strict-mode callers.
+#' Used by load_import_weights() (and historically the weighted-ETR step) so the
+#' diagnostic stays consistent across strict-mode callers.
 #'
 #' @param reason Short clause describing why the weight file isn't usable,
 #'   e.g. "the configured file does not exist: /foo.rds".

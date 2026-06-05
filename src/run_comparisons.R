@@ -16,7 +16,6 @@
 # Outputs:
 #   output/comparisons/tpc/       — TPC validation reports
 #   output/comparisons/etrs/      — Tariff-ETRs comparison reports
-#   output/etr/                   — Weighted ETR with TPC overlay (if weights available)
 #
 # =============================================================================
 
@@ -164,34 +163,6 @@ run_tpc_validation <- function(
 
 
 # =============================================================================
-# Weighted ETR with TPC Overlay
-# =============================================================================
-
-#' Run weighted ETR analysis with TPC comparison overlay
-#'
-#' Requires import weights (from local_paths.yaml) and TPC benchmark.
-#' This is a comparison workflow — the core build does not need it.
-#'
-#' @param policy_params Optional policy params list
-#' @return ETR results (invisible)
-run_etr_comparison <- function(policy_params = NULL) {
-  message('\n', strrep('=', 70))
-  message('WEIGHTED ETR WITH TPC OVERLAY')
-  message(strrep('=', 70))
-
-  if (is.null(policy_params)) policy_params <- load_policy_params()
-
-  source(here('src', '08_weighted_etr.R'))
-
-  result <- run_weighted_etr(policy_params = policy_params)
-  if (is.null(result)) {
-    message('Weighted ETR skipped (import weights not available).')
-  }
-  return(invisible(result))
-}
-
-
-# =============================================================================
 # Main Execution
 # =============================================================================
 
@@ -199,7 +170,6 @@ if (sys.nframe() == 0) {
   args <- commandArgs(trailingOnly = TRUE)
   run_tpc <- '--tpc' %in% args || length(args) == 0
   run_etrs <- '--etrs' %in% args || length(args) == 0
-  run_etr <- '--etr' %in% args || length(args) == 0
 
   pp <- load_policy_params()
 
@@ -228,15 +198,6 @@ if (sys.nframe() == 0) {
     )
   } else if (run_tpc && !tpc_available) {
     message('TPC benchmark not available — skipping TPC validation.')
-  }
-
-  if (run_etr && weights_available) {
-    tryCatch(
-      run_etr_comparison(policy_params = pp),
-      error = function(e) message('Weighted ETR failed: ', conditionMessage(e))
-    )
-  } else if (run_etr && !weights_available) {
-    message('Import weights not available — skipping weighted ETR comparison.')
   }
 
   if (run_etrs) {
