@@ -124,8 +124,24 @@ Gate: `sbatch scripts/submit_plank2_tests.sh` (scenario_ops + spec + adapter; pu
     The disable vocab lives in `scenario_ops.R::SCOPE_DRIVEN_AUTHORITIES` (already includes
     `section_201`) + `op_disable`. The plan line anticipated a yaml location the live code doesn't use.
 
-**Plank 3 — Section 122.** Structured blanket rate; calculator reads it; delete the
-re-extraction fallback (`06:~2552`).
+**Plank 3 — Section 122.** — ✅ **DONE** (parity GREEN: 47/47 artifacts within tolerance vs
+tests/golden/9f9837d — full 43-rev recompute, parity job 13797778 + snapshot-only 13798477).
+De-blobbed: the s122 blanket rate moved from the opaque `rate$resolved` blob `{s122_rate,
+has_s122}` into the structured compositional `rate$default` layer (`rate_type='surcharge'`).
+The calc READS it via `resolve_rate(...)$value` and gates on `value > 0` — bit-exact with the
+old `has_s122 ≡ rate>0`. scenario_ops gained a `DEFAULT_RATE_AUTHORITIES` category (`set_rate`
+→ `rate$default`, `disable` → 0); section_232 stays the resolved-blob `RATE_DRIVEN` path until
+Plank 4a. Dropped the dead `s122_rates_from_specs` accessor. Gates: `sbatch
+scripts/submit_plank3_units.sh` (47+19+21 assertions) + `scripts/submit_plank3_parity.sh`.
+  - **Not a close-out (unlike Plank 2):** s122's rate was already spec-driven but as a BLOB, not
+    a structured layer. Per John — *no half-measures; the premise is to de-blob fully* — this did
+    the real structural migration. This is the **template for the remaining blob authorities**
+    (s232 = 4a, IEEPA = 4b): blob → structured layer; calc reads via `resolve_rate`; scenario_ops
+    mutates the structured field; parity rebuild confirms bit-exact.
+  - **Fallback RETAINED** (Plank 1/2 precedent): the specs-less `else extract_section122_rates`
+    serves the dual-signature callers (test_tpc_comparison, run_tests_daily_series); deletion is
+    coupled to **Plank 7**. The `06:` hook says so. No `--no-config-check` needed (policy_params.yaml
+    untouched → hashes to the golden manifest).
 
 **Plank 4 — the bulk (per authority).**
 - **4a — Section 232** (multi-program; may sub-divide per program): structure each of the
@@ -238,6 +254,21 @@ This plan consolidates and supersedes the scattered phase docs (`parallel_full_p
 
 ## Progress log
 
+- **2026-06-05 — Plank 3 landed (parity GREEN).** Section 122 de-blobbed: the blanket rate
+  migrated from the `rate$resolved` blob into the structured `rate$default` layer
+  (`rate_type='surcharge'`); calc reads it via `resolve_rate(...)$value`, gating on `value>0`
+  (≡ old `has_s122`). scenario_ops: new `DEFAULT_RATE_AUTHORITIES` category for s122 (set_rate
+  → `rate$default`, disable → 0); s232 stays a blob until 4a. Dropped the dead
+  `s122_rates_from_specs` accessor. Commit `d5ed486` (impl) — unit gate 47+19+21 (job 13797714);
+  parity 47/47 within tolerance vs tests/golden/9f9837d (array 13797729 → gather 13797730
+  `--unweighted` → parity 13797778; snapshot-only early check 13798477 also 43/43). Per John's
+  "no half-measures" call this was the FULL structural de-blob, not a Plank-2-style close-out —
+  it's the template for s232 (4a) and IEEPA (4b). Observed (separate follow-up, not done): the
+  gather still materializes the 204M-row `rate_timeseries.rds` and feeds it WHOLE to the daily
+  series, even though a streaming per-snapshot daily path (`build_daily_aggregates_streaming`,
+  perf Phase 1) + per-interval publish split already exist — repointing the gather's daily call
+  to the streaming path would drop peak memory ~48GB→~1.2GB and is parity-safe (output documented
+  identical). See [[gather-monolith-vs-streaming]].
 - **2026-06-05 — Plank 2 landed (parity trivially GREEN; no rebuild).** Section 201's
   spec-driven country scope was already shipped on the 301cs branch as "Phase 2e" and is
   present at `9f9837d` (the golden), so the build path is byte-identical and a rebuild would
