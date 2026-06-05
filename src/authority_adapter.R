@@ -44,6 +44,46 @@ s232_rates_from_specs     <- function(specs) .spec_resolved_rate(specs[['section
 fentanyl_rates_from_specs <- function(specs) .spec_resolved_rate(specs[['ieepa_fentanyl']])
 s122_rates_from_specs     <- function(specs) .spec_resolved_rate(specs[['section_122']])
 
+# ---- Section 301: resolve the additive rate tier into the spec (Plank 1) ----
+#
+# The Section 301 ADDITIVE rate (hts8 -> rate) was recomputed inside the
+# calculator (06_calculate_rates.R ~2354-2399). Plank 1 moves that resolution
+# here, into the spec's `by_product_tier`, so the calculator just READS it
+# (resolve_rate's by_product_tier layer). Reproduces the calculator EXACTLY:
+#   1. date-gate ch99 via filter_active_ch99 (calc line ~816 — the build passes
+#      RAW ch99_data here, so we apply the same gate ourselves), then
+#   2. drop suspended provisions, then
+#   3. MAX(s301_rate) per hts8 across the active ADDITIVE codes (supersession:
+#      Biden 9903.91.xx >= Trump 9903.88.xx, so MAX picks the superseding rate).
+# The content-split flavor (rate_301_cs) is left in the calculator for now — it is
+# DORMANT in baseline (section_301_content_split_codes empty), so parity is
+# unaffected; relocating it cleanly wants a second program/column and is deferred.
+# Returns a named numeric (names = hts8) or NULL when no active additive codes.
+build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
+  rate_lookup <- pp$SECTION_301_RATES
+  if (is.null(rate_lookup) || !nrow(rate_lookup)) return(NULL)
+  s301_path <- here::here('resources', 's301_product_lists.csv')
+  if (!file.exists(s301_path)) return(NULL)
+  s301_products <- readr::read_csv(s301_path, col_types = readr::cols(
+    hts8 = readr::col_character(), list = readr::col_character(),
+    ch99_code = readr::col_character()))
+  ch99_active <- filter_active_ch99(ch99_data, as.Date(effective_date))
+  matched <- ch99_active[ch99_active$ch99_code %in% rate_lookup$ch99_pattern, , drop = FALSE]
+  if (!nrow(matched)) return(NULL)
+  descr <- matched$description %||% rep('', nrow(matched))
+  active_codes <- unique(matched$ch99_code[!grepl('provision suspended', descr, ignore.case = TRUE)])
+  cs_cfg    <- as.character(pp$section_301_content_split_codes %||% character(0))
+  add_codes <- setdiff(active_codes, cs_cfg)
+  if (!length(add_codes)) return(NULL)
+  lk <- s301_products |>
+    dplyr::filter(ch99_code %in% add_codes) |>
+    dplyr::inner_join(rate_lookup, by = c('ch99_code' = 'ch99_pattern')) |>
+    dplyr::group_by(hts8) |>
+    dplyr::summarise(rate = max(s301_rate), .groups = 'drop')
+  if (!nrow(lk)) return(NULL)
+  stats::setNames(lk$rate, lk$hts8)
+}
+
 # ---- the adapter ------------------------------------------------------------
 
 #' Re-package the bespoke per-authority parser outputs into an authority_spec_set.
@@ -155,6 +195,11 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       country_scope = list(include = CTY_CHINA %||% '5700'),
       rate = list(by_product_tier = 'from_list')))
   )
+  # Plank 1: resolve the additive 301 tier (hts8 -> rate) into by_product_tier so
+  # the calculator reads it instead of recomputing. NULL (no active codes this
+  # revision) leaves the hollow 'from_list' sentinel -> calc skips 301 as before.
+  section_301$programs[[1]]$rate$by_product_tier <-
+    build_s301_additive_tier(ch99_data, effective_date, pp) %||% 'from_list'
 
   # --- section_201 — solar, Canada-exempt -----------------------------------
   section_201 <- authority_spec(

@@ -2383,20 +2383,32 @@ calculate_rates_for_revision <- function(
     }
 
     if (length(active_301_codes) > 0) {
-      # Build HTS8 -> 301 rate lookup:
-      # Take MAX(s301_rate) across all ch99 codes per HTS8. For the 8 products
-      # that appear on both Trump-era (9903.88.xx) and Biden-era (9903.91.xx)
-      # lists, Biden rates are always >= the corresponding Trump rate, so MAX
-      # achieves the correct supersession. This matches Tariff-ETRs, which
-      # partitions products into exclusive rate buckets (one rate per HS10).
-      s301_lookup <- s301_products %>%
-        filter(ch99_code %in% add_301_codes) %>%
-        inner_join(
-          s301_rate_lookup,
-          by = c('ch99_code' = 'ch99_pattern')
-        ) %>%
-        group_by(hts8) %>%
-        summarise(blanket_301 = max(s301_rate), .groups = 'drop')
+      # HTS8 -> 301 (additive) rate tier: MAX(s301_rate) per hts8 across the active
+      # additive codes (supersession — for the 8 products on both Trump 9903.88.xx and
+      # Biden 9903.91.xx lists, Biden >= Trump, so MAX picks the superseding rate).
+      #
+      # Plank 1: the BUILD now resolves this tier in the adapter and parks it on the
+      # spec's by_product_tier; we READ it back here (resolve_rate's by_product_tier
+      # layer) — the spec drives the rate. The inline compute below is retained ONLY
+      # as a fallback for specs-less callers (standalone/legacy test harnesses that
+      # call calculate_rates_for_revision() without specs); it is dead in the build
+      # (specs always present). This fallback + the CTY_CHINA scope fallbacks below
+      # are removed in Plank 7 (drop the dual signature), once specs-less callers go.
+      s301_tier <- if (!is.null(specs)) {
+        specs[['section_301']]$programs[[1]]$rate$by_product_tier
+      } else NULL
+      s301_lookup <- if (is.numeric(s301_tier) && length(s301_tier) && !is.null(names(s301_tier))) {
+        tibble(hts8 = names(s301_tier), blanket_301 = as.numeric(s301_tier))
+      } else {
+        s301_products %>%
+          filter(ch99_code %in% add_301_codes) %>%
+          inner_join(
+            s301_rate_lookup,
+            by = c('ch99_code' = 'ch99_pattern')
+          ) %>%
+          group_by(hts8) %>%
+          summarise(blanket_301 = max(s301_rate), .groups = 'drop')
+      }
 
       if (nrow(s301_lookup) > 0) {
         # Phase 2e: Section 301 country scope is data, not a China hardcode.

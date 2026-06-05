@@ -84,10 +84,24 @@ Notable: `overrides` supports **two element forms** — a named scalar `'4120' =
 (product→rate, any country, the existing convention) and an entry list
 `list(products=, countries=(opt), rate=)` (the rich product×country deal form for 4a).
 
-**Plank 1 — Section 301 (prove the loop).** Adapter: populate real rate (`by_product_tier`
-from `s301_product_lists.csv`) + `country_scope`. Calculator: read `resolve_rate` +
-`resolve_country_scope`; **delete** the China fallback (`06:~2408`, `~2491`) and the
-`stacking.R` China branches (`~161/166/239`). Small, high-symbolism.
+**Plank 1 — Section 301 (prove the loop).** — ✅ **DONE** (parity GREEN: 47/47 artifacts
+within tolerance vs tests/golden/9f9837d, full 43-rev recompute, job 13789634).
+Adapter `build_s301_additive_tier()` resolves the additive hts8→rate tier (date-gated via
+`filter_active_ch99`, suspended-drop, `max()` supersession) into `section_301`'s
+`by_product_tier`; the BUILD reads it back via the spec instead of recomputing inline.
+country_scope was already spec-driven. `validate_rate` gained the `flat` key (latent
+Plank-0 gap: `add_program` uses it).
+  - **Plan reconciliation (the line-refs were stale):** stacking.R is already class-based
+    (301 = `additive`; no `country==china` branch left — the only former hardcode is
+    `additive_countries=cty_china` on *fentanyl*, already data). So Plank 1's real lift was
+    the **rate**, not branch deletion.
+  - **Fallbacks RETAINED, not deleted:** `test_tpc_comparison` + `run_tests_daily_series`
+    call `calculate_rates_for_revision()` **without specs**, so the inline 301 compute +
+    `CTY_CHINA` scope must stay until those callers go away. The literal deletion is
+    correctly coupled to **Plank 7 (drop the dual signature)**. The build itself is now
+    spec-driven (proven by the gate). cs (content-split) 301 flavor left inline — dormant
+    in baseline, parity-safe.
+  - Adversarial review confirmed the adapter tier == inline tier bit-for-bit (a–g SAFE).
 
 **Plank 2 — Section 201.** `country_scope = {include: all, exclude: [Canada]}`; delete the
 Canada-exempt fallback (`06:~2629`); add 201 to the `disable:` vocab (`policy_params.yaml`).
@@ -165,6 +179,17 @@ This plan consolidates and supersedes the scattered phase docs (`parallel_full_p
 
 ## Progress log
 
+- **2026-06-05 — Plank 1 landed (parity GREEN).** Section 301 additive rate relocated to
+  the spec's `by_product_tier` (adapter `build_s301_additive_tier`); build reads it back.
+  Gate (`scripts/submit_plank1_build_gate.sh`): `--full --core-only` rebuild of all 43
+  revisions, then `run_parity_check.R --golden tests/golden/9f9837d` → 47/47 artifacts
+  within tolerance (job 13789634). Two gate-process bugs caught + fixed before the real
+  run: (a) `--core-only` without `--full` is a no-op rebuild (reuses stale snapshots —
+  must `--full` and pre-delete snapshots so a rebuild miss can't false-green); (b) the
+  monolithic `rate_timeseries.rds` parity load OOMs at 192G — compare the 43 per-snapshot
+  files instead (same data, memory-safe). Fallbacks retained (Plank 7 deletes them).
+  Pre-existing/orthogonal: 3 `test_rate_calculation` Russia §232 Annex-II invariant
+  failures (untouched code path), and a non-fatal quality-report `$`-on-atomic error.
 - **2026-06-04 — Plank 0 landed (verified).** Compositional rate schema +
   `resolve_rate`/`apply_rate_semantics`/`validate_rate` in `src/authority_spec.R`; tests
   green via `sbatch scripts/submit_resolve_rate_tests.sh` (63 + 19 + 20 assertions). Two

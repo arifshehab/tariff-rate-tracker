@@ -284,7 +284,7 @@ validate_rate <- function(rate, ctx) {
 
   allowed <- c('default', 'by_country', 'default_unlisted_rate', 'default_unlisted',
                'overrides', 'by_product_tier', 'target_total', 'rate_type',
-               'resolved', 'product_overrides_file')
+               'flat', 'resolved', 'product_overrides_file')
   unknown <- setdiff(names(rate), allowed)
   unknown <- unknown[nzchar(unknown)]
   if (length(unknown)) stop(sprintf('[%s] unknown rate field(s): %s', ctx,
@@ -314,6 +314,7 @@ validate_rate <- function(rate, ctx) {
   chk_scalar(.rate_get(rate, 'default_unlisted_rate'), 'default_unlisted_rate')
   chk_scalar(.rate_get(rate, 'default_unlisted'),      'default_unlisted')
   chk_scalar(.rate_get(rate, 'target_total'),          'target_total')
+  chk_scalar(.rate_get(rate, 'flat'),                  'flat')  # add_program new-coverage rate
   chk_named_num(.rate_get(rate, 'by_country'),         'by_country')
   chk_named_num(.rate_get(rate, 'by_product_tier'),    'by_product_tier')
 
