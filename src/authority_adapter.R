@@ -311,10 +311,52 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       flat_rate <- unname(flat[tier])                       # NA for annex_3 / unclassified
       keept <- !is.na(tier)      & !duplicated(hts)
       keepf <- !is.na(flat_rate) & !duplicated(hts)
+
+      # Slice 2b/2c: per-(country) per-product overrides the calc applies in order.
+      # mode 'replace' = flat set (the UK annex deal); mode 'max' = pmax surcharge
+      # (e.g. Russia aluminum 200%). The annex-tier + metal-type + chapter scoping is
+      # baked into each rate_map here, so the calc just applies them (no config reads).
+      .ovs <- list()
+      # UK annex deal: tier 1a/1b on steel/aluminum chapters (72/73/76, NOT copper).
+      uk_code <- cc$CTY_UK %||% '4120'
+      uk_chap <- substr(hts, 1, 2) %in% c('72', '73', '76')
+      uk_rate <- ifelse(tier == 'annex_1a' & uk_chap, as.numeric(annex_cfg$annexes$annex_1a$uk_rate),
+                 ifelse(tier == 'annex_1b' & uk_chap, as.numeric(annex_cfg$annexes$annex_1b$uk_rate),
+                        NA_real_))
+      ukk <- !is.na(uk_rate) & !duplicated(hts)
+      if (any(ukk)) .ovs[[length(.ovs) + 1L]] <- list(
+        countries = uk_code, mode = 'replace',
+        rate_map  = setNames(as.numeric(uk_rate[ukk]), hts[ukk]))
+      # Country surcharges (general; e.g. Russia aluminum across annex 1a/1b/3). Build
+      # the metal-type product set (primary chapters + type-tagged derivative prefixes)
+      # exactly as the calc did, then scope to the surcharge's annexes via the tier map.
+      deriv_by_type <- if (!is.null(deriv) && nrow(deriv) > 0) split(deriv$hts_prefix, deriv$derivative_type) else list()
+      prim_by_type  <- list(steel = c('72', '73'), aluminum = '76', copper = '74')
+      for (sc in (annex_cfg$country_surcharges %||% list())) {
+        rate_s <- suppressWarnings(as.numeric(sc$rate))
+        if (length(rate_s) != 1L || !is.finite(rate_s) || rate_s <= 0) next
+        ann_in <- sc$applies_to  %||% c('annex_1a', 'annex_1b', 'annex_3')
+        mtypes <- sc$metal_types %||% c('steel', 'aluminum', 'copper')
+        thts <- character(0)
+        for (mt in mtypes) {
+          prim <- prim_by_type[[mt]] %||% character(0)
+          if (length(prim)) thts <- c(thts, hts[substr(hts, 1, 2) %in% prim])
+          dp <- deriv_by_type[[mt]] %||% character(0)
+          if (length(dp)) thts <- c(thts, hts[grepl(paste0('^(', paste(dp, collapse = '|'), ')'), hts)])
+        }
+        thts <- unique(thts)
+        thts <- thts[tier[match(thts, hts)] %in% ann_in]     # scope to the surcharge's annexes
+        if (!length(thts)) next
+        .ovs[[length(.ovs) + 1L]] <- list(
+          countries = as.character(sc$countries), mode = 'max',
+          rate_map  = setNames(rep(rate_s, length(thts)), thts))
+      }
+
       section_232$annex <- list(
-        tier       = setNames(tier[keept], hts[keept]),
-        flat_rate  = setNames(as.numeric(flat_rate[keepf]), hts[keepf]),
-        floor_rate = as.numeric(annex_cfg$annexes$annex_3$floor_rate))
+        tier              = setNames(tier[keept], hts[keept]),
+        flat_rate         = setNames(as.numeric(flat_rate[keepf]), hts[keepf]),
+        floor_rate        = as.numeric(annex_cfg$annexes$annex_3$floor_rate),
+        country_overrides = .ovs)
     }
 
     # Phase 2c/6c: precompute the heading-program activation gates. Since S1b

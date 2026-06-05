@@ -2183,81 +2183,17 @@ calculate_rates_for_revision <- function(
                 ', annexes=', paste(zmc_annexes, collapse = ','))
       }
 
-      # UK annex-aware deal (replaces old flat 25% override for post-annex revisions)
-      uk_code <- get_country_constants()$CTY_UK %||% '4120'
-      uk_1a_chapters <- annex_cfg$annexes$annex_1a$uk_applies_to %||% c('steel', 'aluminum')
-      uk_steel_alum <- c('72', '73', '76')  # UK deal for steel/aluminum, not copper
-      rates <- rates %>%
-        mutate(rate_232 = case_when(
-          country == uk_code & s232_annex == 'annex_1a' &
-            substr(hts10, 1, 2) %in% uk_steel_alum ~ annex_cfg$annexes$annex_1a$uk_rate,
-          country == uk_code & s232_annex == 'annex_1b' &
-            substr(hts10, 1, 2) %in% uk_steel_alum ~ annex_cfg$annexes$annex_1b$uk_rate,
-          TRUE ~ rate_232
-        ))
-
-      # Country-specific 232 surcharges preserved under the annex regime.
-      # Per the April 2026 proclamation, Russian aluminum remains subject to
-      # the 200% rate from Proc 10522 across Annex I-A, I-B, and III. Annex II
-      # is out of scope (products removed from S232 entirely).
-      # Applied as pmax() so the surcharge wins over the annex tier rate.
-      country_surcharges <- annex_cfg$country_surcharges %||% list()
-      if (length(country_surcharges) > 0) {
-        deriv_by_type <- if (!is.null(deriv_products) && nrow(deriv_products) > 0) {
-          split(deriv_products$hts_prefix, deriv_products$derivative_type)
-        } else list()
-
-        primary_chapters_by_type <- list(
-          steel    = c('72', '73'),
-          aluminum = '76',
-          copper   = '74'
-        )
-
-        for (surcharge in country_surcharges) {
-          countries_vec   <- as.character(surcharge$countries)
-          applies_annexes <- surcharge$applies_to %||% c('annex_1a', 'annex_1b', 'annex_3')
-          metal_types     <- surcharge$metal_types %||% c('steel', 'aluminum', 'copper')
-          rate_s          <- surcharge$rate
-          if (is.null(rate_s) || !is.finite(rate_s) || rate_s <= 0) next
-
-          # Build the set of HTS10s in scope for the requested metal types.
-          # Union of (primary chapters for that type) + (derivative prefixes
-          # tagged with that type in s232_derivative_products.csv).
-          type_hts10 <- character(0)
-          all_hts10 <- unique(rates$hts10)
-          for (mt in metal_types) {
-            prim <- primary_chapters_by_type[[mt]] %||% character(0)
-            if (length(prim) > 0) {
-              type_hts10 <- c(type_hts10, all_hts10[substr(all_hts10, 1, 2) %in% prim])
-            }
-            deriv_prefixes <- deriv_by_type[[mt]] %||% character(0)
-            if (length(deriv_prefixes) > 0) {
-              deriv_pattern <- paste0('^(', paste(deriv_prefixes, collapse = '|'), ')')
-              type_hts10 <- c(type_hts10, all_hts10[grepl(deriv_pattern, all_hts10)])
-            }
-          }
-          type_hts10 <- unique(type_hts10)
-          if (length(type_hts10) == 0) next
-
-          rates <- rates %>%
-            mutate(rate_232 = if_else(
-              country %in% countries_vec &
-                s232_annex %in% applies_annexes &
-                hts10 %in% type_hts10,
-              pmax(rate_232, rate_s),
-              rate_232
-            ))
-
-          n_applied <- sum(
-            rates$country %in% countries_vec &
-            rates$s232_annex %in% applies_annexes &
-            rates$hts10 %in% type_hts10
-          )
-          message('  Annex country surcharge: ', paste(countries_vec, collapse = ','),
-                  ' @ ', round(rate_s * 100, 0), '% on ', n_applied,
-                  ' product-country pairs (', paste(metal_types, collapse = '/'),
-                  ' × ', paste(applies_annexes, collapse = '/'), ')')
-        }
+      # UK annex deal + country surcharges: READ off the spec
+      # (section_232$annex$country_overrides), applied in list order. mode 'replace'
+      # = flat set (the UK annex deal: 1a/1b steel/alum -> uk_rate); mode 'max' =
+      # pmax surcharge (e.g. Russia aluminum 200% across annex 1a/1b/3). The adapter
+      # baked the annex-tier + metal-type + chapter scoping into each rate_map, so
+      # the calc just applies them — no config reads, no fallback.
+      for (ov in (ann$country_overrides %||% list())) {
+        r    <- ov$rate_map[as.character(rates$hts10)]       # NA where product not in map
+        hit  <- rates$country %in% ov$countries & !is.na(r)
+        newr <- if (identical(ov$mode, 'max')) pmax(rates$rate_232, unname(r)) else unname(r)
+        rates$rate_232 <- if_else(hit, newr, rates$rate_232)
       }
 
       # Annex III sunset: after sunset_date, products move to I-B rate
