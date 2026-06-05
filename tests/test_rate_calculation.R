@@ -1325,6 +1325,65 @@ run_test('rev_6 snapshot baseline still pre-fix at subdivision (r) HTS10s with d
 
 
 # =============================================================================
+# Test 14: Applicability-excluded statutory shadow (snapshot-based)
+# =============================================================================
+#
+# Note 33(g) lists bare heading 8471; applicability_share = 0 excludes
+# general-purpose computers from the EFFECTIVE auto-parts rates while step 7d
+# of 06_calculate_rates.R preserves the literal-enumeration rate in
+# statutory_rate_232 (heading rate minus auto rebate) so the
+# statutory-vs-collected wedge stays measurable. Skips without built snapshots.
+
+message('\n--- Test 14: Applicability-excluded statutory shadow ---')
+
+run_test('excluded 8471 lines: rate_232 = 0, statutory_rate_232 = literal post-rebate', {
+  snap_path <- here('data', 'timeseries', 'snapshot_2026_rev_1.rds')
+  if (!file.exists(snap_path)) skip_test('snapshot_2026_rev_1.rds missing')
+  ap_path <- here('resources', 's232_auto_parts_applicability.csv')
+  if (!file.exists(ap_path)) skip_test('applicability CSV missing')
+  ap <- read_csv(ap_path, comment = '#',
+                 col_types = cols(hts_prefix = col_character(),
+                                  applicability_share = col_double(),
+                                  .default = col_character()),
+                 show_col_types = FALSE)
+  if (!any(ap$applicability_share == 0)) skip_test('no share-0 prefixes configured')
+
+  pp <- load_policy_params()
+  rebate <- pp$auto_rebate$rebate_rate * pp$auto_rebate$us_assembly_share
+  literal <- pp$section_232_headings$auto_parts$default_rate - rebate
+
+  semi <- read_csv(here('resources', 's232_semi_products.csv'),
+                   col_types = cols(hts10 = col_character()),
+                   show_col_types = FALSE)$hts10
+
+  s <- readRDS(snap_path)
+  zero_prefixes <- ap$hts_prefix[ap$applicability_share == 0]
+  pat <- paste0('^(', paste(zero_prefixes, collapse = '|'), ')')
+  excluded <- s %>%
+    filter(grepl(pat, hts10), !hts10 %in% semi, country == '5830')
+  if (nrow(excluded) == 0) skip_test('no excluded-product rows in snapshot')
+
+  # Effective: no auto-parts 232 on the excluded lines
+  stopifnot(all(excluded$rate_232 == 0))
+  # Statutory: the literal post-rebate heading rate is preserved
+  stopifnot(all(abs(excluded$statutory_rate_232 - literal) < 1e-9))
+})
+
+run_test('semi-listed 8471 codes keep their true semi statutory (no shadow clobber)', {
+  snap_path <- here('data', 'timeseries', 'snapshot_2026_rev_1.rds')
+  if (!file.exists(snap_path)) skip_test('snapshot_2026_rev_1.rds missing')
+  active <- semi_active_hts10s()
+  if (length(active) == 0) skip_test('no semi HTS10s with qualifying_share = 1')
+  s <- readRDS(snap_path)
+  rows <- s %>% filter(hts10 %in% active, country == '5830')
+  if (nrow(rows) == 0) skip_test('no active-semi rows')
+  # The semiconductors heading governs these: 0.25, not the auto-parts shadow
+  stopifnot(all(abs(rows$rate_232 - 0.25) < 1e-10))
+  stopifnot(all(abs(rows$statutory_rate_232 - 0.25) < 1e-10))
+})
+
+
+# =============================================================================
 # Summary
 # =============================================================================
 

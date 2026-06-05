@@ -1366,6 +1366,13 @@ calculate_rates_for_revision <- function(
     # Fractional applicability shares accumulated in the heading loop; applied
     # to heading_232_rate after heading_product_rate is built (see below).
     applicability_scale <- tibble(hts10 = character(), applic_share = numeric())
+    # Products excluded by applicability_share = 0, with the rate the literal
+    # enumeration would have charged. Their EFFECTIVE treatment is non-232
+    # (no heading rate; normal IEEPA/fentanyl stacking), but step 7d writes
+    # the literal rate into statutory_rate_232 so the statutory-vs-collected
+    # wedge on these lines stays measurable downstream (tariff-etr-eval)
+    # rather than being baked into the model.
+    applicability_excluded <- tibble(hts10 = character(), literal_rate = numeric())
 
     if (!is.null(s232_headings)) {
       # Gate each heading config on whether its Ch99 program exists in this revision.
@@ -1438,7 +1445,15 @@ calculate_rates_for_revision <- function(
             share_for[is.na(share_for)] <- 1
             if (any(share_for == 0)) {
               message('  ', tariff_name, ': excluded ', sum(share_for == 0),
-                      ' products with applicability_share = 0')
+                      ' products with applicability_share = 0',
+                      ' (literal rate preserved in statutory_rate_232)')
+              applicability_excluded <- bind_rows(
+                applicability_excluded,
+                tibble(
+                  hts10 = matched[share_for == 0],
+                  literal_rate = cfg$default_rate %||% s232_rates$auto_rate
+                )
+              )
             }
             is_frac <- share_for > 0 & share_for < 1
             if (any(is_frac)) {
@@ -2847,6 +2862,48 @@ calculate_rates_for_revision <- function(
       if ('s232_annex' %in% names(rates)) rates$s232_annex[air_mask] <- NA_character_
       message('  Taiwan civil-aircraft 232 exemption (note 35(c)): zeroed Section 232 on ',
               n_air, ' product-country rows')
+    }
+  }
+
+  # 7d. Statutory shadow for applicability-excluded heading products.
+  # Products dropped from a 232 heading by applicability_share = 0 (currently
+  # the bare-8471 Note 33(g) entry — general-purpose computers are not "parts
+  # of passenger vehicles") keep their EFFECTIVE non-232 treatment from the
+  # exclusion at match time, but statutory_rate_232 records what the literal
+  # enumeration would have charged: heading default rate minus the auto
+  # rebate (matching the post-rebate convention of the statutory save in
+  # step 4c). This preserves the statutory-vs-collected wedge for downstream
+  # measurement (tariff-etr-eval) instead of baking the de facto reading into
+  # both columns. Country-specific deal floors (e.g. Taiwan 9903.94.67 at
+  # rev_9+) are NOT applied to the shadow — documented simplification; the
+  # shadow is the blanket literal rate.
+  if (exists('applicability_excluded') && nrow(applicability_excluded) > 0) {
+    # Products that still carry a REAL 232 heading rate via another program
+    # (the 8471 prefix exclusion also sweeps the 5 semi-listed codes, which
+    # get their true rate from the semiconductors heading) keep their actual
+    # statutory_rate_232 — only genuinely non-232 exclusions get the shadow.
+    in_other_heading <- if (exists('heading_product_rate') &&
+                            nrow(heading_product_rate) > 0) {
+      heading_product_rate$hts10
+    } else {
+      character(0)
+    }
+    shadow <- applicability_excluded %>%
+      distinct(hts10, .keep_all = TRUE) %>%
+      filter(!hts10 %in% in_other_heading) %>%
+      mutate(.stat_shadow = pmax(literal_rate - rebate_deduction, 0)) %>%
+      select(hts10, .stat_shadow)
+    if (nrow(shadow) > 0) {
+      rates <- rates %>%
+        left_join(shadow, by = 'hts10', relationship = 'many-to-one') %>%
+        mutate(
+          statutory_rate_232 = if_else(!is.na(.stat_shadow),
+                                       .stat_shadow, statutory_rate_232)
+        ) %>%
+        select(-.stat_shadow)
+      message('  Applicability-excluded statutory shadow: statutory_rate_232 = ',
+              'literal heading rate (post-rebate) on ', nrow(shadow),
+              ' products (effective rate_232 stays 0)')
     }
   }
 

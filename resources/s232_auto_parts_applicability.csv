@@ -10,8 +10,13 @@
 # prefixes sweep in large dual-use trade that is not vehicle parts.
 #
 # applicability_share = fraction of the prefix's imports that are in-scope
-# vehicle parts. share = 0 excludes the prefix from the heading entirely;
-# 0 < share < 1 scales the heading rate (blending, like semi qualifying_share).
+# vehicle parts. share = 0 excludes the prefix from the heading's EFFECTIVE
+# rates (rate_232 = 0, normal non-232 stacking) while statutory_rate_232
+# keeps the literal-enumeration rate (heading rate minus auto rebate) via
+# step 7d of 06_calculate_rates.R - so the statutory-vs-collected wedge on
+# these lines stays measurable in tariff-etr-eval rather than baked into the
+# model. 0 < share < 1 scales the heading rate (blending, like semi
+# qualifying_share; note fractional scaling currently feeds statutory too).
 # Prefixes not listed default to 1.0. Longest prefix wins.
 #
 # Loaded via section_232_headings.auto_parts.applicability_shares_file in
