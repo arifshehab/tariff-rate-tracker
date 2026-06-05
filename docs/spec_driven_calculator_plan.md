@@ -355,7 +355,12 @@ error). Baseline = empty ops → parity; add scenario-correctness unit tests.
 remove the bespoke args from `calculate_rates_for_revision()` so it takes **specs only**.
 (Optional within Pass 1; can defer if risky.)
 
-## Plank 4c — §232 ANNEX-REGIME RATE DE-BLOB (DEFERRED, PARITY-SAFE — John flagged 2026-06-05 to revisit, "I'm gonna want to fix this")
+## Plank 4c — §232 ANNEX-REGIME RATE DE-BLOB — ⏳ IN PROGRESS (S1+S2a DONE, parity GREEN; commit 143a2b1)
+
+> **STATUS (2026-06-05):** Picked up + reframed with John. The annex regime is config-driven (not a blob), and John's directive was **SPEC-ONLY, no fallbacks**. Built it: the adapter classifies the product
+> universe ONCE (`classify_s232_annex`, src/data_loaders.R) and writes an authority-level `section_232$annex = {tier, flat_rate, floor_rate}`; the calculator READS it (the inline classification + config
+> `case_when` literals are deleted; an annex-era revision with no spec `$annex` stops loudly). S1+S2a parity GREEN 47/47. **Remaining: S2b (UK deal → overrides), S2c (Russia → overrides).** Taiwan + subdiv-r/zmc
+> stay calc-side. See the Progress log entry + memory `theseus-4c-reframe`. The deferred-design notes below are partly superseded by the actual build (single authority-level carrier, NOT per-metal by_product_tier).
 
 > **Why this exists:** S3 (Plank 4a close-out) parked the §232 annex regime as calculator logic and the original S3
 > note claimed it "needs a new `s232_annex` axis on `resolve_rate`." **That was an overstatement — corrected here.**
@@ -483,6 +488,24 @@ This plan consolidates and supersedes the scattered phase docs (`parallel_full_p
 
 ## Progress log
 
+- **2026-06-05 — Plank 4c S1+S2a DONE (parity GREEN 47/47; commit `143a2b1`).** §232 annex regime de-blobbed to the
+  spec, **SPEC-ONLY (John: "fuck fallbacks, fuck vestigial code")**. Reframed first: the annex is config-driven (not a
+  blob), and the classification produces the `s232_annex` tag (read + mutated downstream), so John's instinct — the
+  parser writes the facts, the calc reads — is right and the tag is a *symptom* of the classification being trapped in
+  the calc. Built: **(S1)** `classify_s232_annex()` extracted to `src/data_loaders.R` (single source of truth; arm-order
+  `7616109030`→1a preserved; 10 unit checks). **(S2a)** adapter `build_authority_specs()` classifies the product
+  universe ONCE and writes an authority-level `section_232$annex = {tier, flat_rate (1a/1b/2→0.50/0.25/0), floor_rate}`;
+  the calc READS tag+flat_rate off the spec and the inline classification + config `case_when` literals are DELETED
+  (override = heading-wins → spec flat_rate → annex_3 floor vs base). No fallback: an annex-era revision with no spec
+  `$annex` `stop()`s. Single authority-level carrier (rate is metal-agnostic) — sidesteps per-metal-routing completeness
+  risk; heading carve-out handled by the existing heading-first arm; has_232 untouched (only the annex OVERLAY added,
+  rate$default unchanged). **Cleanup:** deleted `tests/test_tpc_comparison.R` + `data/tpc/` (vestigial, benchmark gone);
+  rewired the 5 annex-era specs-less calls in `run_tests_daily_series.R` to build+pass real specs (fail-closed test now
+  exercises the adapter guard). Gates: classify 10/10; daily-series suite green except 1 PRE-EXISTING fail
+  (pharmaceuticals heading gate, S1b artifact — not 4c); inline smoke green; **43-rev array `13831052` → gather
+  `13831053` → parity `13831695/6` = 47/47, 0 violations vs `tests/golden/9f9837d`**. UK deal (S2b) + Russia surcharge
+  (S2c) stay calc-side for now; Taiwan exemption + subdiv-r/zmc stay (contextual/blend, decision 8). The broader
+  dual-signature removal (pre-annex specs-less callers + 301/122/IEEPA config fallbacks) is the natural Plank-7 follow-on.
 - **2026-06-05 — Plank 4a S3 DONE → PLANK 4a CLOSED.** A focused lock-in workflow (`wf_0ccdd059-752`, 3 analyses +
   adversarial decision) proved S3 has no parity-safe de-blobbing left — it's a close-out, not a de-blob. Verdicts
   (all stress-tested): the **UK annex deal** and **Taiwan civil-aircraft exemption** MUST STAY — both are
