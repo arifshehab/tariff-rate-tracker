@@ -179,11 +179,12 @@ scripts/submit_plank3_units.sh` (47+19+21 assertions) + `scripts/submit_plank3_p
       the floor/surcharge math (decision 8; floors = `floor_static` vs ORIGINAL base). The ONLY Plank-0 touch =
       an additive `validate_rate` extension (scope-form + `floors`); `resolve_rate` untouched. Parity GREEN
       47/47, 0 violations (array `13817257`). `auto_exempt` + the deal-gate flags stay on the residual blob → S3.
-    - **S3 ✅ DONE (Plank 4a close-out) — lock-in proved no parity-safe de-blob left.** UK annex deal + Taiwan
-      aircraft exemption MUST STAY (annex-tier-context logic the spec doesn't model in Pass 1; values already
-      config-driven → deferred to Pass 2's annex axis). Residual blob is at its decision-8 floor (8 gate/derivative
-      fields stay). The only code change = removing the verified-dead `auto_exempt` calc read. **PLANK 4a CLOSED.**
-      See the "S3 — LOCKED + DONE" subsection below.
+    - **S3 ✅ DONE (Plank 4a close-out).** UK annex deal + Taiwan aircraft exemption STAY for now; residual blob is
+      at its decision-8 floor (8 gate/derivative fields stay). The only code change = removing the verified-dead
+      `auto_exempt` calc read. **PLANK 4a CLOSED.** NOTE (John, 2026-06-05): the annex tier RATES + UK deal ARE
+      spec-expressible (`by_product_tier`/`overrides`, no new axis) — deferred as the parity-safe **Plank 4c**, not
+      because the spec can't hold them. Taiwan stays genuinely (provenance + column-null). See "S3 — LOCKED + DONE"
+      + the Plank 4c section below.
   - **Gate-tooling fix landed (commit `134759f`, src/parity.R):** the `--unweighted` build drops the
     un-gated weighted/ETR columns (`weighted_etr*`, `etr_*`, `*_imports_b`) the golden carries; the
     comparator now skips golden-only columns matching `^weighted_etr|^etr_|_imports_b$` instead of
@@ -298,15 +299,17 @@ auto vehicles (floor 0.15), UK wood (surcharge 0.10) vs the golden snapshot.
 **S3 — LOCKED + DONE (2026-06-05, Plank 4a CLOSE-OUT).** A focused lock-in workflow (3 analyses + adversarial
 decision, run `wf_0ccdd059-752`, output `tasks/w0mr1sy1d.output`) settled that **S3 has no parity-safe de-blobbing
 left** — it is a close-out, not a de-blob. Stress-tested verdicts:
-- **UK annex deal** (`06:~2235-2246`): **MUST STAY.** It needs TWO different rates on the SAME UK steel/aluminum
-  chapters keyed on annex TIER (`annex_1a → uk_rate 0.25`, `annex_1b → 0.15`), and the annex tier `case_when`
-  (`06:~2204-2211`) UNCONDITIONALLY overwrites `rate_232` for non-heading products BEFORE the deal — so the
-  pre-annex S2 `by_country` UK override is clobbered and plays no role in annex-era revisions. `resolve_rate` keys
-  `by_country`/`overrides` on (product, country) only — NO annex-tier axis — so no spec layer can return
-  0.25-or-0.15-by-tier. Deleting it drops UK to the generic tier (0.50/0.25) → breaks parity on every annex-era
-  revision. The values are already config-driven (`policy_params.yaml section_232_annexes uk_rate`), NOT in the
-  residual blob. Same architectural class as the whole annex regime (tier rates, country_surcharges, subdivision-r,
-  annex-III sunset): annex-context-dependent + config-driven, none spec-foldable in Pass 1 (decision 8).
+- **UK annex deal** (`06:~2235-2246`): **STAYS FOR NOW (deferred, NOT impossible — see Plank 4c).** It applies
+  `annex_1a → uk_rate 0.25`, `annex_1b → 0.15` on UK steel/aluminum, and the annex tier `case_when` (`06:~2204-2211`)
+  overwrites the pre-annex S2 `by_country` UK override BEFORE the deal, so the deal — not by_country — is what
+  reaches the panel in annex-era revisions; deleting it drops UK to the generic tier (0.50/0.25) → breaks parity.
+  **CORRECTION (John, 2026-06-05):** the earlier claim that "no spec layer can return 0.25-or-0.15-by-tier" was
+  WRONG. Each product is in exactly ONE annex tier, so `product×country → rate` is single-valued — the UK deal maps
+  cleanly onto the existing `overrides` layer (UK × {annex_1a products}→0.25, × {annex_1b products}→0.15), and the
+  generic tiers onto `by_product_tier`; `overrides > by_product_tier` precedence does the rest. NO new resolver axis
+  is needed. It STAYS in S3 only because relocating it means moving the annex CLASSIFICATION (CSV match + inference)
+  to the adapter and is cleanest done with the whole annex regime as a unit — a parity-SAFE de-blob captured as
+  **Plank 4c** below. (Values are already config-driven in `policy_params.yaml section_232_annexes`, not the blob.)
 - **Taiwan civil-aircraft exemption** (`06:~3074-3096`): **MUST STAY-AS-IS.** A spec `scope=0` cannot reproduce it:
   it gates on `!is.na(s232_annex)` (metals-annex provenance — a context the spec lacks) AND nulls the `s232_annex`
   column (a spec rate can add a value, never null a calc column). Verified hazard: 3 hts8 are in BOTH auto-parts
@@ -321,10 +324,13 @@ left** — it is a close-out, not a de-blob. Stress-tested verdicts:
   removed in the S3 commit (the field stays in the parser return for the independent `generate_etrs_config.R` path).
 - **S3 commit = the `auto_exempt` dead-read removal (verified no-op) + this close-out doc.** Gate: full 43-rev array
   (the close-out gate for Plank 4a) — bit-exact expected by construction.
-- **DEFERRED to Pass 2 (explicit boundary, not a gap):** modeling the §232 ANNEX REGIME in the spec — it needs a new
-  `s232_annex` tier axis on `resolve_rate`/the program rate model (then re-plumbing the annex tier, UK deal,
-  country_surcharges, subdivision-r, annex-III sunset, Taiwan gate through it). A structural resolver change, not a
-  de-blob. Until then the UK deal, Taiwan exemption, derivative rates, and gate-input fields legitimately stay.
+- **DEFERRED (explicit boundary, not a gap) — see Plank 4c:** de-blobbing the §232 ANNEX REGIME rates into the spec.
+  This is **parity-SAFE** (a relocation, no number change → no oracle needed; NOT a Pass-2 behavior-change item) and
+  needs **no new resolver axis** — the flat tiers go in `by_product_tier`, the UK deal in `overrides`, the annex_3
+  floor in the S2 `floors` layer. The deferred work is relocating the annex CLASSIFICATION (CSV prefix-match +
+  unmatched-product inference, ~150 lines) to the adapter and doing it as a coherent unit. The non-flat rules
+  (country surcharges, subdivision-r) stay per decision 8; the Taiwan exemption stays genuinely (provenance +
+  column-null). John flagged this 2026-06-05 to revisit — full spec + slicing in the **Plank 4c** section.
 
 **With S3, PLANK 4a IS CLOSED** — §232 is an 8-program spec; the clean statutory layers (default/by_country/
 overrides/floors) are de-blobbed and read via `resolve_rate` + `s232_deal_records`. What remains on the blob is
@@ -348,6 +354,49 @@ error). Baseline = empty ops → parity; add scenario-correctness unit tests.
 **Plank 7 — drop the dual signature (end of Pass 1).** Once every authority is spec-driven,
 remove the bespoke args from `calculate_rates_for_revision()` so it takes **specs only**.
 (Optional within Pass 1; can defer if risky.)
+
+## Plank 4c — §232 ANNEX-REGIME RATE DE-BLOB (DEFERRED, PARITY-SAFE — John flagged 2026-06-05 to revisit, "I'm gonna want to fix this")
+
+> **Why this exists:** S3 (Plank 4a close-out) parked the §232 annex regime as calculator logic and the original S3
+> note claimed it "needs a new `s232_annex` axis on `resolve_rate`." **That was an overstatement — corrected here.**
+> The annex tier RATES and the UK annex deal ARE expressible in the EXISTING spec at the PRODUCT grain; no new
+> resolver axis is needed. They were deferred for *relocation effort + entanglement*, not impossibility. This is a
+> parity-SAFE de-blob (a relocation; changes no numbers), so — unlike the Pass-2 appendix items — it needs **no
+> oracle**; the existing 43-rev numeric-tolerance parity harness validates it. It can be done as a late Pass-1-style
+> plank whenever we pick it up.
+
+**The insight (why it fits the spec):** each hts10 classifies into EXACTLY ONE annex tier, so `product(×country) → rate`
+is single-valued. The existing layers + precedence (`overrides > by_product_tier > by_country > default`) carry it:
+- **annex_1a / annex_1b / annex_2 flat tiers** → `by_product_tier` (product → 0.50 / 0.25 / 0). (Generic, all countries.)
+- **UK annex deal** (`06:~2235-2246`) → `overrides` entries: UK × {annex_1a steel/alum products} → 0.25, UK ×
+  {annex_1b steel/alum products} → 0.15. `overrides` outranks `by_product_tier`, so UK automatically wins over the
+  generic tier — no special-casing, no annex axis. (My earlier "no spec layer can return 0.25-or-0.15-by-tier" was
+  wrong: each PRODUCT is in one tier, so per-product it's a single rate.)
+- **annex_3 floor** (`06:~2168`, `pmax(floor_rate − base, 0)` vs the ORIGINAL base) → the S2 `floors` layer (already
+  built — `floor_static` semantics). 
+
+**The actual work (why it's deferred, not done in S3):**
+1. **Relocate the CLASSIFICATION into the adapter.** product→tier today is CSV longest-prefix-first match
+   (`load_annex_products`, `resources/s232_annex_products.csv`) **plus** unmatched-product INFERENCE (primary chapters
+   72/73/76/74 → annex_1a; unmatched derivatives → annex_1b) — `06:~2118-2175`, ~150 lines. The adapter must reproduce
+   that EXACTLY at build time, then emit the per-product spec rates. This is the bulk of the work and the parity risk.
+2. **Leave the NON-FLAT annex rules in the calc (decision 8):** country surcharges (`pmax` overlay, `06:~2248-2310`,
+   e.g. Russia 200% aluminum), subdivision-r blend (`06:~2334-2416`), annex-III sunset (`06:~2312`). These are blends,
+   not flat product→rate.
+3. **Taiwan civil-aircraft exemption STAYS regardless** (`06:~3074-3096`) — it zeroes by metals-annex PROVENANCE
+   (`!is.na(s232_annex)`) and NULLS the `s232_annex` column; that is genuinely not a `product×country→rate` (this is
+   the one S3 verdict that was NOT an overstatement).
+4. **Entanglement — move as a COHERENT UNIT.** The `s232_annex` tag also feeds NON-rate consumers (the Taiwan gate,
+   zero-metal-content). So the relocation = (classify product→tier in the adapter → emit spec rates → still compute
+   the `s232_annex` tag for the surviving non-rate gates). Don't relocate the rates piecemeal and orphan the tag.
+
+**Gate:** standard 43-rev parity harness vs `tests/golden/9f9837d` (parity-safe by construction; a RED gate ⇒ the
+relocated classification/inference drifted, not a schema gap). Slice like S2 if the first gate is red:
+`by_product_tier` tiers → UK `overrides` → annex_3 `floors`. Adversarially re-derive a UK annex_1a + annex_1b product
+and one annex_3 product vs the golden before gating.
+
+**Dependency note:** this overlaps the annex tier with §232's existing `default`/`by_country` layers, so it's cleanest
+AFTER Plank 4b (IEEPA) lands, or as a standalone — it does not block 4b.
 
 ## Verification
 
