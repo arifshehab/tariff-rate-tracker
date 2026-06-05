@@ -404,6 +404,21 @@ This plan consolidates and supersedes the scattered phase docs (`parallel_full_p
 
 ## Progress log
 
+- **2026-06-05 — Plank 4a S2 IMPLEMENTED in 2 commits (Commit 1 parity GREEN; Commit 2 gating).**
+  Per John: develop direct on theseus (no worktrees), run unit tests inline, gate via Slurm.
+  **Commit 1 (blanket, `f59581c`) — parity GREEN 47/47, 0 violations** (array `13816297`→gather
+  `13816298`→compare vs `9f9837d`). steel/aluminum exempt + HTS overrides + config exemptions →
+  one merged `rate$by_country` (adapter `.s232_blanket_by_country` calls `is_232_exempt` over the
+  same `countries` the calc uses → bit-exact, no inversion hazard); calc reads via
+  `s232_blanket_metal_rate` (spec-first / imperative-blob-fallback); old exempt-mutate + override
+  loops + config loop deleted; `auto_exempt` left on the blob. **Commit 2 (deals)** — `validate_rate`
+  additively accepts scope-form `overrides` + a new `floors` layer (the ONLY Plank-0 touch;
+  `resolve_rate` untouched, scope/floors entries reader-invisible); adapter `.s232_deal_layers`
+  splits the auto/wood deal tibbles by concept (surcharge→`overrides` scope-form, floor→`floors`,
+  census-expanding ISO/EU at build time); calc `s232_deal_records` feeds both deal loops (math
+  unchanged: floor `pmax(rate−ORIGINAL base,0)`, surcharge flat-replace; `deal$program`→`deal$scope`);
+  `op_disable` clears the deal layers in lockstep. Unit gates GREEN: resolve_rate 70, authority_spec
+  19, authority_adapter 41, scenario_ops 50. Commit-2 parity gate next.
 - **2026-06-05 — Plank 4a S2 DESIGN LOCKED (no code yet).** Settled the hardest stage via a fan-out workflow
   (5 parallel mappers → 1 architecture-decision agent → 4 slices each designed then adversarially parity-
   verified, 14 agents) + two decisions from John. Outcome: (1) **blanket slices (exempt / metal HTS overrides /

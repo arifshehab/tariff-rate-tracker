@@ -177,6 +177,19 @@ check(isTRUE(validate_rate(list(product_overrides_file = 'resources/x.csv'), 'a/
 check(isTRUE(validate_rate(list(default = 0.50, overrides = list('4120' = 0.25)), 's232/steel')),
       'named-scalar overrides map validates (the existing spec-test shape)')
 
+# Plank 4a/S2 deals: scope-form overrides (a product scope LABEL, no enumerated products) +
+# the floors layer validate; both are reader-invisible (the calc reads them, not resolve_rate).
+check(isTRUE(validate_rate(list(default = 0.25,
+        overrides = list(list(scope = 'vehicles', countries = c('4120'), rate = 0.075))), 's232/autos')),
+      'scope-form override {scope, countries, rate} validates (S2 deals)')
+check(isTRUE(validate_rate(list(default = 0.25,
+        floors = list(list(scope = 'vehicles', countries = c('4280'), floor = 0.15))), 's232/autos')),
+      'floors layer {scope, countries, floor} validates (S2 deals)')
+check(identical(resolve_rate(list(default = 0.25,
+        overrides = list(list(scope = 'vehicles', countries = '4120', rate = 0.075))),
+        product = '8703', country = '4120')$value, 0.25),
+      'scope-form override is reader-invisible: resolve_rate returns default(0.25), not the deal rate')
+
 cat('--- validate_rate: fail-loud on malformed real layers ---\n')
 
 expect_error(validate_rate(list(rate_type = 'bogus'), 'a/b'),
@@ -199,6 +212,14 @@ expect_error(validate_rate(list(overrides = list(list(rate = 0.1))), 'a/b'),
              'override entry missing products rejected')
 expect_error(validate_rate(list(overrides = list(0.25)), 'a/b'),
              'unnamed scalar override rejected (needs a product-code name)')
+expect_error(validate_rate(list(overrides = list(list(rate = 0.1))), 'a/b'),
+             'override entry with neither products nor scope rejected (S2)')
+expect_error(validate_rate(list(floors = list(list(scope = 'v', countries = '1', floor = -0.1))), 'a/b'),
+             'floors entry with negative floor rejected (S2)')
+expect_error(validate_rate(list(floors = list(list(countries = '1', floor = 0.15))), 'a/b'),
+             'floors entry with no scope rejected (S2)')
+expect_error(validate_rate(list(floors = list(list(scope = 'v', countries = '1'))), 'a/b'),
+             'floors entry with no floor rejected (S2)')
 expect_error(validate_rate('not a list', 'a/b'),
              'non-list rate rejected')
 

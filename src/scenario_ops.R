@@ -41,10 +41,11 @@ SCOPE_DRIVEN_AUTHORITIES <- c('section_301', 'section_201')
 # steel/aluminum exempt lists + HTS country overrides + config exemptions, merged into
 # one per-country overlay). set_rate / disable mutate the per-program defaults (and
 # recompute has_232); set_exempt(steel/aluminum) now writes the by_country overlay, and
-# disable also clears it. The NON-rate fields still on the residual blob (programs[[1]]$
-# rate$resolved, drained in later slices/S3): auto_has_deals/auto_has_parts,
-# wood_furniture_rate, the derivative rates, the deal tibbles, auto_exempt, and the
-# has_232 gate flag.
+# disable also clears it. The auto/wood DEAL tibbles are de-blobbed too (S2 deals slice):
+# surcharge deals -> the autos/wood program rate$overrides (scope-form), floor deals ->
+# rate$floors; disable clears those layers. The NON-rate fields STILL on the residual blob
+# (programs[[1]]$rate$resolved, drained in S3/decision-8): auto_has_deals/auto_has_parts
+# (has_232 gate inputs), wood_furniture_rate, the derivative rates, auto_exempt, and has_232.
 RATE_DRIVEN_AUTHORITIES <- c('section_232')
 
 # Authorities whose scalar rate the calculator reads from the compositional
@@ -214,6 +215,8 @@ op_disable <- function(specs, op, idx) {
       pos <- .find_program_index(spec, prog, idx, 'disable')
       spec$programs[[pos]]$rate$default    <- 0
       spec$programs[[pos]]$rate$by_country <- NULL
+      spec$programs[[pos]]$rate$overrides  <- NULL   # S2 deals: drop scope-form surcharge deals
+      spec$programs[[pos]]$rate$floors     <- NULL   # S2 deals: drop floor deals
     }
     # Zero the residual non-rate gate inputs still on the blob, and force has_232 OFF.
     r <- .op_get_resolved(spec)

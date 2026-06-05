@@ -125,6 +125,38 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
   bc
 }
 
+# ---- Section 232 country deals (Plank 4a / S2 deals slice) -------------------
+#
+# Re-pack a deal tibble (country=ISO, rate, rate_type 'floor'|'surcharge', program,
+# ch99_code) into the program's compositional rate layers, split by CONCEPT:
+#   surcharge deals -> rate$overrides scope-form entry {scope, countries, rate}
+#   floor deals     -> rate$floors        entry        {scope, countries, floor}
+# ISO/EU country is CENSUS-EXPANDED here at build time (mirroring the calc's
+# iso_to_census_vec: EU -> the 27 census codes; ISO -> ISO_TO_CENSUS), so the records
+# are census-keyed. `scope` is the parser's deal$program verbatim (the calc expands it
+# to the product set at run time). The floor/surcharge MATH stays in the calc (decision
+# 8); resolve_rate is NOT asked to apply it. Returns list(overrides=, floors=).
+.s232_deal_layers <- function(deal_tbl, cc) {
+  if (is.null(deal_tbl) || !nrow(deal_tbl)) return(list(overrides = list(), floors = list()))
+  iso2c <- function(iso) {
+    if (identical(iso, 'EU')) return(as.character(cc$EU27_CODES))
+    v <- cc$ISO_TO_CENSUS[iso]
+    if (length(v) == 0 || is.na(v)) character(0) else as.character(v)
+  }
+  ov <- list(); fl <- list()
+  for (i in seq_len(nrow(deal_tbl))) {
+    d <- deal_tbl[i, ]
+    rec_scope <- if ('program' %in% names(d)) as.character(d$program) else NA_character_
+    ctys <- iso2c(d$country)
+    if (identical(d$rate_type, 'floor')) {
+      fl[[length(fl) + 1L]] <- list(scope = rec_scope, countries = ctys, floor = as.numeric(d$rate))
+    } else {
+      ov[[length(ov) + 1L]] <- list(scope = rec_scope, countries = ctys, rate = as.numeric(d$rate))
+    }
+  }
+  list(overrides = ov, floors = fl)
+}
+
 # ---- the adapter ------------------------------------------------------------
 
 #' Re-package the bespoke per-authority parser outputs into an authority_spec_set.
@@ -232,6 +264,19 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
     section_232 <- .s232_set_by_country(section_232, 'aluminum',
       .s232_blanket_by_country(s232_rates, pp, countries, effective_date,
                                'aluminum_exempt', 'aluminum_country_overrides', 'aluminum'))
+    # Plank 4a / S2 (deals slice): de-blob the auto + wood country-deal tibbles into the
+    # autos / wood programs. Surcharge deals -> rate$overrides (scope-form), floor deals ->
+    # rate$floors; ISO/EU census-expanded here (cc). The calc reads them via s232_deal_records()
+    # (spec-first, blob-fallback) and keeps the floor/surcharge math (decision 8). auto_has_deals
+    # / wood_furniture_rate / derivatives stay on the residual blob (has_232 gate; S3/decision-8).
+    .s232_set_deals <- function(spec, prog_id, layers) {
+      pos <- which(vapply(spec$programs, function(p) identical(p$id, prog_id), logical(1)))
+      if (length(layers$overrides)) spec$programs[[pos]]$rate$overrides <- layers$overrides
+      if (length(layers$floors))    spec$programs[[pos]]$rate$floors    <- layers$floors
+      spec
+    }
+    section_232 <- .s232_set_deals(section_232, 'autos', .s232_deal_layers(s232_rates$auto_deal_rates, cc))
+    section_232 <- .s232_set_deals(section_232, 'wood',  .s232_deal_layers(s232_rates$wood_deal_rates, cc))
     # Phase 2c/6c: precompute the heading-program activation gates. Since S1b
     # compute_heading_gates reads the program rates off the spec (rate$default via
     # s232_spec_rate) + the non-rate flags off the resolved blob, so pass both. At

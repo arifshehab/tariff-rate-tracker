@@ -20,8 +20,14 @@ source(here('src', 'authority_spec.R'))
 # --- stubs (stand in for 05_parse_policy_params.R / rate_schema.R / 06; resolved
 #     at call time in the global env) ----------------------------------------
 load_policy_params    <- function() list()
-get_country_constants <- function(pp) list(CTY_CHINA = '5700', CTY_CANADA = '1220',
-                                            CTY_MEXICO = '2010')
+get_country_constants <- function(pp) list(
+  CTY_CHINA = '5700', CTY_CANADA = '1220', CTY_MEXICO = '2010',
+  # S2 deals slice: the adapter census-expands deal ISO/EU via cc$ISO_TO_CENSUS / cc$EU27_CODES.
+  ISO_TO_CENSUS = c('UK' = '4120', 'GB' = '4120', 'JP' = '5880', 'KR' = '5800',
+                    'CN' = '5700', 'CA' = '1220', 'MX' = '2010'),
+  EU27_CODES = c('4330','4231','4870','4791','4910','4351','4099','4470','4050','4279',
+                 '4280','4840','4370','4190','4759','4490','4510','4239','4730','4210',
+                 '4550','4710','4850','4359','4792','4700','4010'))
 filter_active_ch99    <- function(ch99_data, effective_date) ch99_data
 HEADING_GATES_SENTINEL <- list(autos_passenger = TRUE, copper = FALSE)
 compute_heading_gates <- function(specs, s232_rates) HEADING_GATES_SENTINEL  # S1b: (specs, s232_rates)
@@ -44,7 +50,16 @@ ieepa <- data.frame(country = c('5700', '4280'), rate = c(0.20, 0.10),
                     stringsAsFactors = FALSE)
 attr(ieepa, 'universal_baseline') <- 0.10        # must survive the embed + RDS
 s232  <- list(has_232 = TRUE, steel_rate = 0.50, aluminum_rate = 0.50,
-              steel_exempt = c('1220'))
+              steel_exempt = c('1220'),
+              # S2 deals slice: auto (UK surcharge vehicles + EU floor vehicles) + wood (UK surcharge)
+              auto_deal_rates = data.frame(
+                country = c('UK', 'EU'), rate = c(0.075, 0.15),
+                rate_type = c('surcharge', 'floor'),
+                program = c('auto_vehicles', 'auto_vehicles'),
+                ch99_code = c('9903.94.31', '9903.94.32'), stringsAsFactors = FALSE),
+              wood_deal_rates = data.frame(
+                country = 'UK', rate = 0.10, rate_type = 'surcharge',
+                program = 'softwood', ch99_code = '9903.76.01', stringsAsFactors = FALSE))
 fent  <- data.frame(country = c('5700', '1220', '2010'), rate = c(0.20, 0.25, 0.25),
                     stringsAsFactors = FALSE)
 
@@ -109,6 +124,27 @@ check(identical(resolve_rate(.prog('steel')$rate, product = NULL, country = '122
       'calc read: resolve_rate(steel, country=Canada) = 0 (exempt via by_country)')
 check(identical(resolve_rate(.prog('steel')$rate, product = NULL, country = '5700')$value, 0.50),
       'calc read: resolve_rate(steel, country=China) = 0.50 (base; not in by_country)')
+
+cat('\n--- Plank 4a / S2 deals: auto/wood deals -> rate$overrides (surcharge) + rate$floors ---\n')
+.autos <- .prog('autos')
+check(length(.autos$rate$overrides) == 1L &&
+      identical(.autos$rate$overrides[[1]]$rate, 0.075) &&
+      identical(.autos$rate$overrides[[1]]$scope, 'auto_vehicles'),
+      'autos surcharge deal -> rate$overrides scope-form {scope, rate} (S2 deals)')
+check(identical(.autos$rate$overrides[[1]]$countries, '4120'),
+      'autos override UK ISO->census (4120) at build time')
+check(length(.autos$rate$floors) == 1L &&
+      identical(.autos$rate$floors[[1]]$floor, 0.15) &&
+      length(.autos$rate$floors[[1]]$countries) == 27L,
+      'autos floor deal (EU) -> rate$floors, EU expanded to 27 census codes')
+check(identical(resolve_rate(.autos$rate, product = NULL, country = '4120')$value, 0),
+      'scope-form overrides/floors invisible to resolve_rate: returns default(0), not the deal rate')
+check(length(.prog('wood')$rate$overrides) == 1L &&
+      identical(.prog('wood')$rate$overrides[[1]]$rate, 0.10) &&
+      identical(.prog('wood')$rate$overrides[[1]]$scope, 'softwood'),
+      'wood surcharge deal -> wood program rate$overrides (S2 deals)')
+check(isTRUE(validate_spec_set(specs)),
+      'spec set with scope-form overrides + floors still validates (Plank-0 additive change)')
 
 cat('\n--- Plank 4a / S1b: heading programs de-blobbed + dormant pharmaceuticals program ---\n')
 prog_ids <- vapply(s232_progs, function(p) p$id, character(1))

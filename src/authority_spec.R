@@ -284,7 +284,7 @@ validate_rate <- function(rate, ctx) {
 
   allowed <- c('default', 'by_country', 'default_unlisted_rate', 'default_unlisted',
                'overrides', 'by_product_tier', 'target_total', 'rate_type',
-               'flat', 'resolved', 'product_overrides_file')
+               'flat', 'resolved', 'product_overrides_file', 'floors')
   unknown <- setdiff(names(rate), allowed)
   unknown <- unknown[nzchar(unknown)]
   if (length(unknown)) stop(sprintf('[%s] unknown rate field(s): %s', ctx,
@@ -325,13 +325,18 @@ validate_rate <- function(rate, ctx) {
     for (i in seq_along(ov)) {
       o  <- ov[[i]]
       nm <- if (!is.null(onames)) onames[i] else ''
-      if (is.list(o)) {                              # entry form: {products, rate}
+      if (is.list(o)) {                              # entry form: {products|scope, [countries], rate}
         r <- o$rate
         if (is.null(r) || !is.numeric(r) || length(r) != 1L || !is.finite(r) || r < 0)
           stop(sprintf('[%s] rate$overrides[[%d]]$rate must be a single finite non-negative number', ctx, i))
         prods <- o$products %||% o$product
-        if (is.null(prods) || !length(unlist(prods)))
-          stop(sprintf('[%s] rate$overrides[[%d]] needs non-empty products', ctx, i))
+        if (is.null(prods) || !length(unlist(prods))) {
+          # scope-form (Plank 4a/S2 deals): a product SCOPE LABEL the calc expands at run
+          # time (no enumerated products). resolve_rate auto-skips it (no products -> hit_p
+          # FALSE), so it is reader-invisible; the calc reads it via s232_deal_records().
+          if (is.null(o$scope) || !is.character(o$scope) || !nzchar(as.character(o$scope)[1]))
+            stop(sprintf('[%s] rate$overrides[[%d]] needs non-empty products OR a scope label', ctx, i))
+        }
       } else if (is.numeric(o) && length(o) == 1L) { # named-scalar form: product -> rate
         if (!nzchar(nm))
           stop(sprintf('[%s] rate$overrides[[%d]] scalar form needs a product-code name', ctx, i))
@@ -340,6 +345,24 @@ validate_rate <- function(rate, ctx) {
       } else {
         stop(sprintf('[%s] rate$overrides[[%d]] must be a {products,rate} list or a named numeric scalar', ctx, i))
       }
+    }
+  }
+
+  # floors (Plank 4a/S2 deals): a list of {scope, countries, floor} entries the calc applies
+  # as pmax(floor - base, 0) vs the ORIGINAL base. Reader-invisible (resolve_rate never reads
+  # rate$floors); read by the calc via s232_deal_records().
+  fl <- .rate_get(rate, 'floors')
+  if (!.rate_is_hollow(fl)) {
+    if (!is.list(fl)) stop(sprintf('[%s] rate$floors must be a list', ctx))
+    for (i in seq_along(fl)) {
+      f <- fl[[i]]
+      if (!is.list(f))
+        stop(sprintf('[%s] rate$floors[[%d]] must be a {scope, countries, floor} list', ctx, i))
+      fr <- f$floor
+      if (is.null(fr) || !is.numeric(fr) || length(fr) != 1L || !is.finite(fr) || fr < 0)
+        stop(sprintf('[%s] rate$floors[[%d]]$floor must be a single finite non-negative number', ctx, i))
+      if (is.null(f$scope) || !is.character(f$scope) || !nzchar(as.character(f$scope)[1]))
+        stop(sprintf('[%s] rate$floors[[%d]] needs a non-empty scope label', ctx, i))
     }
   }
   invisible(TRUE)

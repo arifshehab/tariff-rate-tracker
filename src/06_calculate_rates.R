@@ -357,6 +357,42 @@ s232_blanket_metal_rate <- function(specs, s232_rates, pp, effective_date, count
 }
 
 
+#' Read a §232 program's country DEAL records (Plank 4a / S2 deals slice), spec-first.
+#'
+#' Reconstructs an ordered record list {scope, countries(census), rate, rate_type} from the
+#' program's rate$overrides (scope-form -> 'surcharge') + rate$floors ('floor'). The product
+#' axis is a scope LABEL the calc expands at run time; the floor/surcharge MATH stays in the
+#' calc (decision 8). Blob fallback (specs-less dual-signature callers, retained until Plank
+#' 7): re-pack the blob tibble, census-expanding via `iso_to_census` (the calc's
+#' iso_to_census_vec closure) so the records are byte-identical. No (product x country) cell is
+#' hit by two deals, so the overrides-then-floors order is bit-exact regardless of order.
+s232_deal_records <- function(specs, s232_rates, program_id, blob_field, iso_to_census) {
+  if (!is.null(specs) && !is.null(specs[['section_232']])) {
+    progs <- specs[['section_232']]$programs
+    pos <- which(vapply(progs, function(p) identical(p$id, program_id), logical(1)))
+    if (length(pos) == 1L) {
+      rt <- progs[[pos]]$rate; recs <- list()
+      ov <- rt$overrides
+      if (!is.null(ov) && is.list(ov)) for (o in ov) if (is.list(o) && !is.null(o$scope))
+        recs[[length(recs) + 1L]] <- list(scope = as.character(o$scope),
+          countries = as.character(unlist(o$countries)), rate = o$rate, rate_type = 'surcharge')
+      fl <- rt$floors
+      if (!is.null(fl) && is.list(fl)) for (f in fl) if (is.list(f))
+        recs[[length(recs) + 1L]] <- list(scope = as.character(f$scope),
+          countries = as.character(unlist(f$countries)), rate = f$floor, rate_type = 'floor')
+      return(recs)
+    }
+  }
+  tbl <- s232_rates[[blob_field]]
+  if (is.null(tbl) || !nrow(tbl)) return(list())
+  lapply(seq_len(nrow(tbl)), function(i) {
+    d <- tbl[i, ]
+    list(scope = if ('program' %in% names(d)) as.character(d$program) else NA_character_,
+         countries = iso_to_census(d$country), rate = d$rate, rate_type = d$rate_type)
+  })
+}
+
+
 #' Check if country applies to a Chapter 99 entry
 #'
 #' @param country Census country code
@@ -1881,10 +1917,13 @@ calculate_rates_for_revision <- function(
   }
 
   # Apply auto deal rates
-  if (nrow(s232_rates$auto_deal_rates) > 0 && length(auto_products) > 0) {
-    for (i in seq_len(nrow(s232_rates$auto_deal_rates))) {
-      deal <- s232_rates$auto_deal_rates[i, ]
-      census_codes <- iso_to_census_vec(deal$country)
+  # Plank 4a / S2 (deals): records from the spec (rate$overrides scope-form + rate$floors);
+  # countries are PRE-CENSUS-EXPANDED by the adapter (blob fallback expands via iso_to_census_vec).
+  auto_deals <- s232_deal_records(specs, s232_rates, 'autos', 'auto_deal_rates', iso_to_census_vec)
+  if (length(auto_deals) > 0 && length(auto_products) > 0) {
+    for (i in seq_along(auto_deals)) {
+      deal <- auto_deals[[i]]
+      census_codes <- deal$countries          # already census; EU already 27
       if (length(census_codes) == 0) next
 
       # Determine which products this deal covers (vehicles vs parts).
@@ -1901,7 +1940,7 @@ calculate_rates_for_revision <- function(
         vehicle_heading_names,
         function(nm) heading_product_lists[[nm]]$products
       )))
-      deal_products <- if (deal$program == 'auto_parts') {
+      deal_products <- if (deal$scope == 'auto_parts') {
         # Parts: auto_products not in the vehicle set. Empty vehicle_products
         # (no autos_passenger/light_truck headings active in this revision)
         # collapses to auto_products, which is the correct parts-only scope.
@@ -1958,10 +1997,11 @@ calculate_rates_for_revision <- function(
   }
   all_wood_products <- unique(c(wood_softwood_products, wood_furn_products))
 
-  if (nrow(s232_rates$wood_deal_rates) > 0 && length(all_wood_products) > 0) {
-    for (i in seq_len(nrow(s232_rates$wood_deal_rates))) {
-      deal <- s232_rates$wood_deal_rates[i, ]
-      census_codes <- iso_to_census_vec(deal$country)
+  wood_deals <- s232_deal_records(specs, s232_rates, 'wood', 'wood_deal_rates', iso_to_census_vec)
+  if (length(wood_deals) > 0 && length(all_wood_products) > 0) {
+    for (i in seq_along(wood_deals)) {
+      deal <- wood_deals[[i]]
+      census_codes <- deal$countries
       if (length(census_codes) == 0) next
 
       # Wood deals apply to all wood products (softwood + furniture/cabinets)

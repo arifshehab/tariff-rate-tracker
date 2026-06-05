@@ -171,6 +171,18 @@ check(identical(.s232p(d, 'steel')$rate$default, 0) && identical(.s232p(d, 'copp
 check(isFALSE(.s232_resid(d)$has_232),
       'disable 232 -> has_232 FALSE (residual gate)')
 
+# S2 deals: disable also clears the autos/wood deal layers (overrides scope-form + floors).
+rspecs_deals <- rspecs
+.au <- which(vapply(rspecs_deals[['section_232']]$programs,
+                    function(p) identical(p$id, 'autos'), logical(1)))
+rspecs_deals[['section_232']]$programs[[.au]]$rate$overrides <-
+  list(list(scope = 'auto_vehicles', countries = '4120', rate = 0.075))
+rspecs_deals[['section_232']]$programs[[.au]]$rate$floors <-
+  list(list(scope = 'auto_vehicles', countries = '4280', floor = 0.15))
+dd <- apply_operations(rspecs_deals, list(list(op = 'disable', authority = 'section_232')))
+check(is.null(.s232p(dd, 'autos')$rate$overrides) && is.null(.s232p(dd, 'autos')$rate$floors),
+      'disable 232 clears the autos deal layers (rate$overrides + rate$floors) (S2 deals)')
+
 # section_122 (Plank 3): set_rate then disable round-trips the rate$default scalar.
 d122 <- apply_operations(rspecs, list(
   list(op = 'set_rate', authority = 'section_122', rate = 0.15),
