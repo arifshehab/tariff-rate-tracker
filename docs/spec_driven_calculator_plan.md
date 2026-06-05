@@ -137,18 +137,59 @@ remove the bespoke args from `calculate_rates_for_revision()` so it takes **spec
 
 ## Verification
 
-- **Baseline golden:** capture once at the branch point (clean build via `sbatch`).
+- **Baseline golden:** `tests/golden/9f9837d` (the native-format twin of the published
+  `2026-06-04_2` vintage; same commit, `policy_params_md5` matches the manifest). Captured
+  via `scripts/capture_parity_golden.R`.
 - **Per plank:** numeric-tolerance parity gate (panel + daily) via the existing harness,
-  ε per column class (decision 3). John runs the gate live.
+  ε per column class (decision 3).
+
+  **USE THE PARALLEL ARRAY BUILD — never the serial `00_build_timeseries.R --full`.**
+  The monolithic builder's `--workers` flag is a no-op (serial: ~1h45m for 43 revisions;
+  Plank 1 burned that once). The array path builds one Slurm task per revision concurrently
+  (~10–15 min) and is what built the golden:
+    1. `bash scripts/submit_build_array.sh` (with `GATHER_ARGS="--unweighted"` to skip the
+       un-gated weighted ETR) — generates the revlist, submits one array task per revision,
+       and chains the gather (assemble → daily) via an `afterok` dependency.
+    2. then `Rscript scripts/run_parity_check.R --golden tests/golden/9f9837d --artifacts
+       snapshot,daily_overall,daily_by_authority,daily_by_country,daily_by_category`.
+  - The array path rebuilds **every** revision fresh, so it has no "incremental no-op" trap.
+    (The serial builder WITHOUT `--full` silently reuses on-disk snapshots → a false-green
+    gate; Plank 1's first run hit exactly this. If ever using the serial path, `--full` AND
+    pre-delete `data/timeseries/snapshot_*.rds`.)
+  - **Skip the monolithic `timeseries` artifact** in the parity check: the 1.38 GB
+    `rate_timeseries.rds` ×2 OOMs at 192 G. The 43 per-snapshot comparisons cover the same
+    data one file at a time (memory-safe), with no loss of coverage.
+  - The golden is frozen in `tests/golden/`, so the array build overwriting
+    `data/timeseries/` is safe.
 - **Plank 0:** unit tests on `resolve_rate`/`apply_rate_semantics`/`validate_rate` (no recompute).
 - **Planks 1/6:** also add scenario unit tests (rescope 301; rescope/rebump IEEPA).
 - A plank is "done" only when parity is green within tolerance AND its bespoke branch(es)
   are deleted (deleting only the branch while leaving scope hardcoded is a silent miss).
 
+  > **Parity ≠ correctness.** The gate compares candidate vs golden, so it only catches
+  > *changes* — it is **blind to bugs already baked into the golden** (candidate and golden
+  > agree → green). Absolute-invariant unit tests (e.g. `tests/test_rate_calculation.R`) are
+  > what catch latent baseline bugs; keep running them alongside the gate. (This is the same
+  > reason Pass 2 — behaviour changes — needs an external oracle, not parity.) Live example:
+  > the Russia §232 aluminium-surcharge leak (below) is present in the golden, so parity is
+  > green on those snapshots while `test_rate_calculation` fails its Russia invariants.
+
 ## Hygiene (fold in opportunistically)
 
 - Fix the list-column bug in `scripts/diagnose_parse_loss.R` (the bogus ~70% all-dangling
   metric; `n_dangling_codes=0` is the real signal) before anyone reruns it.
+
+## Known pre-existing bugs (NOT introduced by this refactor; flagged for John)
+
+- **Russia §232 aluminium-surcharge leak.** `tests/test_rate_calculation.R` fails 3 absolute
+  invariants (lines ~856/872/908) on `snapshot_2026_rev_5.rds`: the 200% Russia surcharge
+  (scoped to *aluminium*) appears to leak onto (a) Russia *steel* (HS 72/73) and (b) Annex-II
+  non-semiconductor products that should be §232-exempt (Note 39a invariant). Present in the
+  current **golden** data, so the parity gate is green on it — only the invariant tests catch
+  it. Behaviour-changing to fix → its own task (likely a Pass-2 / surcharge-scoping item),
+  out of scope for the Pass-1 planks.
+- Non-fatal quality-report `$`-on-atomic error during the build (build still exits 0); not
+  from the spec work (`quality_report.R` doesn't touch `by_product_tier`).
 
 ## Appendix — Pass 2 (NOT in scope; specified for the future)
 
