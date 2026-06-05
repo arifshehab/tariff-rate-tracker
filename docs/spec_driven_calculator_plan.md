@@ -162,16 +162,93 @@ scripts/submit_plank3_units.sh` (47+19+21 assertions) + `scripts/submit_plank3_p
   - **Staging = 4 commits, finer S1 (decided with John).** Full-repoint dropped the
     trivial-bit-exact S1 (scalars are entangled with the shared `has_232` gate), so S1 was split
     to isolate the gate risk. Each = commit + full parallel-array parity gate vs `9f9837d`:
-    - **S1a** — blanket steel/aluminum/auto BASE reads (`06:1600-1602`) → `rate$default`. LOW risk;
-      3 sites + adapter; gate machinery untouched. Helper `s232_spec_rate()` reads
-      `resolve_rate(prog$rate)$value`, falls back to the blob scalar for the specs-less callers (Plank 7).
-    - **S1b** — heading programs + `compute_heading_gates`/`resolve_heading_rate`/`.s232_recompute_has_232`
-      repointed to the spec (heading-name→program-id map is already 1:1). HIGH risk (the gate), isolated.
-    - **S2** — country deals/overrides/exempts → `overrides`/`by_country` (floors = `floor_static`,
-      ORIGINAL base = current code; EU27 left unversioned). HIGH risk.
-    - **S3** — delete UK annex deal, model Taiwan aircraft as a scoped 0, drain the residual blob. MED.
+    - **S1a ✅ DONE — parity GREEN 47/47** (commit `2a2232e`). blanket steel/aluminum/auto BASE reads
+      (`06:1600-1602`) → `rate$default`. Helper `s232_spec_rate(specs, s232_rates, program_id, blob_field)`
+      reads `resolve_rate(prog$rate)$value`, falls back to the blob scalar for the specs-less callers (Plank 7).
+    - **S1b ✅ DONE — parity GREEN 47/47** (commit `307401b`). heading programs (copper/mhd/wood/semi) +
+      a dormant `pharmaceuticals` program get `rate$default`; `compute_heading_gates`/`resolve_heading_rate`/
+      `.s232_recompute_has_232` repointed to read program rates off the spec (heading→program-id via the new
+      `HEADING_RESOLVED_PROGRAM` map). The non-rate gate inputs (`auto_has_deals`/`auto_has_parts`,
+      `wood_furniture_rate`, derivatives) stay on the residual blob. Unit: adapter 31/31, scenario_ops 48/48.
+    - **S2 ⬜ NEXT** — country deals/overrides/exempts → `overrides`/`by_country` (floors = `floor_static`,
+      ORIGINAL base = current code; EU27 left unversioned). HIGH risk. **See the handoff notes below.**
+    - **S3 ⬜** — delete UK annex deal, model Taiwan aircraft as a scoped 0, drain the residual blob. MED.
+  - **Gate-tooling fix landed (commit `134759f`, src/parity.R):** the `--unweighted` build drops the
+    un-gated weighted/ETR columns (`weighted_etr*`, `etr_*`, `*_imports_b`) the golden carries; the
+    comparator now skips golden-only columns matching `^weighted_etr|^etr_|_imports_b$` instead of
+    false-flagging them. Without this, every 4a daily gate false-fails post-gather-refactor.
   - **DEFER to Plank 5:** metal/stacking shells + the 4-copy metal-chapter→type map (`stacking.R:83`,
     `06:555/2061/2159` — copies already disagree on copper). 4a leaves them.
+
+#### Plank 4a — execution notes & handoff (as of S1b green, 2026-06-05)
+
+> Written for a fresh instance picking up at **S2**. Read this + the Progress log before touching code.
+
+**Architecture as actually built (the full-repoint pattern — reuse it for S2/S3):**
+- **`s232_spec_rate(specs, s232_rates, program_id, blob_field)`** (`06_calculate_rates.R`, just after
+  `resolve_heading_rate`) is the central read helper. Spec present → `resolve_rate(program$rate)$value`
+  (the de-blobbed `rate$default`, incl. 0 — NA only when truly absent → then blob fallback). Specs-less
+  dual-signature callers (`test_tpc_comparison`, `run_tests_daily_series`) → the blob scalar. **Retain the
+  blob fallback until Plank 7.** Every new S2 read should go through this same spec-first/blob-fallback shape.
+- **The residual blob shrinks per stage** and rides on `programs[[1]]` (steel) `$rate$resolved`, read by
+  `s232_rates_from_specs(specs)`. After S1a+S1b it still holds: exempt lists, `*_country_overrides`,
+  `auto_deal_rates`/`wood_deal_rates`, derivatives, `auto_has_deals`/`auto_has_parts`, `wood_furniture_rate`,
+  `has_232`. **S2 drains the deals/overrides/exempts; S3 drains the rest (derivatives stay per decision 8).**
+- **`has_232` stays a residual field**, recomputed by `.s232_recompute_has_232(spec)` which reads the 8
+  program `rate$default`s off the spec + the residual non-rate terms. **Keep the THREE has_232 formulas in
+  lockstep:** `extract_section232_rates` (parser baseline), `compute_heading_gates` (calc), and
+  `.s232_recompute_has_232` (scenario_ops). The s122 `value>0` substitution does NOT apply here.
+- **scenario_ops:** §232 `set_rate`/`disable` mutate each program's `rate$default` (via `.find_program_index`)
+  and recompute `has_232` from the spec; `set_exempt` still writes the residual exempt lists (S2 moves it).
+  The scenario behavior is validated by `tests/test_scenario_ops.R` (unit), **NOT** by the parity gate.
+
+**Gate mechanics — learned the hard way (do not relearn):**
+- **The build sources LIVE `src/*.R` at task runtime.** NEVER edit live source while a parity build for
+  another stage is in flight — late/retried array tasks will compile the half-edited file and silently
+  poison the gate. **Workflow that works:** develop the next stage in a git worktree (`git worktree add -b
+  <stage>-dev ../trt-<stage> HEAD`), unit-test there (pure-logic tests need no build data), and
+  `git cherry-pick` onto `theseus` only once the prior stage's build has finished. (`trt-s1b` on branch
+  `s1b-dev` exists and can be reused.)
+- **Parity is baseline-only** (empty ops): it validates that the read-repoint is bit-exact, NOT the scenario
+  mutations. Each stage is bit-exact *by construction* — `rate$default` holds the same scalar the old blob
+  read returned, and `resolve_rate` returns it verbatim. If a stage's gate is RED, a real number moved.
+- **Run R via** `module load R/4.4.2-gfbf-2024a` (Rscript isn't on the bare PATH). Pure-logic unit tests run
+  fine in the interactive alloc; heavy builds go through Slurm.
+- **Gate commands (the live 2-step, ~18 min):**
+  1. `GATHER_ARGS="--unweighted" bash scripts/submit_build_array.sh` → array (one task/rev) + `afterok` gather.
+  2. once gather done: `GOLDEN=tests/golden/9f9837d sbatch scripts/submit_plank3_parity.sh` (generic; reusable
+     for every stage). Verdict in `output/parity_results_<ts>/` + the summary slurm log (`47 passed / 0 failed`
+     = GREEN). No `--no-config-check` needed unless a stage edits `config/policy_params.yaml`.
+
+**S2 plan (my view — the riskiest stage; slice finer if the first gate is red):**
+- Six scattered deal flows in `06_calculate_rates.R`, all currently reading the residual blob inside the
+  `country_232` build: HTS country overrides (`~1607-1618`, e.g. UK steel 9903.81.94), auto deals
+  (`~1823-1878`), wood deals (`~1900-1929`), config-level `S232_COUNTRY_EXEMPTIONS` (`~1625-1644`), the
+  steel/aluminum/auto `*_exempt` lists (`~1597-1599`), and the Russia surcharge. Move the SOURCE OF TRUTH
+  into structured `overrides` (product×country, via `resolve_rate`'s entry form `{products, countries, rate}`)
+  and `by_country` layers; repoint the deal loops to read per (product, country) through `s232_spec_rate`-style
+  spec reads.
+- **#1 PARITY RISK — floor-base semantics.** Auto/wood deals compute `pmax(deal_rate − base, 0)` against the
+  **ORIGINAL pre-232 MFN base** (calc `~1860/1912`), i.e. `rate_type = floor_static` (`floor_base = 'original'`),
+  **NOT** `floor_post_mfn`. Encode them as `floor_static`. Do NOT "fix" to post-MFN even if it looks cleaner —
+  the golden was built with original-base floors; that's a Pass-2 correctness question, out of scope.
+- **Other gotchas that will bite:** EU membership is expanded **unversioned** (one atomic 27-code set) — leave
+  it (parity-neutral; versioning is a deferred follow-up, see [counterfactual-generality-gap] memory).
+  Census-vs-ISO key formats; expiry `<` vs `<=`; and the **application order** (HTS overrides win after the
+  blanket; config exemptions win after HTS overrides). Reproduce each exactly.
+- **Recommendation:** if S2's first gate is RED, re-slice it (HTS overrides | auto/wood deals | config
+  exemptions | exempt lists are four different semantics — gate them separately to localize). Before gating,
+  adversarially re-derive the floor math on 2–3 known deal products by hand vs the golden snapshot.
+
+**S3 plan:**
+- **UK annex deal** (`06:2134-2145`, a `case_when` gating UK × annex-1a/1b × chapters 72/73/76): delete only
+  after confirming the S2 steel/aluminum `overrides` reproduce it exactly (product set = {annex members} ×
+  {those chapters}, override precedence wins). Otherwise it's a silent double-count or gap.
+- **Taiwan civil-aircraft exemption** (`06:2964-2995`): zeros `rate_232` for Taiwan aircraft HTS **only when
+  `s232_annex` is not NA** (metals annex) — so a blanket Taiwan-aircraft `rate=0` override would WRONGLY zero
+  auto/MHD/wood 232 duties on the same HTS. `resolve_rate(product, country)` has no annex context, so keep the
+  post-calc gate structure but source the product list/rate from the spec instead of the hardcoded loop.
+- Then drain the residual blob to just what decision-8 blends/derivatives still read.
 - **4b — IEEPA reciprocal + fentanyl (LATE, the big rock):** structure `by_country` +
   `default_unlisted_rate` (universal baseline) + `rate_type` (surcharge/floor_post_mfn/
   passthrough) + floor-exempt set. Relocate CA/MX exemption (`06:~1090`), floor-country
@@ -277,6 +354,23 @@ This plan consolidates and supersedes the scattered phase docs (`parallel_full_p
 
 ## Progress log
 
+- **2026-06-05 — Plank 4a S1a + S1b landed (both parity GREEN 47/47); gate-tooling bug fixed.**
+  Read-path decision = FULL REPOINT (no shim). **S1a** (`2a2232e`): blanket steel/aluminum/auto base
+  rates → each program's `rate$default`; new `s232_spec_rate()` helper (spec-first, blob-fallback for
+  specs-less callers). **S1b** (`307401b`): heading programs (copper/mhd/wood/semi) + a dormant
+  `pharmaceuticals` program de-blobbed; `compute_heading_gates`/`resolve_heading_rate`/
+  `.s232_recompute_has_232` repointed to read program rates off the spec (`HEADING_RESOLVED_PROGRAM`
+  map); non-rate gate inputs stay on the residual blob. scenario_ops `set_rate`/`disable` now mutate
+  `rate$default`. Both bit-exact at baseline by construction; unit gates green (adapter 31/31,
+  scenario_ops 48/48, spec 19/19, parity 22/22). Parity: S1a array `13807774`→compare `13808487`
+  (47/47); S1b array `13809706`→compare `13810632` (47/47). **Gate fix** (`134759f`, src/parity.R): the
+  `--unweighted` build drops the un-gated weighted/ETR columns the golden carries; `compare_parity` was
+  false-flagging them as `schema_missing_column` — now skipped (pattern `^weighted_etr|^etr_|_imports_b$`).
+  This was a pre-existing gather-refactor gate bug surfaced by the S1a daily artifacts (4/8/1/1 "violations"
+  = exactly the absent weighted columns). **Workflow learned:** the build sources LIVE src at task runtime,
+  so develop the next stage in a worktree + cherry-pick once the prior build is done (never edit live src
+  mid-build). **Next = S2** (country deals → overrides/by_country; floor_static; the highest-risk stage) —
+  detailed handoff in the "Plank 4a — execution notes & handoff" subsection above.
 - **2026-06-05 — Daily gather aggregation pushed into the array tasks.** Follow-up
   to the no-monolith gather: each `scripts/build_revision.R` task now writes a
   small `daily_part_<rev>.rds` from the in-memory snapshot after the snapshot is
