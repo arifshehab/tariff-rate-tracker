@@ -2117,68 +2117,19 @@ calculate_rates_for_revision <- function(
   #     fail closed if the mapping is missing or empty.
   annex_cfg <- if (!is.null(pp)) pp$S232_ANNEXES else NULL
   if (!is.null(annex_cfg) && as.Date(effective_date) >= annex_cfg$effective_date) {
-    annex_resource_file <- annex_cfg$resource_file %||% file.path('resources', 's232_annex_products.csv')
-    annex_resource_path <- if (grepl('^([A-Za-z]:|/|\\\\\\\\)', annex_resource_file)) {
-      annex_resource_file
-    } else {
-      here::here(annex_resource_file)
-    }
-    annex_map <- load_annex_products(effective_date, annex_resource_path)
-
-    if (nrow(annex_map) == 0) {
-      stop(
-        'Section 232 annex mapping is empty for annex-era revision ', revision_id,
-        ' (effective ', effective_date, '). Expected non-empty mapping at ',
-        annex_resource_path
-      )
-    }
-
-    message('  Annex products loaded: ', nrow(annex_map), ' from ', annex_resource_path)
-
-    if (nrow(annex_map) > 0) {
-      # Prefix-match annex classification to HTS10 codes.
-      # Sort longest-first so specific prefixes (e.g., 85030045 → annex_2)
-      # take priority over shorter catchalls (e.g., 850300 → annex_1b).
-      annex_pattern_map <- annex_map %>%
-        mutate(pattern = paste0('^', hts_prefix)) %>%
-        arrange(desc(nchar(hts_prefix)))
-      # Classify on the DISTINCT hts10 codes (~19.8K) then join back, instead of
-      # scanning all ~954 prefixes over the full product x country panel (~4.76M
-      # rows = 240x redundant — annex membership depends only on hts10). Same
-      # loop, same longest-prefix-first first-match-wins order, ~240x fewer rows;
-      # provably identical. (Was ~7 min on annex-era revisions; now seconds.)
-      annex_keys <- data.frame(hts10 = unique(rates$hts10), stringsAsFactors = FALSE)
-      annex_keys$s232_annex <- NA_character_
-      for (i in seq_len(nrow(annex_pattern_map))) {
-        mask <- grepl(annex_pattern_map$pattern[i], annex_keys$hts10)
-        annex_keys$s232_annex[mask & is.na(annex_keys$s232_annex)] <- annex_pattern_map$s232_annex[i]
-      }
-      rates$s232_annex <- annex_keys$s232_annex[match(rates$hts10, annex_keys$hts10)]
-
-      # Infer annex for products not matched by the prefix CSV.
-      # Primary chapters (72/73/76/74) → annex_1a unconditionally: the proclamation
-      # covers all base metal products regardless of whether old Ch99 entries still
-      # assign rate_232 (many were removed in the annex HTS revision).
-      # Unmatched derivatives → annex_1b: if a product is in s232_derivative_products
-      # but not in the annex CSV prefix list, it belongs in the downstream tier.
-      annex_1a_chapters <- annex_cfg$annexes$annex_1a$chapters %||% c('72', '73', '76', '74')
-      # Reuse deriv_products loaded in step 5. tryCatch preserved in case the
-      # earlier load returned NULL (resource file missing) — treat as empty.
-      deriv_prefixes <- tryCatch(
-        if (!is.null(deriv_products)) deriv_products$hts_prefix else character(0),
-        error = function(e) character(0)
-      )
-      deriv_pattern <- if (length(deriv_prefixes) > 0) {
-        paste0('^(', paste(deriv_prefixes, collapse = '|'), ')')
-      } else NULL
-
-      rates <- rates %>%
-        mutate(s232_annex = case_when(
-          !is.na(s232_annex) ~ s232_annex,
-          substr(hts10, 1, 2) %in% annex_1a_chapters ~ 'annex_1a',
-          !is.null(deriv_pattern) & grepl(deriv_pattern, hts10) ~ 'annex_1b',
-          TRUE ~ s232_annex
-        ))
+    # Plank 4c (Slice 2a): the §232 annex per-product facts are READ off the spec.
+    # The adapter classified the product universe ONCE (classify_s232_annex) and
+    # parked a coherent `annex` structure on section_232: $tier (the s232_annex tag),
+    # $flat_rate (tiers 1a/1b/2 -> 0.50/0.25/0), $floor_rate (tier-3 floor scalar).
+    # No in-calc classification, no config fallback — an annex-era revision REQUIRES
+    # its spec annex structure (the inner else stops loudly if it is absent).
+    ann <- if (!is.null(specs)) specs[['section_232']]$annex else NULL
+    if (!is.null(ann)) {
+      # s232_annex tag + per-product flat annex rate (tiers 1a/1b/2): read off the
+      # spec. annex_flat is NA where there is no flat rate (tier 3 / unclassified /
+      # non-annex) — those fall to the annex_3 floor arm or keep their existing rate.
+      rates$s232_annex <- unname(ann$tier[as.character(rates$hts10)])
+      annex_flat <- unname(ann$flat_rate[as.character(rates$hts10)])
 
       # Override rate_232 by annex
       #
@@ -2204,11 +2155,9 @@ calculate_rates_for_revision <- function(
                                            semi_products))
       rates <- rates %>%
         mutate(rate_232 = case_when(
-          hts10 %in% heading_program_products ~ rate_232,
-          s232_annex == 'annex_2' ~ 0,
-          s232_annex == 'annex_1a' ~ annex_cfg$annexes$annex_1a$rate,
-          s232_annex == 'annex_1b' ~ annex_cfg$annexes$annex_1b$rate,
-          s232_annex == 'annex_3' ~ pmax(0, annex_cfg$annexes$annex_3$floor_rate - base_rate),
+          hts10 %in% heading_program_products ~ rate_232,             # heading rate wins
+          !is.na(annex_flat) ~ annex_flat,                            # tiers 1a/1b/2 from the spec
+          s232_annex == 'annex_3' ~ pmax(0, ann$floor_rate - base_rate),  # tier-3 floor vs base
           TRUE ~ rate_232
         ))
 
@@ -2417,7 +2366,8 @@ calculate_rates_for_revision <- function(
         }
       }
     } else {
-      rates$s232_annex <- NA_character_
+      stop('Section 232: annex-era revision ', revision_id,
+           ' has no spec $annex structure — the build must pass specs (Plank 4c).')
     }
   } else {
     rates$s232_annex <- NA_character_

@@ -277,6 +277,46 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
     }
     section_232 <- .s232_set_deals(section_232, 'autos', .s232_deal_layers(s232_rates$auto_deal_rates, cc))
     section_232 <- .s232_set_deals(section_232, 'wood',  .s232_deal_layers(s232_rates$wood_deal_rates, cc))
+
+    # ---- Plank 4c (Slice 2a): §232 ANNEX regime de-blob -> spec --------------
+    # De-blob the annex per-product FACTS into the spec so the calculator READS
+    # them (no in-calc classification, no config fallback). Classify the product
+    # universe ONCE with the shared single-source helper (classify_s232_annex —
+    # the exact logic the calc used), map tier->flat rate from annex_cfg, and park
+    # a coherent `annex` structure on the AUTHORITY: the regime spans the metal
+    # programs and the flat rate is metal-agnostic, so it is an authority-level
+    # overlay, not one program's rate layer.
+    #   $tier       hts10 -> annex_1a/1b/2/3   (the s232_annex tag column)
+    #   $flat_rate  hts10 -> 0.50/0.25/0       (tiers 1a/1b/2; tier 3 is a base floor)
+    #   $floor_rate annex_3 floor scalar       (calc applies pmax(0, floor - base))
+    # Date-gated to the annex era; fail-closed on an empty prefix map (mirrors the
+    # calc's old guard). UK/Russia deals + sunset stay calc-side (Slices 2b/2c).
+    annex_cfg <- pp$S232_ANNEXES
+    if (!is.null(annex_cfg) && !is.null(effective_date) &&
+        as.Date(effective_date) >= as.Date(annex_cfg$effective_date)) {
+      annex_res  <- annex_cfg$resource_file %||% file.path('resources', 's232_annex_products.csv')
+      annex_path <- if (grepl('^(/|[A-Za-z]:)', annex_res)) annex_res else here::here(annex_res)
+      annex_map  <- load_annex_products(effective_date, annex_path)
+      if (nrow(annex_map) == 0) {
+        stop('Section 232 annex mapping is empty for annex-era revision ', revision_id,
+             ' (effective ', effective_date, '). Expected non-empty mapping at ', annex_path)
+      }
+      a1a_ch <- annex_cfg$annexes$annex_1a$chapters %||% c('72', '73', '76', '74')
+      deriv  <- load_232_derivative_products(effective_date = effective_date)
+      hts    <- as.character(products$hts10)
+      tier   <- classify_s232_annex(hts, annex_map, deriv, a1a_ch)
+      flat   <- c(annex_1a = as.numeric(annex_cfg$annexes$annex_1a$rate),
+                  annex_1b = as.numeric(annex_cfg$annexes$annex_1b$rate),
+                  annex_2  = as.numeric(annex_cfg$annexes$annex_2$rate %||% 0))
+      flat_rate <- unname(flat[tier])                       # NA for annex_3 / unclassified
+      keept <- !is.na(tier)      & !duplicated(hts)
+      keepf <- !is.na(flat_rate) & !duplicated(hts)
+      section_232$annex <- list(
+        tier       = setNames(tier[keept], hts[keept]),
+        flat_rate  = setNames(as.numeric(flat_rate[keepf]), hts[keepf]),
+        floor_rate = as.numeric(annex_cfg$annexes$annex_3$floor_rate))
+    }
+
     # Phase 2c/6c: precompute the heading-program activation gates. Since S1b
     # compute_heading_gates reads the program rates off the spec (rate$default via
     # s232_spec_rate) + the non-rate flags off the resolved blob, so pass both. At

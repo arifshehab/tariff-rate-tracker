@@ -442,6 +442,67 @@ load_annex_products <- function(effective_date = NULL,
 }
 
 
+#' Classify HTS10 codes into §232 annex tiers (annex_1a / annex_1b / annex_2 /
+#' annex_3, or NA for unclassified).
+#'
+#' SINGLE SOURCE OF TRUTH for the §232 annex classification. Called by the
+#' calculator (06_calculate_rates.R, step 5c) and — once the annex rates are
+#' relocated into the spec — by the adapter (authority_adapter.R). Keeping ONE
+#' implementation guarantees the calc and the spec can never drift on this logic.
+#'
+#' Reproduces the original inline calculator logic EXACTLY:
+#'   1. longest-prefix-first, first-match-wins against the (already date-gated)
+#'      annex prefix map, then
+#'   2. inference for products the CSV did not match: primary chapters
+#'      (72/73/76/74) -> annex_1a; otherwise §232 derivatives -> annex_1b.
+#'
+#' ARM ORDER IS LOAD-BEARING: chapter inference runs BEFORE derivative inference,
+#' so a chapter-76 product that is ALSO a derivative (e.g. 7616109030) resolves
+#' to annex_1a, NOT annex_1b. Do not reorder. Likewise the longest-prefix-first
+#' sort + is.na() guard implement first-match-wins; do not reorder.
+#'
+#' @param hts10            HTS10 codes to classify (any order; deduped internally)
+#' @param annex_map        load_annex_products() output (hts_prefix, s232_annex)
+#' @param deriv_products   §232 derivative products tibble (hts_prefix col) or NULL
+#' @param annex_1a_chapters 2-digit chapters inferred as annex_1a
+#' @return character vector of annex tiers aligned to `hts10` (NA = unclassified)
+classify_s232_annex <- function(hts10, annex_map, deriv_products = NULL,
+                                annex_1a_chapters = c('72', '73', '76', '74')) {
+  keys <- unique(as.character(hts10))
+  tier <- rep(NA_character_, length(keys))
+
+  # 1. longest-prefix-first, first-match-wins (the is.na() guard keeps the first
+  #    assignment, which respects the longest-first sort).
+  if (!is.null(annex_map) && nrow(annex_map) > 0) {
+    pat <- annex_map %>%
+      mutate(pattern = paste0('^', hts_prefix)) %>%
+      arrange(desc(nchar(hts_prefix)))
+    for (i in seq_len(nrow(pat))) {
+      mask <- grepl(pat$pattern[i], keys)
+      tier[mask & is.na(tier)] <- pat$s232_annex[i]
+    }
+  }
+
+  # 2. inference for unmatched products (chapter BEFORE derivative — see above).
+  deriv_prefixes <- tryCatch(
+    if (!is.null(deriv_products)) deriv_products$hts_prefix else character(0),
+    error = function(e) character(0)
+  )
+  deriv_hit <- if (length(deriv_prefixes) > 0) {
+    grepl(paste0('^(', paste(deriv_prefixes, collapse = '|'), ')'), keys)
+  } else rep(FALSE, length(keys))
+
+  tier <- dplyr::case_when(
+    !is.na(tier)                              ~ tier,
+    substr(keys, 1, 2) %in% annex_1a_chapters ~ 'annex_1a',
+    deriv_hit                                 ~ 'annex_1b',
+    TRUE                                      ~ tier
+  )
+
+  tier[match(as.character(hts10), keys)]
+}
+
+
 #'         (high=0.75, low=0.25, copper=0.90)
 #'   bea:  HS10-level shares from BEA 2017 Detail I-O table
 #'         (resources/metal_content_shares_bea_hs10.csv)

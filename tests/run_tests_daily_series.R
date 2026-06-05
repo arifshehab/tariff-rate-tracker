@@ -20,6 +20,23 @@ library(here)
 source(here('src', 'helpers.R'))
 source(here('src', '09_daily_series.R'))
 
+# Plank 4c: the §232 annex regime is SPEC-ONLY (no config fallback in the calc),
+# so annex-era integration tests must build a spec and pass it. This mirrors the
+# calculator's signature and lazily sources the adapter so the suite stays
+# self-contained. (Pre-annex tests still call the calc directly.)
+.specs_for_calc <- function(products, ch99_data, s232_rates, pp,
+                            countries, revision_id, effective_date,
+                            ieepa_rates = NULL, usmca = NULL, fentanyl_rates = NULL) {
+  if (!exists('build_authority_specs', mode = 'function')) {
+    source(here('src', 'authority_spec.R'))
+    source(here('src', 'authority_adapter.R'))
+  }
+  build_authority_specs(products, ch99_data, ieepa_rates, usmca,
+                        countries, revision_id, effective_date,
+                        s232_rates = s232_rates, fentanyl_rates = fentanyl_rates,
+                        policy_params = pp)
+}
+
 run_artifact_tests <- '--with-artifacts' %in% commandArgs(trailingOnly = TRUE)
 
 pass_count <- 0
@@ -1404,6 +1421,9 @@ run_test('Russia annex exporter-country surcharge applies to aluminum only', {
   s232_rates <- extract_section232_rates(ch99_data)
   pp <- load_policy_params()
 
+  specs <- .specs_for_calc(products, ch99_data, s232_rates, pp,
+                           countries = c('4621', '4280'), revision_id = '2026_rev_5',
+                           effective_date = as.Date('2026-04-06'))
   rates <- calculate_rates_for_revision(
     products = products,
     ch99_data = ch99_data,
@@ -1414,7 +1434,8 @@ run_test('Russia annex exporter-country surcharge applies to aluminum only', {
     effective_date = as.Date('2026-04-06'),
     s232_rates = s232_rates,
     fentanyl_rates = NULL,
-    policy_params = pp
+    policy_params = pp,
+    specs = specs
   ) %>%
     select(hts10, country, s232_annex, rate_232)
 
@@ -1575,6 +1596,9 @@ run_test('calculate_rates_for_revision populates annex tags through config-drive
   s232_rates <- extract_section232_rates(ch99_data)
   pp <- load_policy_params()
 
+  specs <- .specs_for_calc(products, ch99_data, s232_rates, pp,
+                           countries = '4280', revision_id = '2026_rev_5',
+                           effective_date = as.Date('2026-04-06'))
   rates <- calculate_rates_for_revision(
     products = products,
     ch99_data = ch99_data,
@@ -1585,7 +1609,8 @@ run_test('calculate_rates_for_revision populates annex tags through config-drive
     effective_date = as.Date('2026-04-06'),
     s232_rates = s232_rates,
     fentanyl_rates = NULL,
-    policy_params = pp
+    policy_params = pp,
+    specs = specs
   ) %>%
     select(hts10, base_rate, s232_annex, rate_232)
 
@@ -1617,11 +1642,15 @@ run_test('primary chapter product gets annex_1a even without pre-existing rate_2
   s232_rates <- extract_section232_rates(ch99_data)
   pp <- load_policy_params()
 
+  specs <- .specs_for_calc(products, ch99_data, s232_rates, pp,
+                           countries = '4280', revision_id = '2026_rev_5',
+                           effective_date = as.Date('2026-04-06'))
   rates <- calculate_rates_for_revision(
     products = products, ch99_data = ch99_data,
     ieepa_rates = NULL, usmca = NULL, countries = '4280',
     revision_id = '2026_rev_5', effective_date = as.Date('2026-04-06'),
-    s232_rates = s232_rates, fentanyl_rates = NULL, policy_params = pp
+    s232_rates = s232_rates, fentanyl_rates = NULL, policy_params = pp,
+    specs = specs
   )
 
   # Ch72 products should be annex_1a at 50% even though no old 9903.80 Ch99 entries
@@ -1642,20 +1671,13 @@ run_test('annex-era calculator fails closed when annex resource path is invalid'
   pp <- load_policy_params()
   pp$S232_ANNEXES$resource_file <- file.path('resources', 'does_not_exist.csv')
 
+  # Plank 4c: the annex fail-closed now lives in the ADAPTER (it loads the annex
+  # prefix map when building the spec). A bad resource path must error there.
   err <- tryCatch(
     {
-      calculate_rates_for_revision(
-        products = products,
-        ch99_data = ch99_data,
-        ieepa_rates = NULL,
-        usmca = NULL,
-        countries = '4280',
-        revision_id = '2026_rev_5',
-        effective_date = as.Date('2026-04-06'),
-        s232_rates = s232_rates,
-        fentanyl_rates = NULL,
-        policy_params = pp
-      )
+      .specs_for_calc(products, ch99_data, s232_rates, pp,
+                      countries = '4280', revision_id = '2026_rev_5',
+                      effective_date = as.Date('2026-04-06'))
       NULL
     },
     error = function(e) e
@@ -1671,6 +1693,9 @@ run_test('export_statutory_rates uses annex programs for post-annex snapshots', 
   s232_rates <- extract_section232_rates(ch99_data)
   pp <- load_policy_params()
 
+  specs <- .specs_for_calc(products, ch99_data, s232_rates, pp,
+                           countries = '4280', revision_id = '2026_rev_5',
+                           effective_date = as.Date('2026-04-06'))
   rates <- calculate_rates_for_revision(
     products = products,
     ch99_data = ch99_data,
@@ -1681,7 +1706,8 @@ run_test('export_statutory_rates uses annex programs for post-annex snapshots', 
     effective_date = as.Date('2026-04-06'),
     s232_rates = s232_rates,
     fentanyl_rates = NULL,
-    policy_params = pp
+    policy_params = pp,
+    specs = specs
   )
 
   out_dir <- file.path(tempdir(), 'etrs_annex_export_test')
