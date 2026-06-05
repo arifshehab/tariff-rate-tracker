@@ -270,6 +270,27 @@ resolve_heading_rate <- function(tariff_name, cfg, s232_rates) {
 }
 
 
+#' Read a Section 232 program's de-blobbed BASE rate from the spec (Plank 4a / S1a).
+#'
+#' resolve_rate(programs[[id]]$rate)$value returns the program's compositional
+#' rate$default (set by the adapter from the parser scalar — incl. 0, a real value;
+#' only an absent/hollow default yields NA). Falls back to the resolved-blob scalar
+#' for the specs-less dual-signature callers (test_tpc_comparison /
+#' run_tests_daily_series), retained until Plank 7. Byte-identical to the old
+#' `s232_rates$<field>` read: the default holds the same scalar verbatim.
+s232_spec_rate <- function(specs, s232_rates, program_id, blob_field) {
+  if (!is.null(specs) && !is.null(specs[['section_232']])) {
+    progs <- specs[['section_232']]$programs
+    pos <- which(vapply(progs, function(p) identical(p$id, program_id), logical(1)))
+    if (length(pos) == 1L) {
+      v <- resolve_rate(progs[[pos]]$rate)$value
+      if (!is.na(v)) return(v)
+    }
+  }
+  s232_rates[[blob_field]] %||% 0
+}
+
+
 #' Check if country applies to a Chapter 99 entry
 #'
 #' @param country Census country code
@@ -1592,14 +1613,22 @@ calculate_rates_for_revision <- function(
     }
 
     # --- Build per-country rate lookup ---
+    # S1a (Plank 4a): the blanket steel/aluminum + auto BASE rates are de-blobbed —
+    # read from the spec's rate$default via resolve_rate (s232_spec_rate). The exempt
+    # zeroing below + the country overrides / config exemptions further down still
+    # read the resolved blob (relocated in S2). Specs-less callers fall back to the
+    # blob scalar (Plank 7).
+    steel_base    <- s232_spec_rate(specs, s232_rates, 'steel',    'steel_rate')
+    aluminum_base <- s232_spec_rate(specs, s232_rates, 'aluminum', 'aluminum_rate')
+    auto_base     <- s232_spec_rate(specs, s232_rates, 'autos',    'auto_rate')
     country_232 <- tibble(country = countries) %>%
       mutate(
         steel_exempt = map_lgl(country, ~is_232_exempt(.x, s232_rates$steel_exempt)),
         alum_exempt = map_lgl(country, ~is_232_exempt(.x, s232_rates$aluminum_exempt)),
         auto_exempt = map_lgl(country, ~is_232_exempt(.x, s232_rates$auto_exempt)),
-        steel_rate = if_else(steel_exempt, 0, s232_rates$steel_rate),
-        aluminum_rate = if_else(alum_exempt, 0, s232_rates$aluminum_rate),
-        auto_rate = if_else(auto_exempt, 0, s232_rates$auto_rate)
+        steel_rate = if_else(steel_exempt, 0, steel_base),
+        aluminum_rate = if_else(alum_exempt, 0, aluminum_base),
+        auto_rate = if_else(auto_exempt, 0, auto_base)
       )
 
     # --- Apply HTS-extracted 232 country overrides (e.g., UK deal rates) ---

@@ -139,15 +139,32 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       full_prog('semiconductors')
     )
   )
-  # Phase 6b: park the 21-field s232 list whole on programs[[1]]$rate$resolved
-  # (authority-wide; per-program split deferred to P8). Read via s232_rates_from_specs().
+  # Park the (still-blobbed) 21-field s232 list on programs[[1]]$rate$resolved.
+  # Plank 4a de-blobs it stage by stage into structured layers; the residual blob
+  # shrinks as each stage lands. Read via s232_rates_from_specs().
   section_232$programs[[1]]$rate$resolved <- s232_rates
-  # Phase 2c/6c: precompute the heading-program activation gates from the
-  # authoritative s232 value, so the calc reads them off the spec instead of
-  # recomputing (compute_heading_gates is the single source). Since 6c the gate
-  # fn is a pure function of s232_rates (which carries the date-gated
-  # auto_has_parts flag) — no live-ch99 grep here anymore.
   if (!is.null(s232_rates)) {
+    # Plank 4a / S1a: de-blob the blanket metal + auto BASE rates into each
+    # program's compositional rate$default (rate_type='surcharge' — additive). The
+    # calc reads these via resolve_rate() (s232_spec_rate at 06:~1600); the rest of
+    # the list (exempts, overrides, deals, derivatives, flags, the heading scalars)
+    # stays on the resolved blob until S1b/S2/S3. Setting default to the scalar
+    # VERBATIM (incl. 0 — a real, non-hollow value) keeps the per-country base
+    # byte-identical to the old `s232_rates$steel_rate` read.
+    .s232_set_default <- function(spec, prog_id, value) {
+      pos <- which(vapply(spec$programs,
+                          function(p) identical(p$id, prog_id), logical(1)))
+      spec$programs[[pos]]$rate$default   <- value
+      spec$programs[[pos]]$rate$rate_type <- 'surcharge'
+      spec
+    }
+    section_232 <- .s232_set_default(section_232, 'steel',    s232_rates$steel_rate    %||% 0)
+    section_232 <- .s232_set_default(section_232, 'aluminum', s232_rates$aluminum_rate %||% 0)
+    section_232 <- .s232_set_default(section_232, 'autos',    s232_rates$auto_rate     %||% 0)
+    # Phase 2c/6c: precompute the heading-program activation gates from the
+    # authoritative s232 value (unchanged in S1a — gate machinery is repointed to
+    # the spec in S1b). compute_heading_gates is a pure function of s232_rates
+    # (which carries the date-gated auto_has_parts flag) — no live-ch99 grep here.
     attr(section_232, 'heading_gates') <- compute_heading_gates(s232_rates)
   }
 

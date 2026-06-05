@@ -79,6 +79,24 @@ check(identical(attr(ieepa_rates_from_specs(specs), 'universal_baseline', exact 
 check(is.null(attr(specs[['section_232']], 'raw_s232', exact = TRUE)),
       'no out-of-band raw_s232 attr remains (Phase 6b cleanup)')
 
+cat('\n--- Plank 4a / S1a: blanket metal + auto base rates de-blobbed to rate$default ---\n')
+s232_progs <- specs[['section_232']]$programs
+.prog <- function(id) s232_progs[[which(vapply(s232_progs, function(p) identical(p$id, id), logical(1)))]]
+check(identical(.prog('steel')$rate$default, 0.50),
+      'steel base rate structured into rate$default (S1a, = s232$steel_rate)')
+check(identical(.prog('aluminum')$rate$default, 0.50),
+      'aluminum base rate structured into rate$default (S1a)')
+check(identical(.prog('autos')$rate$default, 0),
+      'autos base rate -> rate$default = 0 when s232$auto_rate absent (verbatim, incl. 0)')
+check(identical(.prog('steel')$rate$rate_type, 'surcharge'),
+      '232 program rate_type = surcharge (additive)')
+check(identical(resolve_rate(.prog('steel')$rate)$value, 0.50),
+      'calc-side read: resolve_rate(steel program) = 0.50 (the de-blobbed base)')
+check(identical(resolve_rate(.prog('autos')$rate)$value, 0),
+      'calc-side read: resolve_rate(autos program) = 0 (not NA) — baseline-safe')
+check(identical(s232_rates_from_specs(specs), s232),
+      'S1a coexistence: the residual resolved blob is still parked on programs[[1]] verbatim')
+
 cat('\n--- normalized scaffold (not read in Phase 1, but should be faithful) ---\n')
 check(identical(specs[['section_301']]$programs[[1]]$country_scope$include, '5700'),
       '301 China gate captured as country_scope data')

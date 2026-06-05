@@ -144,11 +144,34 @@ scripts/submit_plank3_units.sh` (47+19+21 assertions) + `scripts/submit_plank3_p
     untouched → hashes to the golden manifest).
 
 **Plank 4 — the bulk (per authority).**
-- **4a — Section 232** (multi-program; may sub-divide per program): structure each of the
-  7 programs' rate (`default` + country deals as `overrides` + named floor modes) + `metal`
-  + `stacking.class`. **Leave** semiconductor/auto-rebate/subdivision-r blends as calc steps
-  (decision 8). Delete the UK deal hardcode (`06:~2135`); model Taiwan aircraft as a
-  program/scope (`06:~2955`).
+- **4a — Section 232** (multi-program): structure each of the **7** programs' rate
+  (`default` + country deals as `overrides` + named floor modes). **Leave**
+  semiconductor/auto-rebate/subdivision-r/derivative blends as calc steps (decision 8).
+  Delete the UK deal hardcode (`06:2134-2145`); model Taiwan aircraft as a scope (`06:2964-2995`).
+  - **Read-path = FULL REPOINT (decided with John, 2026-06-05).** The calc reads §232 via
+    `resolve_rate()` directly at all ~36 read sites — NO reassembled `s232_rates` shim. Matches
+    the s122 "calc reads the spec" contract literally (John's "no half-measures" call); accepts
+    the larger diff + higher parity risk over the low-risk shim.
+  - **KEY: the s122 `value>0` gate does NOT transfer.** `has_232` is a **12-term OR-gate**
+    (`.s232_recompute_has_232`, scenario_ops.R:69-75) — ORs `auto_has_deals` (TRUE even at
+    `auto_rate=0`) + both derivative rates + `wood_rate||wood_furniture_rate`. NOT reducible to
+    "any program rate > 0"; keep the explicit gate.
+  - **7 spec programs** (`authority_adapter.R:127-141`): steel/aluminum/copper (metal) +
+    autos/mhd/wood/semiconductors (full). `pharmaceuticals` = dormant 8th `set_rate` name
+    (S1b adds a dormant program for it). `wood` = one program, two rate fields.
+  - **Staging = 4 commits, finer S1 (decided with John).** Full-repoint dropped the
+    trivial-bit-exact S1 (scalars are entangled with the shared `has_232` gate), so S1 was split
+    to isolate the gate risk. Each = commit + full parallel-array parity gate vs `9f9837d`:
+    - **S1a** — blanket steel/aluminum/auto BASE reads (`06:1600-1602`) → `rate$default`. LOW risk;
+      3 sites + adapter; gate machinery untouched. Helper `s232_spec_rate()` reads
+      `resolve_rate(prog$rate)$value`, falls back to the blob scalar for the specs-less callers (Plank 7).
+    - **S1b** — heading programs + `compute_heading_gates`/`resolve_heading_rate`/`.s232_recompute_has_232`
+      repointed to the spec (heading-name→program-id map is already 1:1). HIGH risk (the gate), isolated.
+    - **S2** — country deals/overrides/exempts → `overrides`/`by_country` (floors = `floor_static`,
+      ORIGINAL base = current code; EU27 left unversioned). HIGH risk.
+    - **S3** — delete UK annex deal, model Taiwan aircraft as a scoped 0, drain the residual blob. MED.
+  - **DEFER to Plank 5:** metal/stacking shells + the 4-copy metal-chapter→type map (`stacking.R:83`,
+    `06:555/2061/2159` — copies already disagree on copper). 4a leaves them.
 - **4b — IEEPA reciprocal + fentanyl (LATE, the big rock):** structure `by_country` +
   `default_unlisted_rate` (universal baseline) + `rate_type` (surcharge/floor_post_mfn/
   passthrough) + floor-exempt set. Relocate CA/MX exemption (`06:~1090`), floor-country
