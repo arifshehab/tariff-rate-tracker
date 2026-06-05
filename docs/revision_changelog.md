@@ -8,9 +8,11 @@ Verified timeline of Chapter 99 policy changes across all 39 HTS revision points
 
 These are the main policy items that still matter operationally when interpreting the later revisions and the forward extension through the end of 2026.
 
-### Revision dating caveat (rev_25–31) — discovered 2026-06-04
+### Revision re-dating (2026-06-05) — RESOLVED, with three known retro windows
 
-`config/revision_dates.csv` dates 2025 rev_25–31 one to three weeks earlier than the official USITC change records in `data/hts_change_record/`: rev_25 is dated 2025-09-26 but was published Oct 14 with items effective Oct 14 (PP 10976 wood 232); rev_26 dated 10-06 vs items effective Nov 1 (MHD 232); rev_29 dated 10-31 vs published Nov 17 with items effective Nov 13 (agricultural Annex II EO); rev_32 dated 11-15 vs published Dec 5. Daily-series boundaries in the Sept–Dec 2025 window are therefore time-shifted until the re-dating pass lands (todo.md active priority 2). The Annex II exemption windows are immune — they use change-record legal dates directly (see below).
+The original `effective_date` column (from the releaseList API, partially hand-curated) drifted up to a month from the official change records in `data/hts_change_record/`. As of 2026-06-05, `policy_effective_date` (the `load_revision_dates()` override column) is populated for 35 revisions from a systematic audit (`scripts/audit_revision_dates.R` → `output/revision_date_audit.csv`) cross-checked against the cited proclamations/EOs. Headline corrections: CA/MX fentanyl Mar 4 not Feb 4 (the February pause was being ignored); 232 autos Apr 3 not Mar 12; auto parts May 3 not Apr 11; Geneva (China 125%→30%) May 14 not Apr 14; 232 50% Jun 4 at rev_14 (the old rev_16 override mis-assigned it); copper + CA 35% Aug 1 not Jul 1; wood Oct 14; MHD Nov 1; ag Annex II Nov 13. **2026_rev_8 is excluded from the series** (editorial-only vs rev_7; keeping it would invert ordering against the retro-dated 2026_rev_9 = May 1 Taiwan framework). The *summary table and per-revision dates below this section still show the pre-correction dates* until `src/revision_changelog.R` is re-run.
+
+Three legally-retroactive windows remain unmodeled (each would need a date-bounded config override like `swiss_framework` if it matters downstream): EU framework exemptions retro to Sep 1, 2025 (text arrived Sep 25); Korea floor retro to Nov 14, 2025 (text arrived Dec 5); Taiwan framework retro May 1 is handled by dating rev_9 at May 1.
 
 ### 2026-06-04 methodology fix pass (extreme-eta review)
 
