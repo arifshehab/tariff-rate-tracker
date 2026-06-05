@@ -355,12 +355,14 @@ error). Baseline = empty ops → parity; add scenario-correctness unit tests.
 remove the bespoke args from `calculate_rates_for_revision()` so it takes **specs only**.
 (Optional within Pass 1; can defer if risky.)
 
-## Plank 4c — §232 ANNEX-REGIME RATE DE-BLOB — ⏳ IN PROGRESS (S1+S2a DONE, parity GREEN; commit 143a2b1)
+## Plank 4c — §232 ANNEX-REGIME RATE DE-BLOB — ✅ CLOSED (parity GREEN 47/47; commits 143a2b1 + 350c159)
 
-> **STATUS (2026-06-05):** Picked up + reframed with John. The annex regime is config-driven (not a blob), and John's directive was **SPEC-ONLY, no fallbacks**. Built it: the adapter classifies the product
-> universe ONCE (`classify_s232_annex`, src/data_loaders.R) and writes an authority-level `section_232$annex = {tier, flat_rate, floor_rate}`; the calculator READS it (the inline classification + config
-> `case_when` literals are deleted; an annex-era revision with no spec `$annex` stops loudly). S1+S2a parity GREEN 47/47. **Remaining: S2b (UK deal → overrides), S2c (Russia → overrides).** Taiwan + subdiv-r/zmc
-> stay calc-side. See the Progress log entry + memory `theseus-4c-reframe`. The deferred-design notes below are partly superseded by the actual build (single authority-level carrier, NOT per-metal by_product_tier).
+> **DONE (2026-06-05).** Reframed with John (the annex is config-driven, not a blob) and built **SPEC-ONLY, no fallbacks**. The adapter classifies the product universe ONCE (`classify_s232_annex`,
+> src/data_loaders.R) and writes an authority-level `section_232$annex = {tier, flat_rate, floor_rate, country_overrides}`; the calculator READS it — the inline classification, the config `case_when`
+> literals, the UK case_when, and the Russia pmax loop are all DELETED (an annex-era revision with no spec `$annex` stops loudly). `country_overrides` carries the UK deal (mode 'replace') + country
+> surcharges (mode 'max', e.g. Russia) — `mode` keeps Russia bit-exact without the "200% dominates" assumption. **STAYS calc-side** (genuine contextual/blend, decision 8): Taiwan civil-aircraft exemption,
+> subdivision-r, zero-metal-content. Cleanup: deleted `tests/test_tpc_comparison.R` + `data/tpc/` (vestigial); rewired the annex-era specs-less callers in `run_tests_daily_series.R` to build+pass specs.
+> See the two Progress-log entries + memory `theseus-4c-reframe`. The deferred-design notes below are SUPERSEDED by the actual build (single authority-level `annex` carrier, NOT per-metal by_product_tier).
 
 > **Why this exists:** S3 (Plank 4a close-out) parked the §232 annex regime as calculator logic and the original S3
 > note claimed it "needs a new `s232_annex` axis on `resolve_rate`." **That was an overstatement — corrected here.**
@@ -488,6 +490,20 @@ This plan consolidates and supersedes the scattered phase docs (`parallel_full_p
 
 ## Progress log
 
+- **2026-06-05 — Plank 4c S2b+S2c DONE → PLANK 4c CLOSED (parity GREEN 47/47; commit `350c159`).** Relocated the
+  last two §232 annex calc steps — the UK annex deal and country surcharges (Russia) — into the spec, spec-only/no
+  fallback. The adapter emits `section_232$annex$country_overrides`: an ordered list of per-(country) per-product rate
+  maps, each tagged `mode`. UK deal = `mode='replace'` (tier 1a/1b on chapters 72/73/76 → uk_rate 0.25/0.15); country
+  surcharges = `mode='max'` (Russia aluminum 2.0 across annex 1a/1b/3, built from the same primary-chapter +
+  type-tagged-derivative-prefix set the calc used, scoped to the surcharge's annexes via the tier map). The calc
+  replaced the UK `case_when` + the Russia `pmax` loop with one read-loop over `country_overrides` (`replace`=flat set,
+  `max`=pmax) — carrying `mode` keeps Russia **bit-exact without the "200% dominates" assumption**. Calc is now clean of
+  `uk_code`/`country_surcharges`/`type_hts10`. **§232 annex regime is fully spec-driven** (tiers, flat rates, annex-3
+  floor, UK deal, surcharges all read off `section_232$annex`); only Taiwan exemption + subdivision-r + zero-metal-content
+  stay calc-side (genuine contextual/blend, decision 8). Gate: array `13832580` → gather `13832581` → parity
+  `13833075/6` = 47/47, 0 violations. Unit: daily-series suite green (UK + Russia tests via the spec path) except the
+  pre-existing pharmaceuticals-gate failure. Next theseus Pass-1: 4b (IEEPA, last real blob), 5 (stacking), 6 (IEEPA
+  verbs), 7 (drop the dual signature — elevated by the no-fallbacks directive).
 - **2026-06-05 — Plank 4c S1+S2a DONE (parity GREEN 47/47; commit `143a2b1`).** §232 annex regime de-blobbed to the
   spec, **SPEC-ONLY (John: "fuck fallbacks, fuck vestigial code")**. Reframed first: the annex is config-driven (not a
   blob), and the classification produces the `s232_annex` tag (read + mutated downstream), so John's instinct — the
