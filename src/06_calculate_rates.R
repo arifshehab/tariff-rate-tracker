@@ -2633,8 +2633,14 @@ calculate_rates_for_revision <- function(
       s201_products <- read_csv(s201_path,
                                  col_types = cols(hts10 = col_character()))
       solar_rate <- s201_results$solar_rate
-      # Phase 2e: Section 201 country scope from the spec (defaults to
-      # {all except Canada} → identical to the old setdiff); re-scopable.
+      # Plank 2: Section 201 country scope is data, not a Canada hardcode. The
+      # spec carries country_scope = {include: all, exclude: Canada}, which
+      # resolve_country_scope() turns into setdiff(countries, Canada) — byte-
+      # identical to the old fallback (and already in the 9f9837d golden, so
+      # parity holds trivially). A scenario re-scopes/disables it via scenario_ops
+      # (section_201 is SCOPE_DRIVEN). The specs-less `else` fallback is RETAINED
+      # for the dual-signature callers (test_tpc_comparison, run_tests_daily_series)
+      # and removed in Plank 7, alongside the 301 fallbacks above.
       s201_country_codes <- if (!is.null(specs)) {
         resolve_country_scope(specs[['section_201']]$programs[[1]]$country_scope, countries)
       } else {

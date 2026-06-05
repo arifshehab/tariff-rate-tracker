@@ -58,6 +58,22 @@ specs4 <- apply_operations(specs, list(
 check(identical(specs4[['section_301']]$programs[[1]]$active$until, as.Date('2027-01-01')),
       'set_active sets program active.until')
 
+cat('\n--- Plank 2: Section 201 is scope-driven too (rescope + disable) ---\n')
+# The calc reads 201 country scope off the spec (06: Phase 2e), so the same scope
+# verbs that drive 301 must drive 201. Baseline 201 = all-except-Canada
+# (country_scope$exclude = '1220'); re-scope it to an explicit allow-list:
+specs201 <- apply_operations(specs, list(
+  list(op = 'set_country_scope', authority = 'section_201', program = 's201',
+       country_scope = list(include = c('5700', '5520')))))
+check(identical(specs201[['section_201']]$programs[[1]]$country_scope,
+                list(include = c('5700', '5520'))),
+      '201 re-scoped to an explicit allow-list (drops the all-except-Canada default)')
+check(identical(specs[['section_201']]$programs[[1]]$country_scope$exclude, '1220'),
+      'original 201 spec NOT mutated (copy-on-modify isolation)')
+specs201d <- apply_operations(specs, list(list(op = 'disable', authority = 'section_201')))
+check(identical(specs201d[['section_201']]$programs[[1]]$country_scope$include, character(0)),
+      'disable section_201 -> empty country scope (calc applies it to no countries)')
+
 cat('\n--- fail-loud: unsupported / invalid ops never silently no-op ---\n')
 expect_error(apply_operations(specs, list(
   list(op = 'set_country_scope', authority = 'section_232',

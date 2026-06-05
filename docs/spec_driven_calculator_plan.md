@@ -103,8 +103,26 @@ Plank-0 gap: `add_program` uses it).
     in baseline, parity-safe.
   - Adversarial review confirmed the adapter tier == inline tier bit-for-bit (a–g SAFE).
 
-**Plank 2 — Section 201.** `country_scope = {include: all, exclude: [Canada]}`; delete the
-Canada-exempt fallback (`06:~2629`); add 201 to the `disable:` vocab (`policy_params.yaml`).
+**Plank 2 — Section 201.** — ✅ **DONE** (parity trivially GREEN — see reconciliation; no
+rebuild). `section_201`'s `country_scope = {include: all, exclude: Canada}` is in the adapter
+and the calculator reads it (`06:` "Plank 2" hook → `resolve_country_scope`); 201 is registered
+`SCOPE_DRIVEN` in `scenario_ops.R`, so `set_country_scope`/`set_active`/`disable` all drive it.
+Scenario unit tests added for 201 rescope + disable (`tests/test_scenario_ops.R`, mirroring 301).
+Gate: `sbatch scripts/submit_plank2_tests.sh` (scenario_ops + spec + adapter; pure-logic, no build data).
+  - **Plan reconciliation (the substance pre-landed under "Phase 2e"):** the 301cs branch already
+    relocated the 201 scope into the spec + wired the calc read, and that code is **present at
+    `9f9837d`** — i.e. in the golden. `resolve_country_scope({all, exclude: Canada})` is
+    `setdiff(countries, Canada)` **bit-for-bit**, so the candidate == golden with no number change;
+    a 43-rev rebuild would be a guaranteed no-op (skipped to preserve cluster time). Plank 2's real
+    remaining lift was the **scenario-test coverage gap** (the test baseline carried a 201 spec but
+    never asserted a 201 op) + this reconciliation.
+  - **Fallback RETAINED, not deleted** (same as Plank 1): `test_tpc_comparison` + `run_tests_daily_series`
+    call `calculate_rates_for_revision()` **without specs**, hitting the `else setdiff(countries, Canada)`
+    path. The literal deletion is coupled to **Plank 7 (drop the dual signature)**; the `06:` hook now
+    says so.
+  - **"`disable:` vocab in `policy_params.yaml`" reconciled:** there is **no** `disable:` key in the yaml.
+    The disable vocab lives in `scenario_ops.R::SCOPE_DRIVEN_AUTHORITIES` (already includes
+    `section_201`) + `op_disable`. The plan line anticipated a yaml location the live code doesn't use.
 
 **Plank 3 — Section 122.** Structured blanket rate; calculator reads it; delete the
 re-extraction fallback (`06:~2552`).
@@ -220,6 +238,17 @@ This plan consolidates and supersedes the scattered phase docs (`parallel_full_p
 
 ## Progress log
 
+- **2026-06-05 — Plank 2 landed (parity trivially GREEN; no rebuild).** Section 201's
+  spec-driven country scope was already shipped on the 301cs branch as "Phase 2e" and is
+  present at `9f9837d` (the golden), so the build path is byte-identical and a rebuild would
+  be a guaranteed no-op — verified `resolve_country_scope({all, exclude: Canada})` ==
+  `setdiff(countries, Canada)` bit-for-bit, and confirmed via `git show 9f9837d` that both the
+  adapter scope and the `06:` calc read predate the golden. Net-new work: closed the scenario
+  test coverage gap (201 rescope + disable in `tests/test_scenario_ops.R`, mirroring 301),
+  documented the Plank-7 fallback coupling on the `06:` hook, and reconciled the plan
+  ("`disable:` vocab" lives in `scenario_ops.R::SCOPE_DRIVEN_AUTHORITIES`, not the yaml; the
+  specs-less fallback is RETAINED until Plank 7, same as Plank 1). Gate:
+  `sbatch scripts/submit_plank2_tests.sh` (scenario_ops + spec + adapter, pure-logic).
 - **2026-06-05 — Plank 1 landed (parity GREEN).** Section 301 additive rate relocated to
   the spec's `by_product_tier` (adapter `build_s301_additive_tier`); build reads it back.
   Gate (`scripts/submit_plank1_build_gate.sh`): `--full --core-only` rebuild of all 43
