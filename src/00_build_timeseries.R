@@ -352,27 +352,60 @@ build_full_timeseries <- function(
   # Load all snapshot files (including pre-existing from incremental)
   all_snapshot_files <- list.files(output_dir, pattern = '^snapshot_.*\\.rds$', full.names = TRUE)
 
-  # Use data.table::rbindlist instead of purrr::map_dfr — at full scale
-  # (~195M rows) map_dfr peaks at ~2x memory and OOMs around 10 GB. rbindlist
-  # binds in place and handles schema mismatches with fill = TRUE.
-  timeseries <- tibble::as_tibble(
-    data.table::rbindlist(
-      lapply(all_snapshot_files, function(f) {
-        tryCatch(readRDS(f), error = function(e) {
-          warning('Failed to read snapshot: ', f, ' -- ', e$message)
-          NULL
-        })
-      }),
-      fill = TRUE
-    )
-  )
+  # Streaming fill instead of rbindlist. The full panel is ~210M rows x 33
+  # cols (~50 GB in memory) after the 2026-06-04 universe expansion;
+  # rbindlist requires the list of all 43 snapshots AND the bound result to
+  # coexist (~2x panel = ~90+ GB commit), which OOMs on 32 GB RAM. Instead:
+  # pass 1 collects row counts and a typed column template (union across
+  # snapshots); pass 2 pre-allocates the full table ONCE and copies each
+  # snapshot into its row block by reference, freeing it immediately. Peak
+  # memory = one panel + one snapshot. Columns absent from older snapshots
+  # stay NA, matching the previous rbindlist(fill = TRUE) semantics. All
+  # subsequent steps (ordering, interval join) are in place / by reference;
+  # the handoff back to tibble at the end is zero-copy.
+  read_snapshot <- function(f) {
+    tryCatch(enforce_rate_schema(readRDS(f)), error = function(e) {
+      warning('Failed to read snapshot: ', f, ' -- ', e$message)
+      NULL
+    })
+  }
 
-  # Enforce schema consistency (old snapshots may lack newer columns)
-  timeseries <- enforce_rate_schema(timeseries)
+  # Pass 1: row counts + typed column template
+  n_rows <- integer(length(all_snapshot_files))
+  col_proto <- list()
+  for (i in seq_along(all_snapshot_files)) {
+    snap <- read_snapshot(all_snapshot_files[i])
+    if (is.null(snap)) next
+    n_rows[i] <- nrow(snap)
+    for (cn in names(snap)) {
+      if (is.null(col_proto[[cn]])) col_proto[[cn]] <- snap[[cn]][0]
+    }
+    rm(snap); gc(verbose = FALSE)
+  }
+  total_n <- sum(n_rows)
+  message('  Streaming combine: ', length(all_snapshot_files), ' snapshots, ',
+          format(total_n, big.mark = ','), ' rows, ',
+          length(col_proto), ' columns')
 
-  # Sort by effective_date, then revision
-  timeseries <- timeseries %>%
-    arrange(effective_date, revision, country, hts10)
+  # Pass 2: pre-allocate and fill by reference
+  timeseries <- data.table::setDT(lapply(col_proto, function(p) rep(p[1], total_n)))
+  offset <- 0L
+  for (i in seq_along(all_snapshot_files)) {
+    if (n_rows[i] == 0L) next
+    snap <- read_snapshot(all_snapshot_files[i])
+    if (is.null(snap)) next
+    idx <- (offset + 1L):(offset + n_rows[i])
+    for (cn in names(col_proto)) {
+      if (cn %in% names(snap)) {
+        data.table::set(timeseries, i = idx, j = cn, value = snap[[cn]])
+      }
+    }
+    offset <- offset + n_rows[i]
+    rm(snap); gc(verbose = FALSE)
+  }
+
+  # Sort by effective_date, then revision (in place)
+  data.table::setorder(timeseries, effective_date, revision, country, hts10)
 
   # Add temporal intervals (valid_from / valid_until) from revision ordering
   # Final revision extends to configurable horizon (default: 2026-12-31), not Sys.Date()
@@ -395,9 +428,18 @@ build_full_timeseries <- function(
     mutate(valid_until = if_else(is.na(valid_until), horizon_end, valid_until)) %>%
     select(revision, valid_from, valid_until)
 
-  timeseries <- timeseries %>%
-    select(-any_of(c('valid_from', 'valid_until'))) %>%
-    left_join(rev_intervals, by = 'revision')
+  # Attach intervals by reference (an update join — replaces the previous
+  # select(-...) %>% left_join(), which copied the full panel twice)
+  for (iv_col in c('valid_from', 'valid_until')) {
+    if (iv_col %in% names(timeseries)) timeseries[, (iv_col) := NULL]
+  }
+  ri <- data.table::as.data.table(rev_intervals)
+  timeseries[ri, on = 'revision',
+             `:=`(valid_from = i.valid_from, valid_until = i.valid_until)]
+
+  # Hand downstream a tibble without copying the column vectors
+  data.table::setDF(timeseries)
+  timeseries <- tibble::as_tibble(timeseries)
 
   message('  Added interval columns: valid_from / valid_until')
 
