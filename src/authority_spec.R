@@ -44,8 +44,11 @@ METAL_TYPES         <- c('steel', 'aluminum', 'copper', 'other', 'none')
 #'   prefixes, list_file} (a precedence, resolved by the adapter), plus optional
 #'   exclude_file. Stored as-is.
 #' @param country_scope list — {include: 'all' | <census codes>, exclude: <codes/file>}
-#' @param rate          list — {default, by_country, overrides, target_total,
-#'   by_product_tier, product_overrides_file, ...} (distinct mechanisms; see doc)
+#' @param rate          list — compositional layers {default, by_country,
+#'   default_unlisted_rate, overrides, by_product_tier, target_total} + a
+#'   `rate_type` semantics tag. Read by resolve_rate()/apply_rate_semantics()
+#'   (see the "rate" section below). The live adapter currently parks the real
+#'   object in `rate$resolved` with sentinel-string layer names (hollow).
 #' @param metal         list|NULL — 232 only: {type, content}. Omit for non-metal.
 #' @param active        list|NULL — {from, until}; NULL inherits the authority's.
 #' @param stacking      list|NULL — per-program override of the authority stacking.
@@ -113,6 +116,234 @@ resolve_country_scope <- function(scope, all_countries) {
   base
 }
 
+# ---- rate: compositional schema, reader, semantics (Plank 0 — keystone) -----
+#
+# The `rate` field on an authority_program is the COMPOSITIONAL rate schema: a
+# set of value-layers + a semantics tag. resolve_rate() applies the layer
+# precedence (a pure reader, returns a DESCRIPTOR); apply_rate_semantics() turns
+# the resolved value into an additional-duty number under its rate_type. The
+# split (decision 5/6) keeps the floor base where the caller has it.
+#
+# NOTE: distinct from src/rate_schema.R, which is the OUTPUT PANEL column schema
+# (rate_232, rate_301, ...). This is the per-authority spec rate FIELD.
+#
+# Value-layers (any subset; resolved most-specific-first):
+#   overrides              product(×country)-specific set-rates (232 deals, UK
+#                          deal). First match in list order wins. Two element
+#                          forms, mixable: a named scalar `'4120' = 0.25`
+#                          (product->rate, any country), or an entry list
+#                          `list(products=, countries=(opt), rate=)` (the rich
+#                          product×country deal form, for Plank 4a).
+#   by_product_tier        named numeric, names = product codes -> rate (301 lists).
+#   by_country             named numeric, names = census codes -> rate (IEEPA recip).
+#   default_unlisted_rate  scalar — rate for countries NOT in by_country (the
+#                          complement; IEEPA universal baseline). Alias: default_unlisted.
+#   default                scalar — flat in-scope rate (232 metal default, MFN base).
+#   target_total           scalar — an all-in floor target (Annex-3 floor_rate).
+#
+# Precedence (most-specific -> least): overrides > by_product_tier > by_country
+#   > default_unlisted_rate (only when by_country present) > default > target_total.
+#
+# Semantics tag (rate_type, orthogonal to value):
+#   surcharge       additive +value on top                        (default)
+#   floor_static    pmax(0, value - base) vs the ORIGINAL base     (232 deals)
+#   floor_post_mfn  pmax(0, value - base) vs the POST-MFN base     (IEEPA recip, Annex-3)
+#   passthrough     no additional duty (0); base stands alone      (IEEPA high-duty floor ctys)
+# The two floor modes share the same math; they differ only in WHICH base the
+# caller supplies — encoded as floor_base ('original' | 'post_mfn') in the
+# resolve_rate() descriptor so the calculator fetches the right base.
+#
+# HOLLOW fields: the live adapter parks the real rate object as a verbatim blob
+# in `rate$resolved` and fills the layer NAMES with sentinel strings
+# ('from_raw'/'from_list'/'from_products_base_rate'). Until the per-authority
+# planks populate real values, those sentinels are treated as ABSENT by both the
+# reader and the validator — existing specs validate and resolve to nothing here
+# (the calculator still reads the blob). Parity-trivial by construction.
+
+RATE_TYPES     <- c('surcharge', 'floor_static', 'floor_post_mfn', 'passthrough')
+RATE_SENTINELS <- c('from_raw', 'from_list', 'from_products_base_rate')
+
+# A field is "hollow" (no real structured value yet) if NULL or a length-1
+# sentinel string. Real numeric layers are not hollow.
+.rate_is_hollow <- function(x) {
+  is.null(x) || (is.character(x) && length(x) == 1L && x %in% RATE_SENTINELS)
+}
+
+# Exact-name field access. R's `$` and `[[` do PARTIAL prefix matching by
+# default, so rate$default would silently pick up `default_unlisted_rate` when
+# no exact `default` exists — a correctness footgun. Always read rate layers
+# through this so `default` never collides with `default_unlisted_rate`.
+.rate_get <- function(rate, key) {
+  if (!is.null(names(rate)) && key %in% names(rate)) rate[[key]] else NULL
+}
+
+#' Resolve a program's rate layers to a single value for a (product, country).
+#'
+#' Pure reader: applies the layer precedence and returns a DESCRIPTOR. The actual
+#' surcharge/floor/passthrough math is apply_rate_semantics() (descriptor+helper
+#' split, decision 5/6).
+#'
+#' @param rate    a program$rate list (compositional layers + rate_type)
+#' @param product scalar product key (HTS code at the granularity the layers use)
+#' @param country scalar census code
+#' @return list(value, rate_type, floor_base, matched). `value` is NA when no
+#'   layer matches (nothing in scope here → additional duty 0). `matched` names
+#'   the winning layer (or 'none').
+resolve_rate <- function(rate, product = NULL, country = NULL) {
+  rate <- rate %||% list()
+  rt <- .rate_get(rate, 'rate_type') %||% 'surcharge'
+  if (!rt %in% RATE_TYPES) stop('resolve_rate: unknown rate_type: ', rt)
+  floor_base <- switch(rt,
+                       floor_static   = 'original',
+                       floor_post_mfn = 'post_mfn',
+                       NA_character_)
+  desc <- function(value, matched) {
+    list(value = as.numeric(value)[1], rate_type = rt,
+         floor_base = floor_base, matched = matched)
+  }
+
+  # 1. overrides — product (×country) specific; first match in list order wins.
+  # Two element forms (may be mixed in one list):
+  #   named scalar    `'4120' = 0.25`        product code -> rate, any country
+  #   entry list      `list(products=, countries=(opt), rate=)`  product×country deal
+  ov <- .rate_get(rate, 'overrides')
+  if (!.rate_is_hollow(ov) && is.list(ov) && length(ov)) {
+    onames <- names(ov)
+    for (i in seq_along(ov)) {
+      o  <- ov[[i]]
+      nm <- if (!is.null(onames)) onames[i] else ''
+      if (is.list(o)) {                              # entry form: product×country
+        prods <- o$products %||% o$product
+        ctys  <- o$countries %||% o$country          # NULL => applies to all countries
+        hit_p <- !is.null(product) && !is.null(prods) &&
+                 as.character(product) %in% as.character(unlist(prods))
+        hit_c <- is.null(ctys) || (!is.null(country) &&
+                 as.character(country) %in% as.character(unlist(ctys)))
+        if (hit_p && hit_c) return(desc(o$rate, 'overrides'))
+      } else if (is.numeric(o) && nzchar(nm)) {      # named-scalar form: product -> rate
+        if (!is.null(product) && as.character(product) == nm) return(desc(o, 'overrides'))
+      }
+    }
+  }
+  # 2. by_product_tier — product -> rate
+  bpt <- .rate_get(rate, 'by_product_tier')
+  if (!.rate_is_hollow(bpt) && !is.null(product) && !is.null(names(bpt))) {
+    key <- as.character(product)
+    if (key %in% names(bpt)) return(desc(bpt[[key]], 'by_product_tier'))
+  }
+  # 3. by_country — country -> rate
+  bc <- .rate_get(rate, 'by_country')
+  bc_present <- !.rate_is_hollow(bc)
+  if (bc_present && !is.null(country) && !is.null(names(bc))) {
+    key <- as.character(country)
+    if (key %in% names(bc)) return(desc(bc[[key]], 'by_country'))
+  }
+  # 4. default_unlisted_rate — only meaningful as the by_country complement
+  du <- .rate_get(rate, 'default_unlisted_rate') %||% .rate_get(rate, 'default_unlisted')
+  if (bc_present && !.rate_is_hollow(du)) return(desc(du, 'default_unlisted'))
+  # 5. default — flat in-scope fallback
+  d <- .rate_get(rate, 'default')
+  if (!.rate_is_hollow(d)) return(desc(d, 'default'))
+  # 6. target_total — all-in floor target fallback
+  tt <- .rate_get(rate, 'target_total')
+  if (!.rate_is_hollow(tt)) return(desc(tt, 'target_total'))
+  desc(NA_real_, 'none')
+}
+
+#' Turn a resolved rate value into an ADDITIONAL-duty number under its semantics.
+#'
+#' @param value      resolved gross rate (NA => nothing in scope => 0). Vectorized.
+#' @param rate_type  one of RATE_TYPES (default 'surcharge')
+#' @param base       MFN base the floor subtracts; REQUIRED for floor modes. Pass
+#'   the ORIGINAL base for floor_static, the POST-MFN base for floor_post_mfn
+#'   (resolve_rate()'s floor_base says which). Vectorized.
+#' @return numeric additional duty.
+apply_rate_semantics <- function(value, rate_type = 'surcharge', base = NA_real_) {
+  rate_type <- rate_type %||% 'surcharge'
+  if (!rate_type %in% RATE_TYPES) stop('apply_rate_semantics: unknown rate_type: ', rate_type)
+  v <- as.numeric(value)
+  if (rate_type %in% c('floor_static', 'floor_post_mfn')) {
+    if (length(base) == 1L && is.na(base) && any(!is.na(v)))
+      stop('apply_rate_semantics: rate_type=', rate_type, ' requires a numeric base')
+    out <- pmax(0, v - base)
+  } else if (rate_type == 'passthrough') {
+    out <- numeric(length(v))
+  } else {                 # surcharge
+    out <- v
+  }
+  out[is.na(out)] <- 0
+  out
+}
+
+#' Validate a program's compositional rate field (Plank 0). Hollow sentinels and
+#' the legacy `resolved` blob are allowed and skipped; real layers are checked.
+#' Fail-loud, in the spirit of validate_authority_spec.
+validate_rate <- function(rate, ctx) {
+  if (is.null(rate)) return(invisible(TRUE))
+  if (!is.list(rate)) stop(sprintf('[%s] rate must be a list', ctx))
+
+  allowed <- c('default', 'by_country', 'default_unlisted_rate', 'default_unlisted',
+               'overrides', 'by_product_tier', 'target_total', 'rate_type',
+               'resolved', 'product_overrides_file')
+  unknown <- setdiff(names(rate), allowed)
+  unknown <- unknown[nzchar(unknown)]
+  if (length(unknown)) stop(sprintf('[%s] unknown rate field(s): %s', ctx,
+                                    paste(unknown, collapse = ', ')))
+
+  rt <- .rate_get(rate, 'rate_type')
+  if (!is.null(rt) && !(length(rt) == 1L && rt %in% RATE_TYPES))
+    stop(sprintf('[%s] invalid rate_type: %s (allowed: %s)', ctx,
+                 paste(rt, collapse = '/'), paste(RATE_TYPES, collapse = ', ')))
+
+  chk_scalar <- function(x, nm) {
+    if (.rate_is_hollow(x)) return(invisible())
+    if (is.character(x)) stop(sprintf('[%s] rate$%s is a non-sentinel string: %s', ctx, nm, x))
+    if (!is.numeric(x) || length(x) != 1L || !is.finite(x) || x < 0)
+      stop(sprintf('[%s] rate$%s must be a single finite non-negative number', ctx, nm))
+  }
+  chk_named_num <- function(x, nm) {
+    if (.rate_is_hollow(x)) return(invisible())
+    if (is.character(x)) stop(sprintf('[%s] rate$%s is a non-sentinel string', ctx, nm))
+    if (is.null(names(x)) || any(!nzchar(names(x))))
+      stop(sprintf('[%s] rate$%s must be a NAMED numeric (names = lookup keys)', ctx, nm))
+    vals <- suppressWarnings(as.numeric(unlist(x)))
+    if (!length(vals) || any(is.na(vals)) || any(!is.finite(vals)) || any(vals < 0))
+      stop(sprintf('[%s] rate$%s values must be finite non-negative numbers', ctx, nm))
+  }
+  chk_scalar(.rate_get(rate, 'default'),               'default')
+  chk_scalar(.rate_get(rate, 'default_unlisted_rate'), 'default_unlisted_rate')
+  chk_scalar(.rate_get(rate, 'default_unlisted'),      'default_unlisted')
+  chk_scalar(.rate_get(rate, 'target_total'),          'target_total')
+  chk_named_num(.rate_get(rate, 'by_country'),         'by_country')
+  chk_named_num(.rate_get(rate, 'by_product_tier'),    'by_product_tier')
+
+  ov <- .rate_get(rate, 'overrides')
+  if (!.rate_is_hollow(ov)) {
+    if (!is.list(ov)) stop(sprintf('[%s] rate$overrides must be a list', ctx))
+    onames <- names(ov)
+    for (i in seq_along(ov)) {
+      o  <- ov[[i]]
+      nm <- if (!is.null(onames)) onames[i] else ''
+      if (is.list(o)) {                              # entry form: {products, rate}
+        r <- o$rate
+        if (is.null(r) || !is.numeric(r) || length(r) != 1L || !is.finite(r) || r < 0)
+          stop(sprintf('[%s] rate$overrides[[%d]]$rate must be a single finite non-negative number', ctx, i))
+        prods <- o$products %||% o$product
+        if (is.null(prods) || !length(unlist(prods)))
+          stop(sprintf('[%s] rate$overrides[[%d]] needs non-empty products', ctx, i))
+      } else if (is.numeric(o) && length(o) == 1L) { # named-scalar form: product -> rate
+        if (!nzchar(nm))
+          stop(sprintf('[%s] rate$overrides[[%d]] scalar form needs a product-code name', ctx, i))
+        if (!is.finite(o) || o < 0)
+          stop(sprintf('[%s] rate$overrides[%s] must be a finite non-negative number', ctx, nm))
+      } else {
+        stop(sprintf('[%s] rate$overrides[[%d]] must be a {products,rate} list or a named numeric scalar', ctx, i))
+      }
+    }
+  }
+  invisible(TRUE)
+}
+
 # ---- predicates -------------------------------------------------------------
 
 is_authority_spec      <- function(x) inherits(x, 'authority_spec')
@@ -153,6 +384,7 @@ validate_authority_spec <- function(spec) {
     if (!is.null(p$metal) && !is.null(p$metal$type) && !p$metal$type %in% METAL_TYPES) {
       stop(sprintf('[%s/%s] invalid metal.type: %s', a, p$id, p$metal$type))
     }
+    validate_rate(p$rate, sprintf('%s/%s', a, p$id %||% '?'))
   }
   invisible(TRUE)
 }
