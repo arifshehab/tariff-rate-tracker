@@ -91,6 +91,19 @@ classify_parity_column <- function(col) {
   eq
 }
 
+# Columns the build omits under GATHER_ARGS="--unweighted" — the import-weighted
+# ETR / weight aggregates (weighted_etr*, the per-authority etr_* columns,
+# *_imports_b). The harness gates the rate panel + the UNWEIGHTED daily
+# means/counts; the weighted-ETR engine is intentionally un-gated (see the
+# PARITY_ARTIFACTS NOTE). So a golden (built weighted) carrying these columns while
+# the candidate (--unweighted) omits them is EXPECTED, not drift — such a
+# golden-only column is skipped, not a schema violation. (Any other golden-only
+# column is still real drift; and a weighted column PRESENT in both is still
+# value-compared, with the etr tolerance.)
+.parity_is_ungated_weighted_col <- function(col) {
+  grepl('^weighted_etr|^etr_|_imports_b$', col)
+}
+
 # ---- core comparator --------------------------------------------------------
 
 #' Compare a candidate table against a golden reference, keyed by `key_cols`.
@@ -125,6 +138,11 @@ compare_parity <- function(actual, golden, key_cols, label = 'artifact') {
   val_cols_g <- setdiff(names(golden), key_cols)
   only_actual <- setdiff(val_cols_a, val_cols_g)
   only_golden <- setdiff(val_cols_g, val_cols_a)
+  # Skip the un-gated import-weighted ETR/weight columns the --unweighted candidate
+  # legitimately omits (see .parity_is_ungated_weighted_col); flag every OTHER
+  # golden-only column as a real schema violation.
+  skipped_ungated <- only_golden[.parity_is_ungated_weighted_col(only_golden)]
+  only_golden     <- setdiff(only_golden, skipped_ungated)
   for (col in only_golden) add_v('schema_missing_column', col, NA_character_, NA, NA)
   for (col in only_actual) add_v('schema_extra_column', col, NA_character_, NA, NA)
   shared_cols <- intersect(val_cols_a, val_cols_g)
@@ -194,6 +212,7 @@ compare_parity <- function(actual, golden, key_cols, label = 'artifact') {
     n_rows_golden = nrow(golden),
     n_rows_common = length(common_idx),
     n_violations = nrow(viol_tbl),
+    skipped_ungated_columns = skipped_ungated,
     violations = viol_tbl
   )
 }
