@@ -148,17 +148,26 @@ result <- assemble_timeseries(output_dir, rev_dates, pp, scenario = 'baseline',
                               allow_partial = allow_partial)
 
 # ---- 4. Downstream (mirrors 00_build_timeseries.R main block) ----
-ts <- readRDS(result$timeseries_path)
+# Daily series reads the per-revision snapshots DIRECTLY (streaming, fanned across
+# SLURM_CPUS_PER_TASK), not the combined 204M-row rate_timeseries.rds — peak memory
+# ~1.2 GB/worker instead of ~48 GB, and parallel. Intervals are recomputed from
+# rev_dates inside the streaming path exactly as assemble_timeseries does, so the
+# daily outputs are identical (parity-gated). The combined panel is still assembled
+# above for the weighted ETR / quality report / publish, which haven't been moved
+# off it yet (tracked as the gather-monolith follow-up).
 if (unweighted) {
-  tryCatch(run_daily_series(ts, imports = NULL, policy_params = pp),
+  tryCatch(run_daily_series(snapshot_dir = output_dir, rev_dates = rev_dates,
+                            imports = NULL, policy_params = pp),
            error = function(e) message('Daily series failed: ', conditionMessage(e)))
   tryCatch(run_quality_report(result$timeseries_path),
            error = function(e) message('Quality report failed: ', conditionMessage(e)))
 } else {
   ensure_import_weights()
   imports <- load_import_weights()
-  tryCatch(run_daily_series(ts, imports = imports, policy_params = pp),
+  tryCatch(run_daily_series(snapshot_dir = output_dir, rev_dates = rev_dates,
+                            imports = imports, policy_params = pp),
            error = function(e) message('Daily series failed: ', conditionMessage(e)))
+  ts <- readRDS(result$timeseries_path)   # weighted ETR + quality still read the combined panel
   tryCatch(run_weighted_etr(ts, policy_params = pp),
            error = function(e) message('Weighted ETR failed: ', conditionMessage(e)))
   tryCatch(run_quality_report(ts = ts, timeseries_path = result$timeseries_path),
