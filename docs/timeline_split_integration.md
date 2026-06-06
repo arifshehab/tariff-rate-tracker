@@ -148,4 +148,9 @@ steel/aluminum), so the golden must be re-frozen:
    (`build_parity_manifest.R` itself only compares the shared intersection; the refusal lives
    in the summarizer.) Retain `70b6b97` for provenance.
 
-New golden sha: _TBD (fill in after capture)_. Prior golden retained: `70b6b97`.
+**New golden captured: `tests/golden/6ec81b9`** (2026-06-06) — 45 snapshots (42 real + the
+3 `bnd_` mints, manifest lists exactly `bnd_2025-03-12` / `bnd_2026-02-20` / `bnd_2026-11-10`),
+weighted daily CSVs, `policy_params_md5 = 361cf48e65720fab364e0e4f3a5f846c`,
+`use_policy_dates = true`, `src_config_dirty = false`, `has_timeseries = false` (array path
+skips the monolith). Validated surgical vs the prior golden: 6 daily rows move, all inside the
+boundary windows, 0 outside. Prior golden **`70b6b97` retained** for provenance.
