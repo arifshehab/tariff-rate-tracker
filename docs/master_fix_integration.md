@@ -81,7 +81,33 @@ artifact, not committed): 42 snapshots, 4 daily CSVs, `rate_timeseries.rds`, man
 **This replaces `9f9837d` as the parity reference** for future runs at this code state.
 `9f9837d` is retained for provenance / decomposition.
 
+## Production publish (2026-06-06) + comparison chart
+
+- **Weighted rebuild:** the parity build was `--unweighted`; re-ran just the gather weighted
+  from the existing 42 fix-build snapshots (`scripts/build_gather.R`, no full rebuild) →
+  weighted daily in `output/actual/daily`.
+- **Chart:** `scripts/chart_weighted_rate_comparison.R` →
+  `output/master_fix_impact/weighted_rate_comparison.png`. Import-weighted effective rate,
+  before (golden `9f9837d` ≡ `96f341b`) vs after (theseus HEAD). **Time-avg 11.75% → 11.48%
+  (−0.28pp).** April-2025 divergence = the re-dating shifting the reciprocal-tariff onset;
+  the steady gap = the policy fixes.
+- **Published vintage `2026-06-06`** to the shared Budget Lab tree
+  (`/nfs/.../shared/model_data/Tariff-Rate-Tracker/2026-06-06/`) via
+  `scripts/run_publish_internal.R` (standalone `publish_internal()`, no `--full` rebuild) and
+  **repointed `latest` → 2026-06-06**. actual/ = 42 interval snapshot parquets + daily +
+  quality; verified readable (4.88M rows, `statutory_rate_232` present). John approved
+  full-publish-+-repoint-latest (from the un-merged theseus branch).
+- **`--with-alternatives` (the 6 USMCA scenarios) NOT run** — that's a separate 10–12h job;
+  this published the core actual/ panel.
+
 ## Open / not done (for John)
+
+- **Stale `scenarios/no_ieepa/` in the published vintage.** The default scenario-sweep copied
+  `output/scenarios/no_ieepa/` (2026-06-03, pre-fix; 4 daily CSVs, no snapshots) into
+  `2026-06-06/scenarios/no_ieepa/`. The actual/ panel is correct; this side scenario is stale.
+  Removal was denied by the auto-mode guard (shared tree) — drop it manually
+  (`rm -rf .../2026-06-06/scenarios`) or regenerate it. Future publishes: pass
+  `include_scenarios = FALSE` or clear `output/scenarios/` first.
 
 - **Policy-vs-timing decomposition not run.** The total (D−A) is reported + frozen. To
   split the −0.349pp into policy (B−A) vs timing (D−B) channels, run John's three-model
