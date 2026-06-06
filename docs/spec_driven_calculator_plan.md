@@ -462,6 +462,32 @@ and one annex_3 product vs the golden before gating.
 **Dependency note:** this overlaps the annex tier with §232's existing `default`/`by_country` layers, so it's cleanest
 AFTER Plank 4b (IEEPA) lands, or as a standalone — it does not block 4b.
 
+## Possible extension — product-exemption SETS into the spec (parity-safe relocation, not yet scheduled)
+
+> Candidate "Pass-1.5" plank flagged by John (2026-06-06), after Plank 4b closed. Spec'd here for when we pick it up; **not in flight.**
+
+**The gap.** The rate de-blob made the spec the source of truth for *what rate applies to whom*, but the **product-exemption sets** are still loaded directly by the calculator from hand-curated resource CSVs — they never enter the spec. The convention is uniform across authorities (**rate → spec; product-exemption set → calc-loaded CSV**), so this is a house pattern, not an IEEPA quirk. The calc-loaded sets:
+- `resources/ieepa_exempt_products.csv` (~4,298 hts10 — universal Annex II; `06:~962`)
+- `resources/country_eo_exempt_products.csv` (~970, **date-gated** rows; `06:~978`)
+- `resources/floor_exempt_products.csv` (~3,824, keyed by **(hts8, country_group)**; loaded via `load_revision_floor_exemptions`, `06:~1007`)
+- `resources/s122_exempt_products.csv` (§122's analogous list; `06:~2411`) — **same pattern**, so fold it in here.
+- the Ch98 fentanyl subset is *derived* from `ieepa_exempt_products` (`substr==98`), so it rides along.
+
+**Provenance (why they're treated differently from rates).** Rates are PARSED from the HTS JSON Chapter-99 headings (`extract_ieepa_rates`/`extract_section122_rates`). These exempt lists are **NOT in that JSON** — they are hand-transcribed from the EO annexes / US Notes into resource CSVs; `expand_ieepa_exempt.R` only *expands* the hand-curated HTS8 seeds to HTS10 (+ adds whole chapters 98/97/49 by rule). So they're a separate, hand-curated input stream that no parser touches — which is why the adapter (built from parser objects + config) never sees them today.
+
+**Feasibility = yes, not a technical blocker.** They are just sets of hts10 codes. The adapter is per-revision and already loads config + resource files, so it can load these CSVs and bake them onto the program (e.g. `programs[[1]]$exempt_products`, or a `rate$product_exempt` layer). The **masking stays calc-side** (`hts10 %in% set` needs the product grid); only the SET — the source of truth — moves into the spec. Precedented: §232 already relocated its **country** exemptions (→ `by_country = 0`) and its annex **classification** (→ `section_232$annex`) the same way.
+
+**Wrinkles the adapter must handle (all already-solved patterns):**
+- `country_eo_exempt` is **date-gated** → the per-revision adapter pre-resolves the *active* (ch99, hts8) set at the revision date and bakes that (mirrors the §232 config-exemption date-gate baking).
+- `floor_exempt` is **(hts8, country_group)**-keyed, not a flat set → bake the keyed structure (a small structured field), not a vector.
+- These are LARGE (~9k codes total) and the spec serializes per-revision to RDS → accept the size bump, or keep them as a per-spec reference handle.
+
+**Stays calc-side regardless (NOT this plank):** the §232 **Taiwan civil-aircraft** exemption — it gates on metals-annex *provenance* (`!is.na(s232_annex)`) and *nulls* a calc column, which a spec field can't express (the one S3 verdict that was not an overstatement). The IEEPA/s122 exempts have **none** of that entanglement (plain "zero the rate for these products"), so they relocate cleanly.
+
+**Honest value caveat.** Lower-value than the rate de-blob: the rates were hidden in opaque blobs (the whole point of de-blobbing), whereas these exemptions are already clean, inspectable, version-controlled CSVs — a defensible source of truth as-is. This plank is about *uniformity* ("the spec holds everything"), not rescuing hidden data.
+
+**Gate.** Parity-SAFE by construction (a relocation, no number change → no oracle). Standard 43-rev array vs `tests/golden/9f9837d`; a RED gate ⇒ a relocation detail drifted (date-gate boundary, country-group key, Ch98-subset derivation), not a schema gap. Slice by file (ieepa universal → country_eo → floor → s122) if the first gate is red.
+
 ## Verification
 
 - **Baseline golden:** `tests/golden/9f9837d` (the native-format twin of the published
