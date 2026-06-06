@@ -157,9 +157,11 @@ steel/aluminum), so the golden must be re-frozen:
    (`build_parity_manifest.R` itself only compares the shared intersection; the refusal lives
    in the summarizer.) Retain `70b6b97` for provenance.
 
-**New golden captured: `tests/golden/6ec81b9`** (2026-06-06) — 45 snapshots (42 real + the
-3 `bnd_` mints, manifest lists exactly `bnd_2025-03-12` / `bnd_2026-02-20` / `bnd_2026-11-10`),
-weighted daily CSVs, `policy_params_md5 = 361cf48e65720fab364e0e4f3a5f846c`,
-`use_policy_dates = true`, `src_config_dirty = false`, `has_timeseries = false` (array path
-skips the monolith). Validated surgical vs the prior golden: 6 daily rows move, all inside the
-boundary windows, 0 outside. Prior golden **`70b6b97` retained** for provenance.
+**Current golden: `tests/golden/52dab78`** (2026-06-06, commit `52dab78` — after pricing the
+§301 cranes/chassis). 45 snapshots (42 real + the 3 `bnd_` mints, manifest lists exactly
+`bnd_2025-03-12` / `bnd_2026-02-20` / `bnd_2026-11-10`), weighted daily CSVs,
+`policy_params_md5 = 4afe9508aa0aef78e443fcf1a86ee757`, `use_policy_dates = true`,
+`src_config_dirty = false`, `has_timeseries = false` (array path skips the monolith).
+Validated surgical: **58 daily rows move, all inside the boundary windows, 0 outside.**
+Supersedes `tests/golden/6ec81b9` (the pre-pricing re-freeze, when 2026-11-10 was inert).
+Prior production golden **`70b6b97` retained** for provenance.
