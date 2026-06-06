@@ -136,13 +136,11 @@ build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
 
   # g. Calculate rates for this revision
   rates <- calculate_rates_for_revision(
-    products, ch99_data, ieepa_rates, usmca,
+    products, ch99_data, usmca,
     countries, rev_id, eff_date,
-    s232_rates = s232_rates,
-    fentanyl_rates = fentanyl_rates,
+    specs = specs,
     stacking_method = stacking_method,
-    policy_params = pp_build,
-    specs = specs
+    policy_params = pp_build
   )
 
   # h. Save snapshot

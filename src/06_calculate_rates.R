@@ -892,44 +892,34 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
 #'
 #' @param products Product data from parse_products()
 #' @param ch99_data Chapter 99 data from parse_chapter99()
-#' @param ieepa_rates IEEPA rates from extract_ieepa_rates() (or NULL)
 #' @param usmca USMCA eligibility from extract_usmca_eligibility() (or NULL)
 #' @param countries Vector of Census country codes
 #' @param revision_id Revision identifier (e.g., 'rev_7')
 #' @param effective_date Date the revision took effect
-#' @param s232_rates Section 232 rates from extract_section232_rates() (or NULL)
-#' @param fentanyl_rates Fentanyl rates from extract_ieepa_fentanyl_rates() (or NULL)
-#' @param specs AuthoritySpec set from build_authority_specs() (or NULL). Phase 1
-#'   transitional: when supplied, the embedded raw objects (raw_ieepa / raw_s232 /
-#'   raw_fentanyl) override the corresponding args; the body is otherwise
-#'   unchanged, so output is identical (docs/authority_spec.md, migration step 1a).
+#' @param specs AuthoritySpec set from build_authority_specs() (REQUIRED). The sole
+#'   rate input: the calc reads scope/rate/gates off it and reconstructs the bespoke
+#'   per-authority locals (ieepa_rates / s232_rates [the residual decision-8 §232
+#'   blob] / fentanyl_rates) from it via *_from_specs(). (Plank 7: the specs-less
+#'   dual signature is retired — the calc no longer accepts bespoke rate args.)
 #' @return Tibble with rate columns + revision, effective_date, usmca_eligible
 calculate_rates_for_revision <- function(
-  products, ch99_data, ieepa_rates, usmca,
+  products, ch99_data, usmca,
   countries, revision_id, effective_date,
-  s232_rates = NULL,
-  fentanyl_rates = NULL,
+  specs,
   stacking_method = 'mutual_exclusion',
-  policy_params = NULL,
-  specs = NULL
+  policy_params = NULL
 ) {
   message('Calculating rates for revision: ', revision_id, ' (', effective_date, ')')
 
-  # AuthoritySpec dual signature (Phase 1, transitional — docs/authority_spec.md).
-  # When a spec set is supplied, it is a LOSSLESS re-packaging of the bespoke
-  # per-authority objects (built by build_authority_specs() in authority_adapter.R).
-  # Pull the embedded raw objects back out and overwrite the legacy locals: they
-  # are the IDENTICAL R objects the caller would have passed positionally, so the
-  # body below runs unchanged and the output is provably identical (ideally
-  # byte-identical). The internal re-extraction at :724-726 / :1276-1278 still
-  # fires as before. Phase 2 makes the spec's normalized fields authoritative.
-  if (!is.null(specs)) {
-    # Phase 6b: rates live in the spec's normalized programs (rate$resolved),
-    # reconstructed verbatim via *_from_specs(); the body below runs unchanged.
-    ieepa_rates    <- ieepa_rates_from_specs(specs)
-    s232_rates     <- s232_rates_from_specs(specs)
-    fentanyl_rates <- fentanyl_rates_from_specs(specs)
-  }
+  # AuthoritySpec is the sole rate input (Plank 7: the specs-less dual signature is
+  # retired — `specs` is required). Reconstruct the bespoke per-authority locals the
+  # body and helpers consume from the spec's normalized programs: ieepa_rates and
+  # fentanyl_rates are full rate objects; s232_rates is the residual decision-8 §232
+  # blob (gate inputs + derivative blends). The resolve_rate-driven reads
+  # (122/201/301/232 statutory layers + annex) come straight off `specs` below.
+  ieepa_rates    <- ieepa_rates_from_specs(specs)
+  s232_rates     <- s232_rates_from_specs(specs)
+  fentanyl_rates <- fentanyl_rates_from_specs(specs)
 
   # Date-gate Ch99 entries: drop rows whose legal effective_date_offset is
   # AFTER this revision's effective_date. The HTS publishes new authorities
@@ -938,16 +928,8 @@ calculate_rates_for_revision <- function(
   # See tariff-etr-eval/docs/tracker_audits/s232_auto_effective_date_2026-04-28.md.
   ch99_data <- filter_active_ch99(ch99_data, as.Date(effective_date))
 
-  # If s232_rates was extracted upstream from unfiltered ch99_data
-  # (00_build_timeseries.R and 09_daily_series.R both pre-extract), re-extract
-  # so heading_gates downstream see the gated state.
-  # Phase 2a: when a spec set drives the calc, the spec's 232 value is
-  # AUTHORITATIVE — skip the re-extraction. Parity-safe because the embedded
-  # raw_s232 was extracted with the identical filter_active_ch99(effective_date)
-  # gate (00:106-107 / 09:1158), so it equals what this would re-extract.
-  if (is.null(specs) && !is.null(s232_rates)) {
-    s232_rates <- extract_section232_rates(ch99_data)
-  }
+  # s232_rates is the spec's residual §232 blob, extracted upstream with the same
+  # filter_active_ch99(effective_date) gate, so no re-extraction is needed here.
 
   pp <- policy_params %||% load_policy_params()
   cc <- get_country_constants(pp)
@@ -979,11 +961,7 @@ calculate_rates_for_revision <- function(
   # verbatim, so baseline is identical. Both IEEPA specs share the date (the
   # `ieepa` group), so reciprocal's until governs the joint kill switch below
   # AND the grid densification at the matching site downstream.
-  ieepa_invalidation <- if (!is.null(specs)) {
-    specs[['ieepa_reciprocal']]$active$until
-  } else {
-    pp$IEEPA_INVALIDATION_DATE
-  }
+  ieepa_invalidation <- specs[['ieepa_reciprocal']]$active$until
   if (!is.null(ieepa_invalidation) && as.Date(effective_date) >= ieepa_invalidation) {
     message('  IEEPA invalidated as of ', ieepa_invalidation,
             ' — zeroing reciprocal and fentanyl for ', revision_id)
@@ -1512,11 +1490,7 @@ calculate_rates_for_revision <- function(
   #    Aluminum: chapter 76 (US Note 19, 9903.85)
   #    Autos: heading 8703 + specific subheadings (US Note 25, 9903.94)
   #    Copper: specific headings in chapter 74
-  # Phase 2a: with a spec set, 232 comes from the spec (see the guarded
-  # re-extraction above); never re-extract here either.
-  if (is.null(specs) && is.null(s232_rates)) {
-    s232_rates <- extract_section232_rates(ch99_data)
-  }
+  # 232 comes from the spec's residual blob (extracted upstream); never re-extract.
 
   # Load heading-level 232 config from policy params. Required — without it the
   # pipeline silently produces output with zero autos/copper/MHD/semi/wood, since
@@ -2123,7 +2097,7 @@ calculate_rates_for_revision <- function(
     # $flat_rate (tiers 1a/1b/2 -> 0.50/0.25/0), $floor_rate (tier-3 floor scalar).
     # No in-calc classification, no config fallback — an annex-era revision REQUIRES
     # its spec annex structure (the inner else stops loudly if it is absent).
-    ann <- if (!is.null(specs)) specs[['section_232']]$annex else NULL
+    ann <- specs[['section_232']]$annex
     if (!is.null(ann)) {
       # s232_annex tag + per-product flat annex rate (tiers 1a/1b/2): read off the
       # spec. annex_flat is NA where there is no flat rate (tier 3 / unclassified /
@@ -2376,16 +2350,12 @@ calculate_rates_for_revision <- function(
       # additive codes (supersession — for the 8 products on both Trump 9903.88.xx and
       # Biden 9903.91.xx lists, Biden >= Trump, so MAX picks the superseding rate).
       #
-      # Plank 1: the BUILD now resolves this tier in the adapter and parks it on the
-      # spec's by_product_tier; we READ it back here (resolve_rate's by_product_tier
-      # layer) — the spec drives the rate. The inline compute below is retained ONLY
-      # as a fallback for specs-less callers (standalone/legacy test harnesses that
-      # call calculate_rates_for_revision() without specs); it is dead in the build
-      # (specs always present). This fallback + the CTY_CHINA scope fallbacks below
-      # are removed in Plank 7 (drop the dual signature), once specs-less callers go.
-      s301_tier <- if (!is.null(specs)) {
-        specs[['section_301']]$programs[[1]]$rate$by_product_tier
-      } else NULL
+      # Plank 1: the BUILD resolves this tier in the adapter and parks it on the spec's
+      # by_product_tier; we READ it back here via resolve_rate's by_product_tier layer.
+      # The `is.numeric(s301_tier)` ternary below keeps the inline recompute arm for the
+      # 'from_list' rate sentinel — a STATE, not a signature, concern (it is 0-row in
+      # baseline and short-circuited by the nrow() > 0 guard), so Plank 7 leaves it.
+      s301_tier <- specs[['section_301']]$programs[[1]]$rate$by_product_tier
       s301_lookup <- if (is.numeric(s301_tier) && length(s301_tier) && !is.null(names(s301_tier))) {
         tibble(hts8 = names(s301_tier), blanket_301 = as.numeric(s301_tier))
       } else {
@@ -2403,11 +2373,7 @@ calculate_rates_for_revision <- function(
         # Phase 2e: Section 301 country scope is data, not a China hardcode.
         # scope_301 comes from the spec (defaults to {China} → byte-identical to
         # the old `country == CTY_CHINA`); a scenario can re-scope it (301 → VN).
-        scope_301 <- if (!is.null(specs)) {
-          resolve_country_scope(specs[['section_301']]$programs[[1]]$country_scope, countries)
-        } else {
-          CTY_CHINA
-        }
+        scope_301 <- resolve_country_scope(specs[['section_301']]$programs[[1]]$country_scope, countries)
 
         # Update rate_301 for in-scope product-country pairs; ZERO it out of scope.
         # Out-of-scope was already 0 (no non-China seed), so baseline is unchanged
@@ -2486,11 +2452,7 @@ calculate_rates_for_revision <- function(
         if (nrow(s301_cs_lookup) > 0) {
           # Same spec-driven scope as the additive flavor (set_country_scope on
           # section_301 re-scopes both); defaults to {China}.
-          scope_301_cs <- if (!is.null(specs)) {
-            resolve_country_scope(specs[['section_301']]$programs[[1]]$country_scope, countries)
-          } else {
-            CTY_CHINA
-          }
+          scope_301_cs <- resolve_country_scope(specs[['section_301']]$programs[[1]]$country_scope, countries)
 
           rates <- rates %>%
             mutate(hts8 = substr(hts10, 1, 8)) %>%
@@ -2549,16 +2511,10 @@ calculate_rates_for_revision <- function(
   #     Section 122 has a 150-day statutory limit; gate on expiry unless finalized.
   # Plank 3: Section 122 is de-blobbed — the rate lives in the spec's compositional
   # rate$default layer; the calc READS it via resolve_rate() (value > 0 is the
-  # has_s122 gate, matching the old blob's has_s122 ≡ rate>0). The specs-less `else`
-  # re-extraction is RETAINED for the dual-signature callers (test_tpc_comparison,
-  # run_tests_daily_series) and removed in Plank 7, alongside the 301/201 fallbacks.
-  s122_rates <- if (!is.null(specs)) {
-    s122_value <- resolve_rate(specs[['section_122']]$programs[[1]]$rate)$value
-    if (isTRUE(s122_value > 0)) list(s122_rate = s122_value, has_s122 = TRUE)
-    else                        list(s122_rate = 0,          has_s122 = FALSE)
-  } else {
-    extract_section122_rates(ch99_data)
-  }
+  # has_s122 gate, matching the old blob's has_s122 ≡ rate>0).
+  s122_value <- resolve_rate(specs[['section_122']]$programs[[1]]$rate)$value
+  s122_rates <- if (isTRUE(s122_value > 0)) list(s122_rate = s122_value, has_s122 = TRUE)
+                else                        list(s122_rate = 0,          has_s122 = FALSE)
 
   s122_in_force <- TRUE
   if (!is.null(pp$SECTION_122) && !pp$SECTION_122$finalized) {
@@ -2626,19 +2582,11 @@ calculate_rates_for_revision <- function(
       s201_products <- read_csv(s201_path,
                                  col_types = cols(hts10 = col_character()))
       solar_rate <- s201_results$solar_rate
-      # Plank 2: Section 201 country scope is data, not a Canada hardcode. The
-      # spec carries country_scope = {include: all, exclude: Canada}, which
-      # resolve_country_scope() turns into setdiff(countries, Canada) — byte-
-      # identical to the old fallback (and already in the 9f9837d golden, so
-      # parity holds trivially). A scenario re-scopes/disables it via scenario_ops
-      # (section_201 is SCOPE_DRIVEN). The specs-less `else` fallback is RETAINED
-      # for the dual-signature callers (test_tpc_comparison, run_tests_daily_series)
-      # and removed in Plank 7, alongside the 301 fallbacks above.
-      s201_country_codes <- if (!is.null(specs)) {
-        resolve_country_scope(specs[['section_201']]$programs[[1]]$country_scope, countries)
-      } else {
-        setdiff(countries, pp$country_codes$CTY_CANADA)
-      }
+      # Plank 2: Section 201 country scope is data, not a Canada hardcode. The spec
+      # carries country_scope = {include: all, exclude: Canada}, which
+      # resolve_country_scope() turns into setdiff(countries, Canada). A scenario
+      # re-scopes/disables it via scenario_ops (section_201 is SCOPE_DRIVEN).
+      s201_country_codes <- resolve_country_scope(specs[['section_201']]$programs[[1]]$country_scope, countries)
 
       # Set rate_section_201 for existing rows
       rates <- rates %>%

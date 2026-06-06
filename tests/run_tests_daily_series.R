@@ -985,13 +985,10 @@ run_test('calculator zeroes IEEPA on 2026-02-20 while Section 122 remains HTS-da
   rates_policy <- calculate_rates_for_revision(
     products = products,
     ch99_data = ch99_data,
-    ieepa_rates = ieepa_rates,
     usmca = NULL,
     countries = '5700',
     revision_id = '2026_rev_4',
     effective_date = as.Date('2026-02-20'),
-    s232_rates = s232_rates,
-    fentanyl_rates = NULL,
     policy_params = pp_policy,
     specs = specs_policy
   )
@@ -999,13 +996,10 @@ run_test('calculator zeroes IEEPA on 2026-02-20 while Section 122 remains HTS-da
   rates_hts <- calculate_rates_for_revision(
     products = products,
     ch99_data = ch99_data,
-    ieepa_rates = ieepa_rates,
     usmca = NULL,
     countries = '5700',
     revision_id = '2026_rev_4',
     effective_date = as.Date('2026-02-20'),
-    s232_rates = s232_rates,
-    fentanyl_rates = NULL,
     policy_params = pp_hts,
     specs = specs_hts
   )
@@ -1442,13 +1436,10 @@ run_test('Russia annex exporter-country surcharge applies to aluminum only', {
   rates <- calculate_rates_for_revision(
     products = products,
     ch99_data = ch99_data,
-    ieepa_rates = NULL,
     usmca = NULL,
     countries = c('4621', '4280'),
     revision_id = '2026_rev_5',
     effective_date = as.Date('2026-04-06'),
-    s232_rates = s232_rates,
-    fentanyl_rates = NULL,
     policy_params = pp,
     specs = specs
   ) %>%
@@ -1617,13 +1608,10 @@ run_test('calculate_rates_for_revision populates annex tags through config-drive
   rates <- calculate_rates_for_revision(
     products = products,
     ch99_data = ch99_data,
-    ieepa_rates = NULL,
     usmca = NULL,
     countries = '4280',
     revision_id = '2026_rev_5',
     effective_date = as.Date('2026-04-06'),
-    s232_rates = s232_rates,
-    fentanyl_rates = NULL,
     policy_params = pp,
     specs = specs
   ) %>%
@@ -1662,9 +1650,9 @@ run_test('primary chapter product gets annex_1a even without pre-existing rate_2
                            effective_date = as.Date('2026-04-06'))
   rates <- calculate_rates_for_revision(
     products = products, ch99_data = ch99_data,
-    ieepa_rates = NULL, usmca = NULL, countries = '4280',
+    usmca = NULL, countries = '4280',
     revision_id = '2026_rev_5', effective_date = as.Date('2026-04-06'),
-    s232_rates = s232_rates, fentanyl_rates = NULL, policy_params = pp,
+    policy_params = pp,
     specs = specs
   )
 
@@ -1714,13 +1702,10 @@ run_test('export_statutory_rates uses annex programs for post-annex snapshots', 
   rates <- calculate_rates_for_revision(
     products = products,
     ch99_data = ch99_data,
-    ieepa_rates = NULL,
     usmca = NULL,
     countries = '4280',
     revision_id = '2026_rev_5',
     effective_date = as.Date('2026-04-06'),
-    s232_rates = s232_rates,
-    fentanyl_rates = NULL,
     policy_params = pp,
     specs = specs
   )

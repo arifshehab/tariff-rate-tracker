@@ -1374,12 +1374,10 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
       }
 
       rates <- calculate_rates_for_revision(
-        products, ch99_data, ieepa_rates, usmca,
+        products, ch99_data, usmca,
         countries, rev_id, eff_date,
-        s232_rates = s232_rates,
-        fentanyl_rates = fentanyl_rates,
-        policy_params = policy_params %||% pp_override,
-        specs = specs
+        specs = specs,
+        policy_params = policy_params %||% pp_override
       )
       saveRDS(rates, file.path(tmp_dir, paste0('snapshot_', rev_id, '.rds')))
       n_saved <- n_saved + 1L
