@@ -1156,7 +1156,7 @@ calculate_rates_for_revision <- function(
               if_else(exempt_active, 0, ieepa_country_rate - country_eo_rate) +
               if_else(is_country_eo_exempt, 0, country_eo_rate),
             ieepa_type == 'floor' & exempt_active ~ 0,
-            ieepa_type == 'floor' ~ pmax(0, ieepa_country_rate - base_rate),
+            ieepa_type == 'floor' ~ apply_rate_semantics(ieepa_country_rate, 'floor_post_mfn', base_rate),
             ieepa_type == 'passthrough' ~ 0,
             TRUE ~ 0
           )
@@ -1222,7 +1222,7 @@ calculate_rates_for_revision <- function(
               if_else(exempt_active, 0, ieepa_country_rate - country_eo_rate) +
               if_else(is_country_eo_exempt, 0, country_eo_rate),
             ieepa_type == 'floor' & exempt_active ~ 0,
-            ieepa_type == 'floor' ~ pmax(0, ieepa_country_rate - base_rate),
+            ieepa_type == 'floor' ~ apply_rate_semantics(ieepa_country_rate, 'floor_post_mfn', base_rate),
             TRUE ~ 0
           )
         ) %>%
@@ -2009,7 +2009,7 @@ calculate_rates_for_revision <- function(
         mutate(rate_232 = case_when(
           hts10 %in% heading_program_products ~ rate_232,             # heading rate wins
           !is.na(annex_flat) ~ annex_flat,                            # tiers 1a/1b/2 from the spec
-          s232_annex == 'annex_3' ~ pmax(0, ann$floor_rate - base_rate),  # tier-3 floor vs base
+          s232_annex == 'annex_3' ~ apply_rate_semantics(ann$floor_rate, 'floor_post_mfn', base_rate),  # tier-3 floor vs base
           TRUE ~ rate_232
         ))
 
@@ -2561,7 +2561,7 @@ calculate_rates_for_revision <- function(
                     rates$base_rate < rates$statutory_base_rate
       if (any(floor_mask)) {
         old_recip <- rates$rate_ieepa_recip[floor_mask]
-        rates$rate_ieepa_recip[floor_mask] <- pmax(0, floor_rate_val - rates$base_rate[floor_mask])
+        rates$rate_ieepa_recip[floor_mask] <- apply_rate_semantics(floor_rate_val, 'floor_post_mfn', rates$base_rate[floor_mask])
         n_floor_adjusted <- sum(rates$rate_ieepa_recip[floor_mask] != old_recip)
         message('  Floor recomputation: updated rate_ieepa_recip for ', n_floor_adjusted,
                 ' floor-type pairs (against post-MFN base_rate)')
@@ -2575,7 +2575,7 @@ calculate_rates_for_revision <- function(
                      rates$base_rate < rates$statutory_base_rate
       if (any(annex3_mask)) {
         floor_val <- annex_cfg$annexes$annex_3$floor_rate
-        rates$rate_232[annex3_mask] <- pmax(0, floor_val - rates$base_rate[annex3_mask])
+        rates$rate_232[annex3_mask] <- apply_rate_semantics(floor_val, 'floor_post_mfn', rates$base_rate[annex3_mask])
         rates$statutory_rate_232[annex3_mask] <- rates$rate_232[annex3_mask]
         message('  Annex III floor recomputation: updated ', sum(annex3_mask),
                 ' pairs (against post-MFN base_rate)')
