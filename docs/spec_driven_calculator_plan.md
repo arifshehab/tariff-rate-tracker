@@ -540,6 +540,13 @@ AFTER Plank 4b (IEEPA) lands, or as a standalone — it does not block 4b.
 
 ## Verification
 
+> **GOLDEN INCREMENTED 2026-06-06 → `tests/golden/70b6b97`.** After Pass-1 closed, the
+> six "extreme-eta" policy fixes + the revision re-dating from `master` were ported in and
+> the golden was re-frozen (these are behavior-changing — they move numbers on purpose).
+> Pass-1's planks were all gated against `9f9837d` (the references below are historically
+> correct); **future parity runs should use `tests/golden/70b6b97`.** Daily-rate impact +
+> the full port log: `docs/master_fix_integration.md`. `9f9837d` is retained for provenance.
+
 - **Baseline golden:** `tests/golden/9f9837d` (the native-format twin of the published
   `2026-06-04_2` vintage; same commit, `policy_params_md5` matches the manifest). Captured
   via `scripts/capture_parity_golden.R`.
