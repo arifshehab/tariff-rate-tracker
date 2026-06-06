@@ -958,10 +958,35 @@ calculate_rates_for_revision <- function(
             ' (DIAGNOSTIC — produces legally-incorrect output)')
   }
 
-  # Load IEEPA product exemptions
+  # Load IEEPA product exemptions. The list is date-windowed: Annex II has
+  # been amended repeatedly (electronics Apr 5 2025, EO 14346 metals Sept 8,
+  # agricultural expansion Nov 13; copper/wood REMOVED when their 232
+  # programs began Aug 1 / Oct 14). effective_date_start/_end columns are
+  # stamped by scripts/build_annex_ii_dates.R from the chapter-99 change
+  # records; blank = always active. Without the filter the static list
+  # applied amendments retroactively (extreme-eta review item 3).
   ieepa_exempt_path <- here('resources', 'ieepa_exempt_products.csv')
   ieepa_exempt_products <- if (file.exists(ieepa_exempt_path)) {
-    read_csv(ieepa_exempt_path, col_types = cols(hts10 = col_character()))$hts10
+    ie_raw <- read_csv(ieepa_exempt_path,
+                       col_types = cols(hts10 = col_character(),
+                                        .default = col_character()))
+    rd_exempt <- as.Date(effective_date)
+    n_before <- nrow(ie_raw)
+    if ('effective_date_start' %in% names(ie_raw)) {
+      ie_raw <- ie_raw %>%
+        filter(is.na(effective_date_start) |
+                 as.Date(effective_date_start) <= rd_exempt)
+    }
+    if ('effective_date_end' %in% names(ie_raw)) {
+      ie_raw <- ie_raw %>%
+        filter(is.na(effective_date_end) |
+                 as.Date(effective_date_end) >= rd_exempt)
+    }
+    if (nrow(ie_raw) < n_before) {
+      message('  IEEPA exempt list: ', n_before - nrow(ie_raw),
+              ' entries outside their effective window at ', effective_date)
+    }
+    ie_raw$hts10
   } else {
     warning('ieepa_exempt_products.csv not found — all products subject to IEEPA')
     character(0)
