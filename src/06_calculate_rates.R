@@ -2815,7 +2815,10 @@ calculate_rates_for_revision <- function(
   # keeps the fast vectorized wide path (bit-identical). The resolved path
   # reproduces the wide path within the floating-point floor.
   if (use_resolved_stacking() && stacking_method == 'mutual_exclusion') {
-    rates <- resolve_and_collapse(rates, default_stacking_policy(CTY_CHINA))
+    # Plank 5c: the flag-off resolved path reads the SAME spec-derived policy as the
+    # fast path below, so the two stay consistent for any future flag-ON use. (This
+    # branch is off in every gated run, so it is parity-neutral either way.)
+    rates <- resolve_and_collapse(rates, stacking_policy_from_specs(specs, CTY_CHINA))
   } else {
     # Plank 5b: the stacking policy is now READ FROM THE SPEC (class + exceptions)
     # via stacking_policy_from_specs(), instead of the hardcoded default. At baseline

@@ -25,22 +25,25 @@
 
 library(tidyverse)
 
-# Wide rate_* column <-> authority + stable program id + stacking precedence.
-# ORDER MATTERS: it mirrors default_stacking_policy() / the historical case_when
-# term order, so the per-pair contribution sum stays within the FP floor of the
-# wide path. program_id is authority-level — 232's sub-programs (steel/alum/...)
-# are NOT split out of the already-resolved wide rate_232 (that needs the Phase-4
-# resolution-step rewrite); one row per (hts10, country, authority) here.
+# Wide rate_* column <-> authority + stable program id. program_id is authority-level
+# — 232's sub-programs (steel/alum/...) are NOT split out of the already-resolved wide
+# rate_232 (that needs the Phase-4 resolution-step rewrite); one row per (hts10, country,
+# authority) here.
+# Plank 5c: `precedence` is no longer a hand-maintained column — it is DERIVED from the
+# policy order in build_resolved_programs() (seq_along(names(policy))), so it can never
+# drift from default_stacking_policy() / stacking_policy_from_specs() the way a duplicated
+# literal would. ORDER STILL MATTERS for the per-pair contribution sum's FP floor, but the
+# order now has a single source (the policy), not two.
 RESOLVED_AUTHORITIES <- tibble::tribble(
-  ~rate_col,          ~authority,          ~program_id,  ~precedence,
-  'rate_232',         'section_232',       's232',       1L,
-  'rate_ieepa_recip', 'ieepa_reciprocal',  'recip',      2L,
-  'rate_ieepa_fent',  'ieepa_fentanyl',    'fentanyl',   3L,
-  'rate_301',         'section_301',       's301',       4L,
-  'rate_301_cs',      'section_301_cs',    's301cs',     5L,
-  'rate_s122',        'section_122',       's122',       6L,
-  'rate_section_201', 'section_201',       's201',       7L,
-  'rate_other',       'other',             'other',      8L
+  ~rate_col,          ~authority,          ~program_id,
+  'rate_232',         'section_232',       's232',
+  'rate_ieepa_recip', 'ieepa_reciprocal',  'recip',
+  'rate_ieepa_fent',  'ieepa_fentanyl',    'fentanyl',
+  'rate_301',         'section_301',       's301',
+  'rate_301_cs',      'section_301_cs',    's301cs',
+  'rate_s122',        'section_122',       's122',
+  'rate_section_201', 'section_201',       's201',
+  'rate_other',       'other',             'other'
 )
 
 #' Is resolution-time stacking via the resolved-program table enabled?
@@ -67,11 +70,22 @@ build_resolved_programs <- function(df, policy = default_stacking_policy()) {
   if (!'rate_section_201' %in% names(df)) df$rate_section_201 <- 0 else df$rate_section_201[is.na(df$rate_section_201)] <- 0
   if (!'metal_share' %in% names(df)) df$metal_share <- 1 else df$metal_share[is.na(df$metal_share)] <- 1
   if (!'deriv_type' %in% names(df)) df$deriv_type <- NA_character_
+  # Plank 5c: every policy rate_col must exist before the pivot (mirrors the wide path's
+  # compute_stacking_contributions, stacking.R:168, and the 06 fast path which seeds
+  # rate_301_cs = 0 at compute_rates_wide). Inject 0 for any column absent from the frame
+  # (e.g. rate_301_cs on an older/synthetic panel) so pivot_longer(all_of(rate_cols)) is
+  # total. Fixes a latent crash: rate_301_cs entered default_stacking_policy() but this
+  # guard set never covered it.
+  for (col in rate_cols) if (!col %in% names(df)) df[[col]] <- 0
   df <- compute_nonmetal_share(df)            # pair-level nonmetal_share
   df$.pair    <- seq_len(nrow(df))
   df$.has_232 <- df$rate_232 > 0              # pair-level (rate_232 is pivoted away)
 
-  cls <- tibble(rate_col = rate_cols, stacking_class = map_chr(policy, 'class')) %>%
+  # precedence is DERIVED from the policy order (Plank 5c) — single source of truth,
+  # no hand-maintained column to drift. seq_along(rate_cols) reproduces the old 1L..8L.
+  cls <- tibble(rate_col = rate_cols,
+                stacking_class = map_chr(policy, 'class'),
+                precedence = seq_along(rate_cols)) %>%
     left_join(RESOLVED_AUTHORITIES, by = 'rate_col')
 
   # Per-country class overrides (content_split -> additive, e.g. China fentanyl).
