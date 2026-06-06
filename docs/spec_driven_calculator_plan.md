@@ -390,10 +390,49 @@ exactly the decision-8 designed endpoint (gate inputs + derivative blends), not 
     (replace-then-SUM, not max); CA/MX complement-skip; MAX-per-census on fentanyl general rates. Slice
     S-style; adversarially re-derive Brazil (50%) + a floor country vs the golden before each gate.
 
-**Plank 5 — stacking generalization.** Delete the drifted dormant `resolved_programs.R`;
-rebuild the resolved-program intermediate table fresh; generalize `stacking.R` to read
-`stacking.class`/`exceptions` instead of literal branches; dedup the metal-chapter→type map
-(currently copy-pasted at `06:~2159`, `~2137`, `09:~555`, `stacking.R:~83`) into one config table.
+**Plank 5 — stacking generalization.** — ✅ **DONE (4 slices committed; 43-rev parity gate
+in flight — array `13867594` → gather `13867595` → parity TBD vs `tests/golden/9f9837d`).**
+Mapped + adversarially verified first (workflow `wf_2322681a-b45`, 10 agents) — which
+**reframed the plan**: the stacking MATH was ALREADY generic (Phase-3a: `apply_stacking_rules` /
+`compute_net_authority_contributions` read a `policy` data structure via
+`compute_stacking_contributions`; NO literal country/232 branches remained), so the real lift
+was building that policy FROM the spec, not de-branching. Slices:
+- **5a — metal-chapter→type map dedup** (commit `9c54673`). The map was already config-backed via
+  `cc$STEEL_CHAPTERS`/`ALUM_CHAPTERS` (`policy_params.R:236`, from `pp$section_232_chapters`); 5a
+  added a `copper` sibling + `cc$COPPER_CHAPTERS` and repointed the live redundant literals
+  (`authority_adapter.R` uk_chap/prim_by_type/a1a_ch). The config-absent fallback literals
+  (`data_loaders.R` defaults, `06:630` else) stay as the established house pattern. Kept
+  `metal_content.primary_chapters` (copper-excluded) DISTINCT. Parity-safe by value-identical
+  substitution (`tests/test_metal_chapters.R` 7/7).
+- **5b — build the stacking policy from the spec** (commit `d63d3bf`, THE core). New
+  `stacking_policy_from_specs(specs, cty_china)` (skeleton-override design: fixed skeleton supplies
+  the load-bearing order + rate_col↔net mapping + the spec-less `rate_301_cs`; only `class` +
+  `additive_countries` come from the spec; `primary_metal`/`primary_full`→`primary`; `mfn` excluded).
+  Routed through the SINGLE calc site `06:2820` (NOT `06:197` — that's `calculate_rates_fast`, no specs,
+  recomputed at step 8). Parity-safe by construction: `identical(stacking_policy_from_specs(baseline_specs),
+  default_stacking_policy())` holds byte-for-byte (`tests/test_policy_from_specs.R` 13/13, incl. the
+  counterfactual that mutating a spec class flows into the policy).
+- **5c — resolved_programs.R disposition: UNIFY, not delete** (commit `0181e8c`). **DEVIATES from
+  decision 9's literal "delete & rebuild"** — that rationale ("drifted: orphan section_301_cs") is now
+  STALE (both `RESOLVED_AUTHORITIES` and `default_stacking_policy` carry `rate_301_cs`), and the file is
+  the documented Wire-2 / counterfactual stacking substrate. Kept it; removed the real drift surface
+  (dropped the hand-maintained `precedence` column, derive it from policy order via `seq_along`); threaded
+  the spec-derived policy into the flag-off resolved branch (`06:2818`). **Also fixed a latent pre-existing
+  crash**: `build_resolved_programs` lacked a `rate_301_cs` guard (added to `default_stacking_policy` in
+  Phase 3a but never covered) → it errored on any frame missing that column, so `tests/test_resolved_programs.R`
+  was silently failing on HEAD. Inject 0 for any missing policy rate_col (mirrors the wide path). Test
+  updated to the 8-authority reality (12/12). *John can override the UNIFY call — it's revertible.*
+- **5d — `set_stacking` scenario verb** (commit `428ef3c`). Mutates an authority's/program's
+  `stacking{class,exceptions}` (now load-bearing via 5b). Mirrors `op_set_active` (modifyList merge); class
+  validated by the existing `validate_spec_set` pass. Closes the "no set_stacking op" gap from
+  `counterfactual_generality_ground_truth.md`. Parity-trivial (baseline = empty ops; scenario_ops-only →
+  no rebuild). Honest boundary documented: flows through the calc (06) only — the 09 daily re-stack is
+  specs-less (default fallback), so a set_stacking counterfactual is NOT seen by a daily re-aggregation that
+  bypasses 06 (Pass-2). Unit: `tests/test_scenario_ops.R` 71/71 (+10).
+
+Gate: 5a+5b are the build-path changes (43-rev array confirms byte-identity; 5b dominates the risk, pinned
+by the `identical()` unit invariant). 5c (flag-off) + 5d (scenario-only) are off the gated path. **With the
+gate GREEN, Plank 5 closes and Pass-1 is COMPLETE.**
 
 **Plank 6 — IEEPA scenario verbs.** — ✅ **DONE** (commit `7318eff`, unit-green; parity-trivial — no rebuild, Plank 1/2 precedent). Now that 4b structured the IEEPA rate, `scenario_ops.R` mutates it: `set_rate` (per-country: `op$country` → `by_country[c]`; reciprocal = clean flat surcharge, drops the EO two-term), `set_country_scope` (`exclude` drops countries → 0 + bars reciprocal baseline; `include={set}` restricts + baseline off), `disable` (clears every rate layer → calc gate OFF). New `IEEPA_RATE_AUTHORITIES` category; `set_active` already worked. **Baseline = empty ops → `apply_operations` is a no-op there; only `scenario_ops.R` changed (validate/build path untouched) → baseline byte-identical, no 43-rev gate.** Unit: `test_scenario_ops` 61 (+11 IEEPA). **`set_floor` stays a deferred follow-up** (the only IEEPA verb not done — it's a separate verb, not in Plank 6 scope). Pass-1 now has only **Plank 5 (stacking generalization)** left.
 
@@ -579,6 +618,7 @@ This plan consolidates and supersedes the scattered phase docs (`parallel_full_p
 
 ## Progress log
 
+- **2026-06-06 — Plank 5 (stacking generalization) — 4 slices committed; 43-rev parity gate IN FLIGHT (array `13867594` → gather `13867595`).** John handed it off autonomously ("go to the stacking phase… figure it out"). Mapped + adversarially verified the design first (workflow `wf_2322681a-b45`, 10 agents), which reframed it: the stacking MATH was already generic (Phase 3a), so the lift was wiring the policy to come FROM the spec, plus the metal-map dedup and resolved_programs disposition. Slices (all unit-green): **5a** metal-map dedup (`9c54673`, `test_metal_chapters` 7/7) — the map was already config-backed via `cc$STEEL/ALUM_CHAPTERS`; added copper + repointed the live adapter literals. **5b** `stacking_policy_from_specs()` routed through `06:2820` (`d63d3bf`, `test_policy_from_specs` 13/13) — skeleton-override design, byte-identical to `default_stacking_policy()` by the pinned `identical()` invariant; THE core + the only build-path risk. **5c** resolved_programs **UNIFY-not-delete** (`0181e8c`, `test_resolved_programs` 12/12) — DEVIATES from decision 9's literal "delete" (its orphan-301_cs rationale is stale; the file is the Wire-2 substrate); derived `precedence` from policy order, threaded the spec policy into the flag-off branch, and **fixed a latent pre-existing crash** (missing `rate_301_cs` guard in `build_resolved_programs` — the test was silently failing on HEAD). **5d** `set_stacking` verb (`428ef3c`, `test_scenario_ops` 71/71) — closes the "no set_stacking op" gap; parity-trivial; honest 09-specs-less boundary documented. Unit suites all green (adapter 44, spec 19, resolve_rate 70, stacking 13, classify_annex 10). **With the gate GREEN, Pass-1 is COMPLETE.** Open for John: the 5c UNIFY-vs-DELETE call (revertible) and whether to thread spec/policy into 09 (Pass-2). 5a touched `policy_params.yaml`, but the ARRAY parity path does no config-md5 check (only the serial `run_parity_check.R` does), so no `--no-config-check` needed.
 - **2026-06-06 — Plank 6 DONE (IEEPA scenario verbs) — commit `7318eff`, unit-green, parity-trivial (no rebuild).** Enabled by 4b's structured IEEPA rate: `scenario_ops.R` now supports `set_rate`/`set_country_scope`/`disable` for `ieepa_reciprocal`+`ieepa_fentanyl` (previously errored). `set_rate` is per-country (`op$country` → `by_country[c]`; reciprocal writes a clean flat surcharge, dropping the EO two-term so the companion maps stay parallel); `set_country_scope` honors `exclude` (drop → 0; reciprocal also extends `default_unlisted_exclude`) and `include={set}` (restrict listed + reciprocal baseline off); `disable` clears every rate layer (calc `has_active_ieepa`/`has_fentanyl` gate → OFF). New `IEEPA_RATE_AUTHORITIES` category; `set_active` already worked. **No 43-rev gate (Plank 1/2 precedent):** baseline = empty ops → `apply_operations` no-op; only `scenario_ops.R` touched (validate_rate + build path unchanged since S1/S2) → baseline provably byte-identical. Unit: `test_scenario_ops` 61/61 (+11 IEEPA: disable both programs, per-country set_rate incl. new-country growth + clean-surcharge semantics, exclude/include scope, fentanyl carve-out drop, copy-on-modify isolation, missing-`country` fail-loud). `set_floor` is the one deferred IEEPA verb (separate, out of Plank-6 scope). **Pass-1 remaining: ONLY Plank 5 (stacking generalization) — left for John to greenlight (bigger non-IEEPA refactor, needs a full parity gate).** This was the autonomous overnight stopping point John set ("do 6, finish at 6").
 - **2026-06-05 — PLANK 4b CLOSED — IEEPA fully spec-driven (S1+S2 parity GREEN 47/47, S3 cleanup unit-green).** The last blob authority is de-blobbed: reciprocal (S1, `a6700e7`) + fentanyl (S2, `d3cc1ee`) rates are structured compositional layers the calc reads; **S3** (`b6e1ce9`) removed the now-dead `ieepa_rates_from_specs`/`fentanyl_rates_from_specs` accessors (zero callers — parity-trivial, no rebuild, Plank-2 reasoning). Only §232 still carries a residual decision-8 blob. The genuinely procedural bits stay as calc steps reading spec data (3 exempt maskings, IEEPA-only grid expansion, post-MFN floor recompute, fentanyl carve-out hts8 join). **Remaining Pass-1: Plank 6 (IEEPA scenario verbs — now enabled by the structured rate), Plank 5 (stacking generalization).**
 - **2026-06-05 — Plank 4b / S2 (IEEPA fentanyl de-blob) — committed `d3cc1ee`, parity GREEN 47/47** (array `13845197` → gather `13845198` → parity `13846019`/`13846020`; 47/47 pass, 0 violations, 0 errors vs `tests/golden/9f9837d`). De-blobbed the fentanyl rate, **minimal/lowest-risk slice**: only the *rate* data leaves the blob; the carve-out PRODUCT lists (hts8 prefixes, `resources/fentanyl_carveout_products.csv`) stay reference data loaded calc-side (consistent with the IEEPA exempt CSVs kept calc-side in S1). Adapter `.resolve_ieepa_fentanyl` does the general-rate **max-per-census collapse** (China 9903.01.20 +10% / .24 +20% → max) → `rate$by_country`, and emits the per-ch99×census carve-out rates → `rate$carveouts` {ch99_code, census_code, rate}. **No `rate$resolved` blob.** The calc reconstructs `general_fent` / `carveout_fent` from the spec layers and the CSV-join + `coalesce` + `add_blanket_pairs` + Ch98 exemption are byte-identical; invalidation now gates fentanyl via `ieepa_invalidated` (no more `fentanyl_rates <- NULL`). `validate_rate` checks the carveouts shape; `resolve_rate` UNCHANGED. **Unit gate:** `tests/test_ieepa_deblob.R` 32/32 (added 9 fentanyl checks: adapter==old-calc oracle for max-per-census + carveout extraction, hand-checks CN 0.20/CA 0.35/MX 0.25, end-to-end no-blob), adapter 44, spec 19, resolve_rate 70, scenario_ops 50. **After S2 green:** S3 = remove the now-dead `ieepa_rates_from_specs`/`fentanyl_rates_from_specs` accessors (both unreferenced by the build path after S1/S2 — parity-trivial dead-code removal, no rebuild needed).
