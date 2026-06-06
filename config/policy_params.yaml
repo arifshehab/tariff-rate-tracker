@@ -142,6 +142,9 @@ section_232_headings:
     usmca_exempt: true
   auto_parts:
     prefixes_file: 'resources/s232_auto_parts.txt'
+    # Note 33(g) names some dual-use provisions (bare 8471) whose trade is
+    # mostly not vehicle parts; shares scope the duty to the in-scope fraction.
+    applicability_shares_file: 'resources/s232_auto_parts_applicability.csv'
     default_rate: 0.25
     usmca_exempt: true
   mhd_parts:
@@ -674,6 +677,20 @@ ieepa_duty_free_treatment: 'all'
 # tracker-attributable share of the trackermiss gap; the residual against
 # Census is the importer non-claim channel. Do NOT use in production.
 ieepa_exempt_scope: 'all'
+
+# --- Country-EO Annex II inheritance ---
+# Country EOs whose US-note subdivision exempts the FULL universal Annex II
+# list (note 2(v)(iii)), in addition to any entries on the per-EO list.
+# India: note 2(z)(ii) — "As provided in heading 9903.01.86, the additional
+# duties imposed by heading 9903.01.84 shall not apply to articles the product
+# of India classified in the provisions of the HTSUS listed in subdivision
+# (v)(iii) of note 2." (Confirmed in chapter99_2026_rev_6.txt line ~14735;
+# resolves India pharma 3004 charged 25% vs ~0 collected — extreme-eta review
+# item 2.) Brazil 9903.01.77 deliberately NOT listed: its exemptions are its
+# own enumerated list per note 2(x)(iii)(a) (country_eo_exempt_products.csv).
+# Chapter 98 claims are exempt from ALL country EOs via the standard ch98
+# paragraph in each EO's note — handled in code, not per-EO config.
+country_eo_annex_ii_inherit: ['9903.01.84']
 
 # --- IEEPA invalidation (SCOTUS ruling) ---
 # Date when IEEPA tariff authority was invalidated by the Supreme Court.
