@@ -284,7 +284,19 @@ validate_rate <- function(rate, ctx) {
 
   allowed <- c('default', 'by_country', 'default_unlisted_rate', 'default_unlisted',
                'overrides', 'by_product_tier', 'target_total', 'rate_type',
-               'flat', 'resolved', 'product_overrides_file', 'floors')
+               'flat', 'resolved', 'product_overrides_file', 'floors',
+               # Plank 4b (IEEPA de-blob): per-country reciprocal companions to
+               # by_country. by_country_type promotes the per-country rate-semantics
+               # tag to the schema (decision 2; surcharge|floor|passthrough — the
+               # calc's ieepa_type, NOT a RATE_TYPES label). by_country_eo_rate /
+               # by_country_eo_ch99 carry the country-EO two-term components
+               # (decision 1) so the calc can bypass the universal exempt for the
+               # EO contribution while applying the EO's own exempt list.
+               # default_unlisted_exclude removes census codes from the
+               # default_unlisted complement (decision 3; IEEPA CA/MX carve-out).
+               # carveouts is the fentanyl product×country lower-rate layer.
+               'by_country_type', 'by_country_eo_rate', 'by_country_eo_ch99',
+               'default_unlisted_exclude', 'carveouts')
   unknown <- setdiff(names(rate), allowed)
   unknown <- unknown[nzchar(unknown)]
   if (length(unknown)) stop(sprintf('[%s] unknown rate field(s): %s', ctx,
@@ -365,6 +377,28 @@ validate_rate <- function(rate, ctx) {
         stop(sprintf('[%s] rate$floors[[%d]] needs a non-empty scope label', ctx, i))
     }
   }
+
+  # Plank 4b (IEEPA reciprocal de-blob). These ride alongside by_country (same
+  # census-code names) but are read by the calc, not resolve_rate.
+  IEEPA_TYPES <- c('surcharge', 'floor', 'passthrough')
+  bct <- .rate_get(rate, 'by_country_type')
+  if (!.rate_is_hollow(bct)) {
+    if (!is.character(bct) || is.null(names(bct)) || any(!nzchar(names(bct))))
+      stop(sprintf('[%s] rate$by_country_type must be a NAMED character (names = census codes)', ctx))
+    if (any(!bct %in% IEEPA_TYPES))
+      stop(sprintf('[%s] rate$by_country_type values must be one of: %s', ctx,
+                   paste(IEEPA_TYPES, collapse = ', ')))
+  }
+  chk_named_num(.rate_get(rate, 'by_country_eo_rate'), 'by_country_eo_rate')
+  beoc <- .rate_get(rate, 'by_country_eo_ch99')
+  if (!.rate_is_hollow(beoc)) {
+    if (!is.character(beoc) || is.null(names(beoc)) || any(!nzchar(names(beoc))))
+      stop(sprintf('[%s] rate$by_country_eo_ch99 must be a NAMED character (NA allowed)', ctx))
+  }
+  due <- .rate_get(rate, 'default_unlisted_exclude')
+  if (!.rate_is_hollow(due) && !is.character(due))
+    stop(sprintf('[%s] rate$default_unlisted_exclude must be a character vector of census codes', ctx))
+
   invisible(TRUE)
 }
 

@@ -2,12 +2,13 @@
 # authority_adapter unit tests
 # =============================================================================
 # Pure-logic checks for src/authority_adapter.R — the lossless re-packaging.
-# The crux of parity (Phase 6b): the raw per-authority BLOB objects (s232_rates /
-# ieepa_rates / fentanyl_rates) are parked VERBATIM in their owning program's
-# rate$resolved slot and read back via *_from_specs() UNCHANGED — same R objects,
-# with ieepa's `universal_baseline` attribute intact — both in memory and across
-# saveRDS/readRDS. section_122 was DE-BLOBBED in Plank 3: its scalar blanket rate
-# lives in the compositional rate$default layer (no rate$resolved). No model data.
+# The crux of parity (Phase 6b): the residual BLOB objects (s232_rates [decision-8
+# §232 residual], fentanyl_rates) are parked VERBATIM in their owning program's
+# rate$resolved slot and read back via *_from_specs() UNCHANGED. section_122 was
+# DE-BLOBBED in Plank 3 (rate$default); ieepa_reciprocal was DE-BLOBBED in Plank 4b/S1
+# — the adapter resolves the per-country table (phase-collapse + floor override) into
+# structured rate layers (by_country + companions + default_unlisted_rate), no
+# rate$resolved blob. No model data.
 #
 # get_country_constants() / load_policy_params() (normally from
 # 05_parse_policy_params.R) are stubbed so this runs without the parser
@@ -46,9 +47,14 @@ check <- function(cond, msg) {
 }
 
 # --- synthetic raw objects (contents opaque to the adapter; only identity matters)
-ieepa <- data.frame(country = c('5700', '4280'), rate = c(0.20, 0.10),
-                    stringsAsFactors = FALSE)
-attr(ieepa, 'universal_baseline') <- 0.10        # must survive the embed + RDS
+# Plank 4b/S1: ieepa_reciprocal is de-blobbed, so the fixture carries the real
+# parsed columns the adapter's phase-collapse consumes (census_code/phase/rate_type).
+ieepa <- data.frame(
+  ch99_code = c('9903.02.09', '9903.02.12'), rate = c(0.20, 0.10),
+  rate_type = c('surcharge', 'surcharge'), phase = c('phase2_aug7', 'phase2_aug7'),
+  terminated = FALSE, country_name = NA_character_,
+  census_code = c('5700', '4280'), stringsAsFactors = FALSE)
+attr(ieepa, 'universal_baseline') <- 0.10        # -> rate$default_unlisted_rate
 s232  <- list(has_232 = TRUE, steel_rate = 0.50, aluminum_rate = 0.50,
               steel_exempt = c('1220'),
               # S2 deals slice: auto (UK surcharge vehicles + EU floor vehicles) + wood (UK surcharge)
@@ -82,18 +88,20 @@ check(isTRUE(validate_spec_set(specs)), 'validates (fail-loud passed inside)')
 cat('\n--- lossless relocation: identical R objects in programs[[1]]$rate$resolved ---\n')
 check(identical(s232_rates_from_specs(specs), s232),
       's232 21-field list reachable via s232_rates_from_specs (parked on programs[[1]])')
-check(identical(ieepa_rates_from_specs(specs), ieepa),
-      'ieepa tibble reachable via ieepa_rates_from_specs')
+check(is.null(specs[['ieepa_reciprocal']]$programs[[1]]$rate$resolved),
+      'ieepa_reciprocal carries NO resolved blob (Plank 4b/S1 de-blobbed)')
+check(isTRUE(all.equal(unname(specs[['ieepa_reciprocal']]$programs[[1]]$rate$by_country['5700']), 0.20)),
+      'ieepa reciprocal rate$by_country resolved from spec (China 0.20)')
 check(identical(fentanyl_rates_from_specs(specs), fent),
-      'fentanyl tibble reachable via fentanyl_rates_from_specs')
+      'fentanyl tibble reachable via fentanyl_rates_from_specs (still blob in S1)')
 check(identical(specs[['section_122']]$programs[[1]]$rate$default, S122_SENTINEL$s122_rate),
       's122 blanket rate structured into rate$default (Plank 3, de-blobbed)')
 check(identical(specs[['section_122']]$programs[[1]]$rate$rate_type, 'surcharge'),
       's122 rate_type = surcharge (additive blanket duty)')
 check(is.null(specs[['section_122']]$programs[[1]]$rate$resolved),
       's122 carries NO resolved blob (de-blobbed in Plank 3)')
-check(identical(attr(ieepa_rates_from_specs(specs), 'universal_baseline', exact = TRUE), 0.10),
-      'universal_baseline attribute rides along on the relocated ieepa payload')
+check(isTRUE(all.equal(specs[['ieepa_reciprocal']]$programs[[1]]$rate$default_unlisted_rate, 0.10)),
+      'universal_baseline -> ieepa_reciprocal rate$default_unlisted_rate (de-blobbed)')
 check(is.null(attr(specs[['section_232']], 'raw_s232', exact = TRUE)),
       'no out-of-band raw_s232 attr remains (Phase 6b cleanup)')
 
@@ -178,9 +186,8 @@ check(identical(s232_rates_from_specs(specs2), s232),
       's232 program rate$resolved survives saveRDS/readRDS')
 check(identical(specs2[['section_122']]$programs[[1]]$rate$default, S122_SENTINEL$s122_rate),
       's122 program rate$default survives saveRDS/readRDS')
-check(identical(attr(ieepa_rates_from_specs(specs2),
-                     'universal_baseline', exact = TRUE), 0.10),
-      'universal_baseline survives saveRDS/readRDS (rides along on relocated payload)')
+check(isTRUE(all.equal(specs2[['ieepa_reciprocal']]$programs[[1]]$rate$default_unlisted_rate, 0.10)),
+      'ieepa_reciprocal default_unlisted_rate survives saveRDS/readRDS')
 check(isTRUE(validate_spec_set(specs2)), 'round-tripped set still validates')
 
 cat('\n--- IEEPA invalidation maps to active.until on both ieepa specs ---\n')

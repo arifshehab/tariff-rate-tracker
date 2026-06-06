@@ -157,6 +157,106 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
   list(overrides = ov, floors = fl)
 }
 
+# ---- IEEPA reciprocal per-country resolution (Plank 4b / S1) -----------------
+#
+# De-blob the reciprocal tibble into structured per-country rate layers. RELOCATES
+# the calculator's phase-collapse (06: active_ieepa -> country_ieepa group_by/
+# summarise) and surcharge->floor override (the FLOOR_COUNTRIES block, Swiss/LI
+# date-bounded to the framework window) VERBATIM — both are pure functions of the
+# parsed tibble + floor config + revision date, all available here, so doing them at
+# build time and emitting resolved layers is bit-exact by construction. The calc then
+# READS these layers to rebuild country_ieepa instead of collapsing the raw blob, and
+# keeps the product-grid exempt masking + grid expansion + post-MFN floor recompute
+# (which need base_rate / the product grid) as calc steps.
+#
+# Returns (keyed by census code, the collapsed post-override LISTED countries):
+#   by_country          the merged per-country ieepa_country_rate (post floor-override)
+#   by_country_type     ieepa_type (surcharge|floor|passthrough, post-override)
+#   by_country_eo_rate  the country_eo phase contribution (0 where none)
+#   by_country_eo_ch99  the active country-EO ch99 code (NA where none)
+#   universal_baseline  the tibble's universal_baseline attribute (NULL if unset)
+#   exclude             c(CTY_CANADA, CTY_MEXICO) — the reciprocal carve-out
+# NULL when there is no usable entry (no valid census_code/rate), matching the calc's
+# empty-active_ieepa zero path.
+.resolve_ieepa_reciprocal <- function(ieepa_rates, pp, cc, effective_date) {
+  if (is.null(ieepa_rates) || !nrow(ieepa_rates)) return(NULL)
+  active_ieepa <- ieepa_rates |>
+    dplyr::filter(!is.na(census_code), !is.na(rate))
+  if (!nrow(active_ieepa)) return(NULL)
+
+  # Phase 2 + country_eo stack ACROSS phases but NOT within a phase; within a phase
+  # the country-specific entry supersedes group entries (prefer floor, then highest
+  # rate). VERBATIM from 06_calculate_rates.R step 2.
+  country_ieepa <- active_ieepa |>
+    dplyr::mutate(
+      active_rank = dplyr::if_else(phase %in% c('phase2_aug7', 'country_eo'), 1L, 2L),
+      type_priority = dplyr::case_when(
+        rate_type == 'floor' ~ 1L,
+        rate_type == 'surcharge' ~ 2L,
+        rate_type == 'passthrough' ~ 3L,
+        TRUE ~ 4L
+      )
+    ) |>
+    dplyr::group_by(census_code) |>
+    dplyr::filter(active_rank == min(active_rank)) |>
+    dplyr::ungroup() |>
+    dplyr::group_by(census_code, phase) |>
+    dplyr::arrange(type_priority, dplyr::desc(rate)) |>
+    dplyr::summarise(
+      phase_rate = dplyr::first(rate),
+      phase_type = dplyr::first(rate_type),
+      phase_ch99_code = dplyr::first(ch99_code),
+      .groups = 'drop'
+    ) |>
+    dplyr::group_by(census_code) |>
+    dplyr::summarise(
+      ieepa_country_rate = sum(phase_rate),
+      country_eo_rate = sum(phase_rate[phase == 'country_eo']),
+      country_eo_ch99 = {
+        ce <- phase_ch99_code[phase == 'country_eo']
+        if (length(ce) > 0) ce[1] else NA_character_
+      },
+      ieepa_type = dplyr::first(phase_type),
+      .groups = 'drop'
+    )
+
+  # surcharge -> floor override for FLOOR_COUNTRIES, only when the surcharge rate
+  # exceeds the floor. Swiss/LI are date-bounded to the framework window. VERBATIM.
+  floor_country_codes <- pp$FLOOR_COUNTRIES
+  floor_rate <- pp$FLOOR_RATE
+  swiss_fw <- pp$SWISS_FRAMEWORK
+  rev_date <- as.Date(effective_date)
+  swiss_override_active <- FALSE
+  if (!is.null(swiss_fw)) {
+    swiss_override_active <- rev_date >= swiss_fw$effective_date &&
+      (swiss_fw$finalized || rev_date <= swiss_fw$expiry_date)
+  }
+  if (length(floor_country_codes) > 0 && !is.null(floor_rate)) {
+    eligible_floor_codes <- if (swiss_override_active) {
+      floor_country_codes
+    } else {
+      setdiff(floor_country_codes, swiss_fw$countries)
+    }
+    override_mask <- country_ieepa$census_code %in% eligible_floor_codes &
+                     country_ieepa$ieepa_type == 'surcharge' &
+                     country_ieepa$ieepa_country_rate >= floor_rate
+    if (any(override_mask)) {
+      country_ieepa$ieepa_country_rate[override_mask] <- floor_rate
+      country_ieepa$ieepa_type[override_mask] <- 'floor'
+    }
+  }
+
+  codes <- as.character(country_ieepa$census_code)
+  list(
+    by_country         = stats::setNames(as.numeric(country_ieepa$ieepa_country_rate), codes),
+    by_country_type    = stats::setNames(as.character(country_ieepa$ieepa_type), codes),
+    by_country_eo_rate = stats::setNames(as.numeric(country_ieepa$country_eo_rate), codes),
+    by_country_eo_ch99 = stats::setNames(as.character(country_ieepa$country_eo_ch99), codes),
+    universal_baseline = attr(ieepa_rates, 'universal_baseline'),
+    exclude            = c(cc$CTY_CANADA, cc$CTY_MEXICO)
+  )
+}
+
 # ---- the adapter ------------------------------------------------------------
 
 #' Re-package the bespoke per-authority parser outputs into an authority_spec_set.
@@ -370,6 +470,23 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   }
 
   # --- ieepa_reciprocal — blanket, country-level ----------------------------
+  # Plank 4b / S1: DE-BLOBBED. .resolve_ieepa_reciprocal() does the phase-collapse
+  # + surcharge->floor override (relocated VERBATIM from the calculator) and emits
+  # structured per-country rate layers; the calc READS them to rebuild country_ieepa
+  # and keeps the product-grid masking / grid expansion / post-MFN floor recompute as
+  # calc steps. No more rate$resolved blob for reciprocal.
+  recip <- .resolve_ieepa_reciprocal(ieepa_rates, pp, cc, effective_date)
+  recip_rate <- list()
+  if (!is.null(recip)) {
+    recip_rate$by_country         <- recip$by_country
+    recip_rate$by_country_type    <- recip$by_country_type
+    recip_rate$by_country_eo_rate <- recip$by_country_eo_rate
+    recip_rate$by_country_eo_ch99 <- recip$by_country_eo_ch99
+    if (!is.null(recip$universal_baseline))
+      recip_rate$default_unlisted_rate <- recip$universal_baseline
+    if (length(recip$exclude))
+      recip_rate$default_unlisted_exclude <- as.character(recip$exclude)
+  }
   ieepa_reciprocal <- authority_spec(
     authority = 'ieepa_reciprocal',
     stacking  = list(class = 'content_split', exceptions = list()),
@@ -378,12 +495,9 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
     programs = list(authority_program(
       id = 'reciprocal',
       product_scope = list(include = 'all'),
-      country_scope = list(include = 'all'),   # universal_baseline default lives in raw
-      rate = list(by_country = 'from_raw', default_unlisted_rate = 'from_raw')))
+      country_scope = list(include = 'all'),
+      rate = recip_rate))
   )
-  # Phase 6b: relocate into the program (the universal_baseline attr on the
-  # tibble rides along verbatim). Read via ieepa_rates_from_specs().
-  ieepa_reciprocal$programs[[1]]$rate$resolved <- ieepa_rates
 
   # --- ieepa_fentanyl — content_split except China (additive), as data ------
   fentanyl_scope <- c(CTY_CHINA, CTY_CANADA, CTY_MEXICO)
