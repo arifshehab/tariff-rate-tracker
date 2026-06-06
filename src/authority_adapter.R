@@ -6,15 +6,18 @@
 # parsers (03/04/05) already produce and re-packages them into a uniform
 # `authority_spec_set` (see docs/authority_spec.md, src/authority_spec.R).
 #
-# CONTRACT (Phase 6b) — rate payloads are spec-native, parity-safe by construction:
-#   * Each authority that owns a resolved rate object — `section_232`'s 21-field
-#     s232_rates list, `ieepa_reciprocal`'s tibble (WITH its `universal_baseline`
-#     attribute), `ieepa_fentanyl`'s tibble, `section_122`'s list — carries that
-#     object VERBATIM in its first program's `rate$resolved` slot: a normal,
-#     ops-mutable spec field, read back by the calculator via `*_from_specs()`.
-#   * The calculator, handed a spec set, pulls those identical R objects back out
-#     and runs its unchanged body — so flag-on output stays byte-identical to
-#     flag-off (same objects). The Phase-1 out-of-band `raw_*` attrs are gone (6b).
+# CONTRACT — rate payloads are spec-native, parity-safe by construction:
+#   * Authorities are progressively DE-BLOBBED into structured compositional rate
+#     layers (the calc reads them via resolve_rate / dedicated readers): section_122
+#     (Plank 3, rate$default), section_232 statutory layers + annex (Plank 4a/4c),
+#     ieepa_reciprocal (Plank 4b/S1: by_country + by_country_type/_eo_* +
+#     default_unlisted_rate/_exclude), ieepa_fentanyl (Plank 4b/S2: by_country +
+#     carveouts). Only `section_232` still carries a RESIDUAL blob in its first
+#     program's `rate$resolved` slot — the decision-8 gate inputs + derivative
+#     blends — read back via s232_rates_from_specs().
+#   * The calculator, handed a spec set, reads those structured layers and runs its
+#     body — so flag-on output stays byte-identical to flag-off. The Phase-1
+#     out-of-band `raw_*` attrs are gone.
 #   * The other normalized fields are a scaffold the calculator reads selectively:
 #     `country_scope` for 301/201 (Phase 2e); `active.until` for IEEPA invalidation
 #     (Phase 2d); `heading_gates` precomputed for 232 (Phase 2c).
@@ -39,9 +42,10 @@
   if (is.null(spec) || !length(spec$programs)) return(NULL)
   spec$programs[[1]]$rate$resolved
 }
-ieepa_rates_from_specs    <- function(specs) .spec_resolved_rate(specs[['ieepa_reciprocal']])
+# Plank 4b/S3: ieepa_rates_from_specs / fentanyl_rates_from_specs removed — IEEPA
+# reciprocal (S1) + fentanyl (S2) are de-blobbed, so there is no rate$resolved blob
+# to read and no caller remains. Only section_232 still carries a residual blob.
 s232_rates_from_specs     <- function(specs) .spec_resolved_rate(specs[['section_232']])
-fentanyl_rates_from_specs <- function(specs) .spec_resolved_rate(specs[['ieepa_fentanyl']])
 # (section_122 was de-blobbed in Plank 3 — its rate lives in the compositional
 #  rate$default layer now, read by the calc via resolve_rate(), so it no longer
 #  needs a resolved-blob accessor here.)
