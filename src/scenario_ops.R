@@ -18,15 +18,22 @@
 #     scenario can turn a dormant metal ON) and section_122 (Plank 3: the scalar
 #     blanket rate lives in the compositional rate$default layer — set_rate writes
 #     it, the calc's value>0 gate turns s122 ON/OFF).
-#   * disable — empties scope (301/201), zeros section_232's resolved rates, or
-#     zeros section_122's rate$default (value 0 => the calc gate is OFF).
+#   * set_rate / set_country_scope / disable for the IEEPA authorities
+#     (ieepa_reciprocal, ieepa_fentanyl) — Plank 4b/6: the rate is now structured
+#     compositional layers (by_country [+ by_country_type/_eo_* for reciprocal] /
+#     carveouts), so set_rate writes a per-country rate (op$country = census code[s]),
+#     set_country_scope drops excluded countries (and, for an include={set},
+#     restricts to it + turns the reciprocal baseline off), and disable clears every
+#     rate layer (calc's by_country/carveouts gate then reads OFF). Baseline =
+#     empty ops → parity-safe.
+#   * disable — empties scope (301/201), zeros section_232's resolved rates,
+#     zeros section_122's rate$default, or clears the IEEPA rate layers (above).
 #   * add_program — add a NEW-COVERAGE tariff with no Ch99 backing (Phase 8). The
 #     program carries a flat rate + product/country scope, rides rate_other, and is
 #     applied by the calc's no-Ch99 seeder (src/new_coverage.R) before stacking.
 #
 # NOT YET SUPPORTED (error loudly — never a silent no-op):
-#   * set_floor (IEEPA universal baseline / phase-1 floor) and IEEPA reciprocal/
-#     fentanyl per-country set_rate (heterogeneous tibble): deferred follow-ups.
+#   * set_floor (IEEPA universal baseline / phase-1 floor rate): a deferred follow-up.
 #   * new-coverage import-weight provisioning for pairs absent from the weight
 #     base lives in the ETR step (08), not here.
 #
@@ -51,6 +58,13 @@ RATE_DRIVEN_AUTHORITIES <- c('section_232')
 # Authorities whose scalar rate the calculator reads from the compositional
 # rate$default layer (Plank 3, de-blobbed) — set_rate / disable mutate that scalar.
 DEFAULT_RATE_AUTHORITIES <- c('section_122')
+
+# IEEPA authorities (Plank 4b/6): de-blobbed into structured per-country layers
+# (ieepa_reciprocal: by_country + by_country_type/_eo_rate/_eo_ch99 +
+# default_unlisted_rate/_exclude; ieepa_fentanyl: by_country + carveouts). set_rate
+# writes a per-country rate (op$country), set_country_scope drops/restricts countries,
+# disable clears the layers. Single-program authorities (programs[[1]]).
+IEEPA_RATE_AUTHORITIES <- c('ieepa_reciprocal', 'ieepa_fentanyl')
 
 # section_232: program id -> the rate field it owns in the resolved 21-field
 # s232_rates list (the thin cut parks the whole list on programs[[1]]; per-program
@@ -141,7 +155,7 @@ apply_operation <- function(specs, op, idx = NA_integer_) {
     set_exempt        = op_set_exempt(specs, op, idx),
     add_program       = op_add_program(specs, op, idx),
     stop(sprintf(paste0('operation[%s]: verb "%s" is not supported. Supported: %s. ',
-                        'set_floor + IEEPA per-country rate ops are a deferred follow-up.'),
+                        'set_floor is a deferred follow-up.'),
                  idx, verb,
                  'set_country_scope, set_active, disable, set_rate, set_exempt, add_program'))
   )
@@ -179,10 +193,63 @@ apply_operation <- function(specs, op, idx = NA_integer_) {
 #' set_country_scope — replace a program's country_scope (the re-scope verb).
 #' Flagship: 301 -> {China, Vietnam}. `op$country_scope` = {include, exclude}.
 op_set_country_scope <- function(specs, op, idx) {
+  # IEEPA (Plank 4b/6): scope is expressed through the structured per-country rate
+  # layers (the calc reads by_country / carveouts, NOT country_scope), so re-scope by
+  # editing those layers, not the inert country_scope field.
+  if (op$authority %in% IEEPA_RATE_AUTHORITIES) return(.ieepa_set_country_scope(specs, op, idx))
   .require_scope_driven(op$authority, idx, 'set_country_scope')
   scope <- op$country_scope %||% stop(sprintf('operation[%s] (set_country_scope): missing `country_scope`', idx))
   pos <- .find_program_index(specs[[op$authority]], op$program, idx, 'set_country_scope')
   specs[[op$authority]]$programs[[pos]]$country_scope <- scope
+  specs
+}
+
+#' Re-scope an IEEPA authority by editing its structured rate layers (Plank 4b/6).
+#' `exclude` drops those census codes (-> 0) from every per-country layer, and for
+#' reciprocal also bars them from the universal-baseline complement
+#' (default_unlisted_exclude). `include` = a specific set keeps ONLY those listed
+#' countries and, for reciprocal, turns the baseline off (default_unlisted_rate=NULL)
+#' so only the included listed countries are subject. include='all' (default) =
+#' no include-restriction. The calc reads the edited layers — never a silent no-op.
+.ieepa_set_country_scope <- function(specs, op, idx) {
+  auth  <- op$authority
+  scope <- op$country_scope %||% stop(sprintf(
+    'operation[%s] (set_country_scope): missing `country_scope`', idx))
+  pr <- specs[[auth]]$programs[[1]]$rate
+  drop_codes <- function(pr, codes) {
+    codes <- as.character(codes)
+    for (f in c('by_country', 'by_country_type', 'by_country_eo_rate', 'by_country_eo_ch99')) {
+      v <- pr[[f]]
+      if (!is.null(v) && !.rate_is_hollow(v)) pr[[f]] <- v[setdiff(names(v), codes)]
+    }
+    cv <- pr$carveouts          # fentanyl: drop carve-out rows for excluded census codes
+    if (!is.null(cv) && !.rate_is_hollow(cv)) {
+      keep <- !(cv$census_code %in% codes)
+      pr$carveouts <- if (any(keep))
+        list(ch99_code = cv$ch99_code[keep], census_code = cv$census_code[keep], rate = cv$rate[keep])
+      else NULL
+    }
+    pr
+  }
+  excl <- as.character(scope$exclude %||% character(0))
+  if (length(excl)) {
+    pr <- drop_codes(pr, excl)
+    if (auth == 'ieepa_reciprocal') {
+      cur <- pr$default_unlisted_exclude %||% character(0)
+      pr$default_unlisted_exclude <- union(as.character(cur), excl)
+    }
+  }
+  incl <- scope$include
+  if (!is.null(incl) && !identical(incl, 'all')) {
+    incl <- as.character(incl)
+    bc <- pr$by_country
+    if (!is.null(bc) && !.rate_is_hollow(bc)) {
+      drop <- setdiff(names(bc), incl)
+      if (length(drop)) pr <- drop_codes(pr, drop)
+    }
+    if (auth == 'ieepa_reciprocal') pr$default_unlisted_rate <- NULL  # only listed countries apply
+  }
+  specs[[auth]]$programs[[1]]$rate <- pr
   specs
 }
 
@@ -204,6 +271,18 @@ op_disable <- function(specs, op, idx) {
     for (pos in seq_along(specs[[auth]]$programs)) {
       specs[[auth]]$programs[[pos]]$rate$default <- 0
     }
+    return(specs)
+  }
+  # IEEPA (Plank 4b/6): clear every structured rate layer so the calc's gate reads
+  # OFF — reciprocal (has_active_ieepa <- length(by_country) > 0 => FALSE) and
+  # fentanyl (has_fentanyl <- length(by_country) > 0 || !is.null(carveouts) => FALSE).
+  if (auth %in% IEEPA_RATE_AUTHORITIES) {
+    pr <- specs[[auth]]$programs[[1]]$rate
+    for (f in c('by_country', 'by_country_type', 'by_country_eo_rate',
+                'by_country_eo_ch99', 'default_unlisted_rate', 'carveouts')) {
+      pr[[f]] <- NULL
+    }
+    specs[[auth]]$programs[[1]]$rate <- pr
     return(specs)
   }
   if (auth %in% RATE_DRIVEN_AUTHORITIES) {   # section_232 (S1b: per-program rate$default + residual blob)
@@ -234,11 +313,11 @@ op_disable <- function(specs, op, idx) {
     return(specs)
   }
   stop(sprintf(paste0('operation[%s] (disable): authority "%s" is not disable-able. ',
-                      'Supported: %s (scope) + %s (default-rate) + %s (resolved-rate). ',
-                      'IEEPA disable is a deferred follow-up.'),
+                      'Supported: %s (scope) + %s (default-rate) + %s (resolved-rate) + %s (IEEPA layers).'),
                idx, auth, paste(SCOPE_DRIVEN_AUTHORITIES, collapse = ', '),
                paste(DEFAULT_RATE_AUTHORITIES, collapse = ', '),
-               paste(RATE_DRIVEN_AUTHORITIES, collapse = ', ')))
+               paste(RATE_DRIVEN_AUTHORITIES, collapse = ', '),
+               paste(IEEPA_RATE_AUTHORITIES, collapse = ', ')))
 }
 
 #' set_active — change a program's (or authority's) active window {from, until}.
@@ -274,6 +353,35 @@ op_set_rate <- function(specs, op, idx) {
   rate <- op$rate %||% stop(sprintf('operation[%s] (set_rate): missing `rate`', idx))
   if (!is.numeric(rate) || length(rate) != 1L || is.na(rate)) {
     stop(sprintf('operation[%s] (set_rate): `rate` must be a single non-NA number', idx))
+  }
+  # IEEPA (Plank 4b/6): per-country set_rate. `op$country` = census code(s); writes
+  # rate$by_country[country] = rate. For reciprocal it's a CLEAN flat surcharge — set
+  # by_country_type='surcharge' and drop the country-EO two-term component (eo_rate=0,
+  # eo_ch99=NA) so the calc's case_when applies exactly `rate`. The companion maps stay
+  # parallel to by_country (the calc indexes them by names(by_country)).
+  if (auth %in% IEEPA_RATE_AUTHORITIES) {
+    country <- op$country %||% stop(sprintf(
+      'operation[%s] (set_rate): %s needs `country` (census code[s])', idx, auth))
+    country <- as.character(country)
+    if (rate < 0) stop(sprintf('operation[%s] (set_rate): IEEPA rate must be >= 0', idx))
+    pr <- specs[[auth]]$programs[[1]]$rate
+    .nz <- function(v, num) {            # current layer as a mutable named vector
+      if (is.null(v) || .rate_is_hollow(v)) (if (num) numeric(0) else character(0)) else v
+    }
+    bc <- .nz(pr$by_country, TRUE)
+    for (c in country) bc[[c]] <- rate
+    pr$by_country <- bc
+    if (auth == 'ieepa_reciprocal') {
+      bt <- .nz(pr$by_country_type, FALSE)
+      er <- .nz(pr$by_country_eo_rate, TRUE)
+      ec <- .nz(pr$by_country_eo_ch99, FALSE)
+      for (c in country) { bt[[c]] <- 'surcharge'; er[[c]] <- 0; ec[[c]] <- NA_character_ }
+      pr$by_country_type    <- bt
+      pr$by_country_eo_rate <- er
+      pr$by_country_eo_ch99 <- ec
+    }
+    specs[[auth]]$programs[[1]]$rate <- pr
+    return(specs)
   }
   # section_122 (Plank 3): the scalar blanket rate lives in the compositional
   # rate$default layer; the calc gates on value > 0, so writing it here turns

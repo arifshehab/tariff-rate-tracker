@@ -82,8 +82,8 @@ expect_error(apply_operations(specs, list(
 expect_error(apply_operations(specs, list(list(op = 'add_program', authority = 'section_232'))),
   'add_program without a `program` record errors')
 expect_error(apply_operations(specs, list(
-  list(op = 'disable', authority = 'ieepa_reciprocal'))),
-  'disable on embed-backed authority (ieepa) errors — deferred to Phase 7')
+  list(op = 'set_floor', authority = 'section_301', rate = 0.1))),
+  'unsupported verb (set_floor) errors — deferred follow-up')
 expect_error(apply_operations(specs, list(
   list(op = 'set_country_scope', authority = 'no_such', country_scope = list(include = 'all')))),
   'unknown authority errors')
@@ -127,8 +127,19 @@ mk_s232 <- function(defaults = list(), residual = s232_residual) {
 
 rspecs <- authority_spec_set(
   mk_s232(list(steel = 0.25, aluminum = 0.10)),
+  # Plank 4b: IEEPA de-blobbed into structured per-country layers.
   authority_spec('ieepa_reciprocal', stacking = list(class = 'content_split'),
-    programs = list(authority_program('reciprocal', rate = list(resolved = data.frame(country = '5700', rate = 0.10))))),
+    programs = list(authority_program('reciprocal', rate = list(
+      by_country         = c('5700' = 0.10, '3510' = 0.50, '4279' = 0.15),
+      by_country_type    = c('5700' = 'surcharge', '3510' = 'surcharge', '4279' = 'floor'),
+      by_country_eo_rate = c('5700' = 0, '3510' = 0.40, '4279' = 0),
+      by_country_eo_ch99 = c('5700' = NA, '3510' = '9903.01.77', '4279' = NA),
+      default_unlisted_rate = 0.10,
+      default_unlisted_exclude = c('1220', '2010'))))),
+  authority_spec('ieepa_fentanyl', stacking = list(class = 'content_split'),
+    programs = list(authority_program('fentanyl', rate = list(
+      by_country = c('5700' = 0.10, '1220' = 0.35, '2010' = 0.25),
+      carveouts  = list(ch99_code = '9903.01.13', census_code = '1220', rate = 0.10))))),
   authority_spec('section_122', stacking = list(class = 'content_split'),
     programs = list(authority_program('s122', rate = list())))   # Plank 3: dormant => no rate$default
 )
@@ -197,9 +208,9 @@ expect_error(apply_operations(rspecs, list(
   list(op = 'set_rate', authority = 'section_232', program = 'unobtanium', rate = 0.5))),
   'set_rate 232 with unknown program errors')
 expect_error(apply_operations(rspecs, list(list(op = 'set_rate', authority = 'ieepa_reciprocal', rate = 0.5))),
-  'set_rate on ieepa (per-country tibble) errors — deferred follow-up')
-expect_error(apply_operations(rspecs, list(list(op = 'disable', authority = 'ieepa_reciprocal'))),
-  'disable ieepa errors — neither scope- nor rate-driven (deferred)')
+  'set_rate ieepa without `country` errors (Plank 4b/6)')
+expect_error(apply_operations(rspecs, list(list(op = 'set_country_scope', authority = 'ieepa_fentanyl'))),
+  'set_country_scope ieepa without `country_scope` errors')
 expect_error(apply_operations(rspecs, list(
   list(op = 'set_exempt', authority = 'section_232', program = 'copper', countries = '1220'))),
   'set_exempt on a program with no exemption list (copper) errors')
@@ -223,6 +234,75 @@ g3 <- apply_operations(gated, list(list(op = 'set_rate', authority = 'section_12
 check(identical(attr(g3[['section_232']], 'heading_gates', exact = TRUE),
                 list(copper = FALSE, semiconductors = FALSE)),
       's122 set_rate leaves the 232 gate cache untouched (different authority)')
+
+# =============================================================================
+# Plank 4b / 6 — IEEPA scenario verbs (set_rate per-country / set_country_scope /
+# disable), enabled by the de-blobbed structured rate. Baseline = empty ops, so
+# these affect only counterfactual runs; parity is untouched (UNIT-only).
+# =============================================================================
+cat('\n--- Plank 4b/6: IEEPA scenario verbs ---\n')
+.recip <- function(s) s[['ieepa_reciprocal']]$programs[[1]]$rate
+.fent  <- function(s) s[['ieepa_fentanyl']]$programs[[1]]$rate
+
+# disable: clears every rate layer -> calc gate reads OFF
+dr <- apply_operations(rspecs, list(list(op = 'disable', authority = 'ieepa_reciprocal')))
+check(is.null(.recip(dr)$by_country) && is.null(.recip(dr)$default_unlisted_rate) &&
+        is.null(.recip(dr)$by_country_type) && is.null(.recip(dr)$by_country_eo_rate),
+      'disable ieepa_reciprocal clears all rate layers (calc has_active_ieepa -> FALSE)')
+df <- apply_operations(rspecs, list(list(op = 'disable', authority = 'ieepa_fentanyl')))
+check(is.null(.fent(df)$by_country) && is.null(.fent(df)$carveouts),
+      'disable ieepa_fentanyl clears by_country + carveouts (calc has_fentanyl -> FALSE)')
+
+# set_rate per-country: writes by_country[country]; reciprocal is a clean flat surcharge
+sr <- apply_operations(rspecs, list(
+  list(op = 'set_rate', authority = 'ieepa_reciprocal', country = '5700', rate = 0.30)))
+check(isTRUE(all.equal(unname(.recip(sr)$by_country['5700']), 0.30)) &&
+        .recip(sr)$by_country_type['5700'] == 'surcharge' &&
+        isTRUE(all.equal(unname(.recip(sr)$by_country_eo_rate['5700']), 0)) &&
+        is.na(unname(.recip(sr)$by_country_eo_ch99['5700'])),
+      'set_rate ieepa_reciprocal/China -> by_country 0.30, clean surcharge (eo dropped)')
+check(isTRUE(all.equal(unname(.recip(sr)$by_country['3510']), 0.50)) &&
+        isTRUE(all.equal(unname(.recip(sr)$by_country_eo_rate['3510']), 0.40)),
+      'set_rate leaves other countries (Brazil 0.50, eo 0.40) untouched')
+check(isTRUE(all.equal(unname(.recip(rspecs)$by_country['5700']), 0.10)),
+      'original rspecs NOT mutated (copy-on-modify isolation)')
+
+# set_rate for a NEW country grows by_country + the parallel companion maps
+srn <- apply_operations(rspecs, list(
+  list(op = 'set_rate', authority = 'ieepa_reciprocal', country = '9999', rate = 0.20)))
+check(isTRUE(all.equal(unname(.recip(srn)$by_country['9999']), 0.20)) &&
+        .recip(srn)$by_country_type['9999'] == 'surcharge' &&
+        '9999' %in% names(.recip(srn)$by_country_eo_rate),
+      'set_rate ieepa for a NEW country grows by_country + parallel companion maps')
+
+srf <- apply_operations(rspecs, list(
+  list(op = 'set_rate', authority = 'ieepa_fentanyl', country = '5700', rate = 0.50)))
+check(isTRUE(all.equal(unname(.fent(srf)$by_country['5700']), 0.50)),
+      'set_rate ieepa_fentanyl/China -> by_country 0.50')
+
+# set_country_scope (exclude): drop countries -> 0; reciprocal also bars them from baseline
+se <- apply_operations(rspecs, list(
+  list(op = 'set_country_scope', authority = 'ieepa_reciprocal',
+       country_scope = list(exclude = '5700'))))
+check(!('5700' %in% names(.recip(se)$by_country)) &&
+        '5700' %in% .recip(se)$default_unlisted_exclude,
+      'set_country_scope exclude China: dropped from by_country + added to baseline exclude')
+check(!('5700' %in% names(.recip(se)$by_country_type)),
+      'exclude drops the parallel companion maps too (stay in lockstep)')
+
+# set_country_scope (include={set}): keep only listed; reciprocal baseline off
+si <- apply_operations(rspecs, list(
+  list(op = 'set_country_scope', authority = 'ieepa_reciprocal',
+       country_scope = list(include = '3510'))))
+check(identical(names(.recip(si)$by_country), '3510') && is.null(.recip(si)$default_unlisted_rate),
+      'set_country_scope include={Brazil}: by_country kept to Brazil, baseline turned off')
+
+# fentanyl exclude also drops the carve-out rows for that census code
+sfe <- apply_operations(rspecs, list(
+  list(op = 'set_country_scope', authority = 'ieepa_fentanyl',
+       country_scope = list(exclude = '1220'))))
+check(!('1220' %in% names(.fent(sfe)$by_country)) && is.null(.fent(sfe)$carveouts),
+      'set_country_scope exclude Canada (fentanyl): drops by_country + its carve-out rows')
 
 # =============================================================================
 # Phase 8 — add_program (new coverage) + the no-Ch99 seeder's pure helpers
