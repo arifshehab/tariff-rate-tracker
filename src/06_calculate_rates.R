@@ -207,25 +207,24 @@ calculate_rates_fast <- function(products, ch99_data, countries,
 #' the AuthoritySpec adapter compute the gates from one source — no drift. Keyed
 #' by the `section_232_headings` config names (NOT spec program ids).
 #'
-#' @param specs the authority_spec_set (or NULL for the specs-less dual-signature
-#'   callers). S1b: the per-program RATE inputs come from the spec (rate$default via
-#'   resolve_rate / s232_spec_rate) so a scenario set_rate lands; NULL falls back to
-#'   the blob inside s232_spec_rate.
+#' @param specs the authority_spec_set (REQUIRED). S1b: the per-program RATE inputs
+#'   come from the spec (rate$default via resolve_rate / s232_spec_rate) so a scenario
+#'   set_rate lands.
 #' @param s232_rates extract_section232_rates() output. The NON-rate gate inputs —
 #'   `auto_has_deals`, `auto_has_parts` (the date-gated 9903.94.0[5-9] flag),
 #'   `wood_furniture_rate` — still ride here (not de-blobbed until S2/S3); scenario
 #'   disable mutates them on the resolved blob.
 #' @return named logical list, one entry per known heading program
 compute_heading_gates <- function(specs, s232_rates) {
-  # S1b: program rates from the spec; non-rate flags from the resolved blob. At
+  # S1b: program rates from the spec; non-rate flags from the residual blob. At
   # baseline the spec default == the blob scalar, so the gates are byte-identical.
-  pr <- function(id, field) s232_spec_rate(specs, s232_rates, id, field)
-  auto   <- pr('autos',           'auto_rate')
-  copper <- pr('copper',          'copper_rate')
-  wood   <- pr('wood',            'wood_rate')
-  mhd    <- pr('mhd',             'mhd_rate')
-  semi   <- pr('semiconductors',  'semi_rate')
-  pharma <- pr('pharmaceuticals', 'pharma_rate')
+  pr <- function(id) s232_spec_rate(specs, id)
+  auto   <- pr('autos')
+  copper <- pr('copper')
+  wood   <- pr('wood')
+  mhd    <- pr('mhd')
+  semi   <- pr('semiconductors')
+  pharma <- pr('pharmaceuticals')
   wood_furn <- s232_rates$wood_furniture_rate
   list(
     autos_passenger    = auto > 0 || s232_rates$auto_has_deals,
@@ -247,27 +246,11 @@ compute_heading_gates <- function(specs, s232_rates) {
 }
 
 
-#' Map a Section 232 heading config name -> the resolved s232_rates field a scenario
-#' set_rate writes (scenario_ops.R::S232_RATE_FIELD). Only headings that are BOTH
-#' addressable by set_rate AND carry the policy rate in the resolved payload (equal
-#' to the YAML default in baseline) are mapped. Excluded — kept on the YAML default:
-#' buses (default 0.10, but rides the mhd_rate>0 gate so the field would mis-rate it),
-#' auto_parts (no own rate field), wood_furniture/kitchen_cabinets (no set_rate program).
-HEADING_RESOLVED_RATE_FIELD <- c(
-  autos_passenger    = 'auto_rate',
-  autos_light_trucks = 'auto_rate',
-  copper             = 'copper_rate',
-  softwood           = 'wood_rate',
-  mhd_vehicles       = 'mhd_rate',
-  mhd_parts          = 'mhd_rate',
-  semiconductors     = 'semi_rate',
-  pharmaceuticals    = 'pharma_rate'
-)
-
 #' Map a Section 232 heading config name -> the spec PROGRAM id whose rate$default
-#' carries its rate (S1b). Parallel to HEADING_RESOLVED_RATE_FIELD (the blob-field
-#' fallback name): resolve_heading_rate reads the program's de-blobbed default via
-#' s232_spec_rate, falling back to the blob field for the specs-less callers.
+#' carries its rate (S1b). resolve_heading_rate reads the program's de-blobbed default
+#' via s232_spec_rate; a scenario set_rate(section_232, <program>, x) lands through it.
+#' Headings with no own set_rate program (buses, auto_parts, wood_furniture,
+#' kitchen_cabinets) are intentionally absent — they keep the YAML default_rate.
 HEADING_RESOLVED_PROGRAM <- c(
   autos_passenger    = 'autos',
   autos_light_trucks = 'autos',
@@ -283,21 +266,17 @@ HEADING_RESOLVED_PROGRAM <- c(
 #' de-blobbed rate$default off the spec (via s232_spec_rate / resolve_rate) so a
 #' scenario set_rate(section_232, <program>, x) lands (Codex F2); falls back to the
 #' YAML default_rate when the heading isn't spec-mapped or its resolved rate is 0
-#' (e.g. autos active only via deals, auto_rate == 0), and to the blob field for the
-#' specs-less dual-signature callers. Byte-identical in baseline: the program default
-#' equals the parser-extracted scalar == the old cfg$default_rate value. Verified by
-#' the full byte-identical revision sweep.
-resolve_heading_rate <- function(tariff_name, cfg, specs, s232_rates) {
-  # HEADING_RESOLVED_PROGRAM/_RATE_FIELD are named CHARACTER vectors keyed by the
-  # config heading name; the heading loop iterates every config heading (incl.
-  # unmapped auto_parts/buses), so guard on membership before indexing.
+#' (e.g. autos active only via deals, auto_rate == 0). Byte-identical in baseline: the
+#' program default equals the parser-extracted scalar == the old cfg$default_rate value.
+resolve_heading_rate <- function(tariff_name, cfg, specs) {
+  # HEADING_RESOLVED_PROGRAM is a named CHARACTER vector keyed by the config heading
+  # name; the heading loop iterates every config heading (incl. unmapped
+  # auto_parts/buses), so guard on membership before indexing.
   if (tariff_name %in% names(HEADING_RESOLVED_PROGRAM)) {
-    v <- s232_spec_rate(specs, s232_rates,
-                        HEADING_RESOLVED_PROGRAM[[tariff_name]],
-                        HEADING_RESOLVED_RATE_FIELD[[tariff_name]])
+    v <- s232_spec_rate(specs, HEADING_RESOLVED_PROGRAM[[tariff_name]])
     if (!is.null(v) && length(v) == 1L && !is.na(v) && v > 0) return(v)
   }
-  cfg$default_rate %||% s232_spec_rate(specs, s232_rates, 'autos', 'auto_rate')
+  cfg$default_rate %||% s232_spec_rate(specs, 'autos')
 }
 
 
@@ -305,55 +284,39 @@ resolve_heading_rate <- function(tariff_name, cfg, specs, s232_rates) {
 #'
 #' resolve_rate(programs[[id]]$rate)$value returns the program's compositional
 #' rate$default (set by the adapter from the parser scalar — incl. 0, a real value;
-#' only an absent/hollow default yields NA). Falls back to the resolved-blob scalar
-#' for the specs-less dual-signature callers (test_tpc_comparison /
-#' run_tests_daily_series), retained until Plank 7. Byte-identical to the old
-#' `s232_rates$<field>` read: the default holds the same scalar verbatim.
-s232_spec_rate <- function(specs, s232_rates, program_id, blob_field) {
-  if (!is.null(specs) && !is.null(specs[['section_232']])) {
-    progs <- specs[['section_232']]$programs
-    pos <- which(vapply(progs, function(p) identical(p$id, program_id), logical(1)))
-    if (length(pos) == 1L) {
-      v <- resolve_rate(progs[[pos]]$rate)$value
-      if (!is.na(v)) return(v)
-    }
+#' only an absent/hollow default yields NA, which maps to a 0 rate / gate-off). The
+#' default holds the parser scalar verbatim, so this equals the old `s232_rates$<field>`
+#' read. (Plank 7: the specs-less blob fallback is gone — `specs` is required.)
+s232_spec_rate <- function(specs, program_id) {
+  progs <- specs[['section_232']]$programs
+  pos <- which(vapply(progs, function(p) identical(p$id, program_id), logical(1)))
+  if (length(pos) == 1L) {
+    v <- resolve_rate(progs[[pos]]$rate)$value
+    if (!is.na(v)) return(v)
   }
-  s232_rates[[blob_field]] %||% 0
+  0
 }
 
 
 #' Read a §232 METAL program's per-country blanket rate (Plank 4a / S2 blanket slice).
 #'
-#' Spec path: resolve_rate(product=NULL, country) reads the merged by_country overlay
-#' (exempt-0 + HTS overrides + config exemptions, baked by the adapter in application
-#' order) over rate$default (the base), returning the same scalar the old imperative
-#' country_232 build produced. Blob fallback (specs-less dual-signature callers, retained
-#' until Plank 7): reproduce the OLD imperative exempt -> override -> config build
-#' verbatim. Vectorized over `countries`; returns a numeric vector in that order.
-s232_blanket_metal_rate <- function(specs, s232_rates, pp, effective_date, countries,
-                                     program_id, exempt_field, override_field, metal, base) {
-  if (!is.null(specs) && !is.null(specs[['section_232']])) {
-    progs <- specs[['section_232']]$programs
-    pos <- which(vapply(progs, function(p) identical(p$id, program_id), logical(1)))
-    if (length(pos) == 1L) {
-      prog_rate <- progs[[pos]]$rate
-      return(vapply(countries, function(cty) {
-        v <- resolve_rate(prog_rate, product = NULL, country = cty)$value
-        if (is.na(v)) base else v
-      }, numeric(1), USE.NAMES = FALSE))
-    }
+#' resolve_rate(product=NULL, country) reads the merged by_country overlay (exempt-0 +
+#' HTS overrides + config exemptions, baked by the adapter in application order) over
+#' rate$default (the base), returning the same scalar the old imperative country_232
+#' build produced. A country with no overlay resolves NA -> the program `base`.
+#' Vectorized over `countries`; returns a numeric vector in that order. (Plank 7: the
+#' specs-less imperative blob build is gone — `specs` is required.)
+s232_blanket_metal_rate <- function(specs, countries, program_id, base) {
+  progs <- specs[['section_232']]$programs
+  pos <- which(vapply(progs, function(p) identical(p$id, program_id), logical(1)))
+  if (length(pos) != 1L) {
+    stop(sprintf("s232_blanket_metal_rate: program '%s' not found in spec", program_id))
   }
-  # Blob fallback (specs-less callers): old imperative build, exempt -> override -> config.
-  out <- ifelse(vapply(countries, function(cty) is_232_exempt(cty, s232_rates[[exempt_field]]),
-                       logical(1), USE.NAMES = FALSE), 0, base)
-  ov <- s232_rates[[override_field]]
-  for (cty in names(ov)) { idx <- countries == cty; if (any(idx)) out[idx] <- ov[[cty]] }
-  rev_date <- as.Date(effective_date)
-  for (ex in pp$S232_COUNTRY_EXEMPTIONS) {
-    if (!(is.null(ex$expiry_date) || rev_date < ex$expiry_date)) next
-    if (metal %in% ex$applies_to) { aff <- countries %in% ex$countries; if (any(aff)) out[aff] <- ex$rate }
-  }
-  out
+  prog_rate <- progs[[pos]]$rate
+  vapply(countries, function(cty) {
+    v <- resolve_rate(prog_rate, product = NULL, country = cty)$value
+    if (is.na(v)) base else v
+  }, numeric(1), USE.NAMES = FALSE)
 }
 
 
@@ -362,34 +325,23 @@ s232_blanket_metal_rate <- function(specs, s232_rates, pp, effective_date, count
 #' Reconstructs an ordered record list {scope, countries(census), rate, rate_type} from the
 #' program's rate$overrides (scope-form -> 'surcharge') + rate$floors ('floor'). The product
 #' axis is a scope LABEL the calc expands at run time; the floor/surcharge MATH stays in the
-#' calc (decision 8). Blob fallback (specs-less dual-signature callers, retained until Plank
-#' 7): re-pack the blob tibble, census-expanding via `iso_to_census` (the calc's
-#' iso_to_census_vec closure) so the records are byte-identical. No (product x country) cell is
-#' hit by two deals, so the overrides-then-floors order is bit-exact regardless of order.
-s232_deal_records <- function(specs, s232_rates, program_id, blob_field, iso_to_census) {
-  if (!is.null(specs) && !is.null(specs[['section_232']])) {
-    progs <- specs[['section_232']]$programs
-    pos <- which(vapply(progs, function(p) identical(p$id, program_id), logical(1)))
-    if (length(pos) == 1L) {
-      rt <- progs[[pos]]$rate; recs <- list()
-      ov <- rt$overrides
-      if (!is.null(ov) && is.list(ov)) for (o in ov) if (is.list(o) && !is.null(o$scope))
-        recs[[length(recs) + 1L]] <- list(scope = as.character(o$scope),
-          countries = as.character(unlist(o$countries)), rate = o$rate, rate_type = 'surcharge')
-      fl <- rt$floors
-      if (!is.null(fl) && is.list(fl)) for (f in fl) if (is.list(f))
-        recs[[length(recs) + 1L]] <- list(scope = as.character(f$scope),
-          countries = as.character(unlist(f$countries)), rate = f$floor, rate_type = 'floor')
-      return(recs)
-    }
-  }
-  tbl <- s232_rates[[blob_field]]
-  if (is.null(tbl) || !nrow(tbl)) return(list())
-  lapply(seq_len(nrow(tbl)), function(i) {
-    d <- tbl[i, ]
-    list(scope = if ('program' %in% names(d)) as.character(d$program) else NA_character_,
-         countries = iso_to_census(d$country), rate = d$rate, rate_type = d$rate_type)
-  })
+#' calc (decision 8). Countries are pre-census-expanded by the adapter. No (product x country)
+#' cell is hit by two deals, so the overrides-then-floors order is bit-exact regardless of
+#' order. (Plank 7: the specs-less blob re-pack is gone — `specs` is required.)
+s232_deal_records <- function(specs, program_id) {
+  progs <- specs[['section_232']]$programs
+  pos <- which(vapply(progs, function(p) identical(p$id, program_id), logical(1)))
+  if (length(pos) != 1L) return(list())
+  rt <- progs[[pos]]$rate; recs <- list()
+  ov <- rt$overrides
+  if (!is.null(ov) && is.list(ov)) for (o in ov) if (is.list(o) && !is.null(o$scope))
+    recs[[length(recs) + 1L]] <- list(scope = as.character(o$scope),
+      countries = as.character(unlist(o$countries)), rate = o$rate, rate_type = 'surcharge')
+  fl <- rt$floors
+  if (!is.null(fl) && is.list(fl)) for (f in fl) if (is.list(f))
+    recs[[length(recs) + 1L]] <- list(scope = as.character(f$scope),
+      countries = as.character(unlist(f$countries)), rate = f$floor, rate_type = 'floor')
+  recs
 }
 
 
@@ -1558,7 +1510,7 @@ calculate_rates_for_revision <- function(
 
         heading_product_lists[[tariff_name]] <- list(
           products = matched,
-          rate = resolve_heading_rate(tariff_name, cfg, specs, s232_rates),
+          rate = resolve_heading_rate(tariff_name, cfg, specs),
           usmca_exempt = cfg$usmca_exempt %||% FALSE
         )
 
@@ -1704,14 +1656,10 @@ calculate_rates_for_revision <- function(
     # adds all countries anyway), so the read was a verified no-op. (auto_exempt remains on
     # the residual blob, still consumed by the independent extract_section232_rates() path in
     # generate_etrs_config.R; only the calc's dead READ of it is dropped here.)
-    steel_base    <- s232_spec_rate(specs, s232_rates, 'steel',    'steel_rate')
-    aluminum_base <- s232_spec_rate(specs, s232_rates, 'aluminum', 'aluminum_rate')
-    steel_rate_vec    <- s232_blanket_metal_rate(
-      specs, s232_rates, pp, effective_date, countries,
-      'steel', 'steel_exempt', 'steel_country_overrides', 'steel', steel_base)
-    aluminum_rate_vec <- s232_blanket_metal_rate(
-      specs, s232_rates, pp, effective_date, countries,
-      'aluminum', 'aluminum_exempt', 'aluminum_country_overrides', 'aluminum', aluminum_base)
+    steel_base    <- s232_spec_rate(specs, 'steel')
+    aluminum_base <- s232_spec_rate(specs, 'aluminum')
+    steel_rate_vec    <- s232_blanket_metal_rate(specs, countries, 'steel',    steel_base)
+    aluminum_rate_vec <- s232_blanket_metal_rate(specs, countries, 'aluminum', aluminum_base)
     country_232 <- tibble(country = countries) %>%
       mutate(
         steel_rate    = steel_rate_vec,
@@ -1882,20 +1830,10 @@ calculate_rates_for_revision <- function(
   #     These override the blanket 232 rate set in step 4 for deal countries.
   n_deal_overrides <- 0L
 
-  # Helper: convert ISO country code to Census code(s), expanding EU to 27 members
-  iso_to_census_vec <- function(iso_code) {
-    if (iso_code == 'EU') {
-      return(if (!is.null(pp)) names(pp$eu27_codes) else EU27_CODES)
-    }
-    census <- ISO_TO_CENSUS[iso_code]
-    if (is.na(census)) return(character(0))
-    as.character(census)
-  }
-
   # Apply auto deal rates
   # Plank 4a / S2 (deals): records from the spec (rate$overrides scope-form + rate$floors);
-  # countries are PRE-CENSUS-EXPANDED by the adapter (blob fallback expands via iso_to_census_vec).
-  auto_deals <- s232_deal_records(specs, s232_rates, 'autos', 'auto_deal_rates', iso_to_census_vec)
+  # countries are PRE-CENSUS-EXPANDED by the adapter.
+  auto_deals <- s232_deal_records(specs, 'autos')
   if (length(auto_deals) > 0 && length(auto_products) > 0) {
     for (i in seq_along(auto_deals)) {
       deal <- auto_deals[[i]]
@@ -1973,7 +1911,7 @@ calculate_rates_for_revision <- function(
   }
   all_wood_products <- unique(c(wood_softwood_products, wood_furn_products))
 
-  wood_deals <- s232_deal_records(specs, s232_rates, 'wood', 'wood_deal_rates', iso_to_census_vec)
+  wood_deals <- s232_deal_records(specs, 'wood')
   if (length(wood_deals) > 0 && length(all_wood_products) > 0) {
     for (i in seq_along(wood_deals)) {
       deal <- wood_deals[[i]]
