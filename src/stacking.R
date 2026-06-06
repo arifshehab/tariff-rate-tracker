@@ -157,6 +157,75 @@ default_stacking_policy <- function(cty_china = '5700') {
 }
 
 
+#' Build the stacking policy FROM the AuthoritySpec set (Plank 5b).
+#'
+#' This is the spec-driven twin of default_stacking_policy(): it reproduces that
+#' policy BYTE-FOR-BYTE at baseline, but reads each authority's stacking `class`
+#' and per-country `exceptions` FROM THE SPEC instead of hardcoding them. That makes
+#' stacking.class/exceptions load-bearing — a scenario that mutates them (set_stacking)
+#' now flows into compute_stacking_contributions().
+#'
+#' Design = skeleton-override (NOT pure-from-spec). The load-bearing ORDER, the
+#' rate_col<->net_* mapping, and the spec-less rate_301_cs entry are calculator
+#' INFRASTRUCTURE the spec does not carry, so a fixed skeleton supplies them; only
+#' `class` + `additive_countries` are read from the spec. Notes:
+#'   - The spec's finer taxonomy collapses to the engine's: primary_metal / primary_full
+#'     -> 'primary' (the engine treats every non-content_split class as full-rate, so
+#'     the collapse is a no-op numerically; we emit the literal 'primary' so the policy
+#'     OBJECT stays identical to default_stacking_policy()).
+#'   - `exceptions` is a named list census_code -> label; additive_countries = the codes
+#'     flagged 'additive' (fentanyl China). Emitted only when non-empty, so the list
+#'     SHAPE matches default (which sets additive_countries only on rate_ieepa_fent).
+#'   - rate_301_cs has NO spec authority (policy/resolved-only, all-zero in baseline) ->
+#'     skeleton-injected with the fixed default class.
+#'   - mfn IS a spec authority but has NO rate_col (base layer) -> excluded by the skeleton.
+#' Invariant (pinned in tests/test_policy_from_specs.R):
+#'   identical(stacking_policy_from_specs(baseline_specs, cty), default_stacking_policy(cty)).
+stacking_policy_from_specs <- function(specs, cty_china = '5700') {
+  # (rate_col, net_*, spec authority, fixed-default class, fixed-default additive_countries)
+  # in the load-bearing order of default_stacking_policy(). auth = NA marks a spec-less
+  # column; dflt_add carries default_stacking_policy()'s built-in additive_countries.
+  skel <- list(
+    list(col = 'rate_232',         net = 'net_232',         auth = 'section_232',      dflt = 'primary',       dflt_add = character(0)),
+    list(col = 'rate_ieepa_recip', net = 'net_ieepa',       auth = 'ieepa_reciprocal', dflt = 'content_split', dflt_add = character(0)),
+    list(col = 'rate_ieepa_fent',  net = 'net_fentanyl',    auth = 'ieepa_fentanyl',   dflt = 'content_split', dflt_add = cty_china),
+    list(col = 'rate_301',         net = 'net_301',         auth = 'section_301',      dflt = 'additive',      dflt_add = character(0)),
+    list(col = 'rate_301_cs',      net = 'net_301_cs',      auth = NA_character_,      dflt = 'content_split', dflt_add = character(0)),
+    list(col = 'rate_s122',        net = 'net_s122',        auth = 'section_122',      dflt = 'content_split', dflt_add = character(0)),
+    list(col = 'rate_section_201', net = 'net_section_201', auth = 'section_201',      dflt = 'additive',      dflt_add = character(0)),
+    list(col = 'rate_other',       net = 'net_other',       auth = 'other',            dflt = 'additive',      dflt_add = character(0))
+  )
+
+  map_class <- function(sc) {
+    if (length(sc) != 1 || is.na(sc)) return(NA_character_)
+    if (sc %in% c('primary_metal', 'primary_full', 'primary')) return('primary')
+    sc  # 'content_split' / 'additive' pass through unchanged
+  }
+
+  policy <- list()
+  for (e in skel) {
+    spec <- if (is.na(e$auth)) NULL else specs[[e$auth]]
+    if (is.null(spec)) {
+      # spec-less column (rate_301_cs) or an absent authority -> the fixed default
+      cls      <- e$dflt
+      add_ctry <- e$dflt_add
+    } else {
+      cls <- map_class(spec$stacking$class %||% NA_character_)
+      if (is.na(cls)) cls <- e$dflt
+      exc <- spec$stacking$exceptions
+      add_ctry <- if (length(exc)) {
+        as.character(names(exc)[vapply(exc, function(v) identical(as.character(v), 'additive'),
+                                       logical(1))])
+      } else character(0)
+    }
+    entry <- list(net = e$net, class = cls)
+    if (length(add_ctry)) entry$additive_countries <- add_ctry
+    policy[[e$col]] <- entry
+  }
+  policy
+}
+
+
 #' Compute per-authority net contributions on a wide rate panel from a stacking
 #' policy. Adds one `.contrib_<net>` column per authority. Assumes nonmetal_share
 #' is already present (call compute_nonmetal_share() first) and that `country` and

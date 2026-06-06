@@ -2817,7 +2817,14 @@ calculate_rates_for_revision <- function(
   if (use_resolved_stacking() && stacking_method == 'mutual_exclusion') {
     rates <- resolve_and_collapse(rates, default_stacking_policy(CTY_CHINA))
   } else {
-    rates <- apply_stacking_rules(rates, CTY_CHINA, stacking_method = stacking_method)
+    # Plank 5b: the stacking policy is now READ FROM THE SPEC (class + exceptions)
+    # via stacking_policy_from_specs(), instead of the hardcoded default. At baseline
+    # this is byte-identical to default_stacking_policy() (pinned by
+    # tests/test_policy_from_specs.R); a scenario that mutates a spec's stacking.class
+    # (set_stacking) now flows into the contribution math here. specs is required
+    # (Plank 7). (The flag-off resolved branch above is repointed in Plank 5c.)
+    rates <- apply_stacking_rules(rates, CTY_CHINA, stacking_method = stacking_method,
+                                  stacking_policy = stacking_policy_from_specs(specs, CTY_CHINA))
   }
 
   # 9a. Add revision metadata
