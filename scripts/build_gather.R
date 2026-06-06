@@ -128,6 +128,23 @@ products_last %>%
   select(hts10, base_rate, base_rate_raw, ch99_refs, n_ch99_refs, description) %>%
   write_csv(here('data', 'processed', 'products_raw.csv'))
 
+# ---- 2a. Synthetic boundary mints (unified timeline / P2-1) ----
+# The array tasks wrote each revision's ch99_<rev>.rds; discover every schedule
+# boundary strictly inside a real interval that the calc re-resolves on recompute
+# (Ch99 offsets / IEEPA invalidation / §232 country-exemption expiries) and mint
+# one baseline-eligible `bnd_<date>` snapshot per boundary (owner archive stamped
+# at D, empty ops). Appends {revision, effective_date} rows so the daily series
+# carries each as its own interval. Empty discovery => no-op. NOT fed to the 09
+# splitter (the mint already creates the interval).
+boundaries <- discover_boundaries(rev_dates, output_dir, pp,
+                                  overrides = pp$BOUNDARY_OVERRIDES,
+                                  horizon = pp$SERIES_HORIZON_END)
+rev_dates <- build_boundary_mints(
+  rev_dates, boundaries, pp, output_dir,
+  country_lookup = country_lookup, countries = countries,
+  census_codes = census_codes, archive_dir = here('data', 'hts_archives'),
+  tpc_path = tpc_path)
+
 # ---- 2b. Synthetic future revisions (scheduled activations) ----
 # Build one synthetic revision per scheduled activation (tip archive stamped at
 # the future date D + the activation's ops), writing snapshot_sched_*.rds into

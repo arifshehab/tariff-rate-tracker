@@ -739,6 +739,21 @@ series_horizon:
 #       - { op: set_rate, authority: section_232, program: pharmaceuticals, rate: 0.25 }
 scheduled_activations: []
 
+# --- Boundary-mint overrides (unified timeline / P2-1) ---
+# Curated backstop list of effective dates to mint as synthetic `bnd_<date>`
+# revisions, on TOP of the dates discover_boundaries() finds automatically (Ch99
+# effective_date_offsets, IEEPA invalidation, §232 country-exemption expiries).
+# Use ONLY for a legal effective date that falls strictly inside a real revision
+# interval, has NO coincident Ch99 offset / config date the scan already catches,
+# AND that the calculator's own date gates re-resolve as-of that date (so a pure
+# as-of recompute reproduces the change — no new operations).
+#
+# EMPTY in baseline: the three in-grid boundaries (2025-03-12 §232 metal-exemption
+# expiry, 2026-02-20 IEEPA invalidation, 2026-11-10 §301 cranes/chassis turn-on)
+# are all auto-discovered, so nothing needs listing here. Add an ISO date string
+# (e.g. '2025-12-15') only if a future scan gap is found.
+boundary_overrides: []
+
 # --- Validation thresholds ---
 validation_thresholds:
   exact: 0.005

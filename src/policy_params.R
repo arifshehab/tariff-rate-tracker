@@ -141,6 +141,15 @@ load_policy_params <- function(yaml_path = NULL,
     params$SERIES_HORIZON_END <- Sys.Date()
   }
 
+  # Boundary-mint overrides (unified timeline / P2-1): curated extra effective
+  # dates fed to discover_boundaries() as a backstop. Empty in baseline.
+  params$BOUNDARY_OVERRIDES <- if (!is.null(params$boundary_overrides) &&
+                                   length(params$boundary_overrides) > 0) {
+    as.Date(unlist(params$boundary_overrides))
+  } else {
+    as.Date(character())
+  }
+
   # Section 122 (Trade Act §122, 150-day statutory limit)
   if (!is.null(params$section_122)) {
     params$SECTION_122 <- list(

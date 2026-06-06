@@ -113,3 +113,143 @@ expiry_boundaries <- function(policy_params) {
   e <- as.Date(vapply(adj, function(a) as.character(as.Date(a$expiry_date)), character(1)))
   sort(unique(boundary_from_expiry(e)))
 }
+
+
+# =============================================================================
+# Boundary discovery for synthetic mints (Pass-2 unified timeline / P2-1)
+# =============================================================================
+# discover_boundaries() finds every schedule boundary that falls STRICTLY INSIDE
+# a real revision interval and that the CALCULATOR can reproduce by an as-of
+# recompute (i.e. a date the calc's own gates re-resolve). Each such boundary is
+# minted into a synthetic `bnd_<date>` revision by build_boundary_mints() — the
+# owning revision's archive re-run STAMPED at the boundary date, with empty
+# operations. assemble_timeseries() then turns the mint into its own interval via
+# rev_dates ordering, so the rate switches on the legal effective date rather than
+# at the next real revision. See docs/timeline_split_integration.md.
+#
+# MUTUAL-EXCLUSION RULE (R4/R8: recompute-vs-zeroing drift). A boundary is handled
+# by EXACTLY ONE mechanism:
+#   - mint  (this module): boundaries the calc re-resolves on recompute — Ch99
+#     effective_date_offsets, IEEPA invalidation (06 `>= until` gate), §232
+#     country-exemption expiries (authority_adapter `rev_date < expiry` gate).
+#   - downstream zeroing (09 + helpers.R apply_expiry_zeroing): the SECTION_122 /
+#     SWISS expiries. These are NOT minted. SECTION_122's calc gate IS equivalent
+#     to the zeroing (06 `effective_date <= expiry_date`), but the SWISS revert is
+#     NOT: apply_expiry_zeroing drops CH/LI reciprocal to 0 (the pre-floor
+#     surcharge is not stored in the snapshot), whereas a recompute would revert to
+#     the underlying surcharge. They genuinely differ, so the expiries stay with
+#     the downstream zeroing. discover_boundaries therefore SUBTRACTS
+#     expiry_boundaries() from the config set. See tests/test_mint_equals_zeroing.R.
+
+#' Discover the mintable boundary set for a build.
+#'
+#' @param rev_dates    load_revision_dates() tibble (real grid; any pre-existing
+#'   sched_/bnd_ rows are ignored when computing the real intervals).
+#' @param snapshot_dir directory holding the cached `ch99_<rev>.rds` parses
+#'   (data/timeseries or a scenario dir). Missing dir/caches => Ch99 scan is a
+#'   no-op (config + exemption boundaries still resolve).
+#' @param policy_params load_policy_params() list (drives the config boundaries,
+#'   the §232 country-exemption expiries, and the horizon).
+#' @param specs        optional authority_spec_set, forwarded to
+#'   collect_schedule_boundaries for spec active windows (none populated today).
+#' @param overrides    curated extra boundary dates (pp$BOUNDARY_OVERRIDES) — a
+#'   backstop for config dates the scan can't see. Empty in baseline.
+#' @param horizon      series horizon (defaults to pp$SERIES_HORIZON_END).
+#' @return tibble(date, owner_rev, revision = "bnd_<date>", source), one row per
+#'   boundary strictly interior to a real interval and <= horizon, sorted by date.
+#'   Empty tibble (0 rows, same columns) when nothing is discovered.
+discover_boundaries <- function(rev_dates, snapshot_dir, policy_params = NULL,
+                                specs = NULL, overrides = NULL, horizon = NULL) {
+  empty <- tibble::tibble(date = as.Date(character()), owner_rev = character(),
+                          revision = character(), source = character())
+  horizon <- as.Date(horizon %||%
+                     (if (!is.null(policy_params)) policy_params$SERIES_HORIZON_END else NULL) %||%
+                     Sys.Date())
+
+  # Real-revision grid: exclude any synthetic rows so intervals are the OWNER
+  # archives' windows. valid_until = next_rev - 1, tip -> horizon (mirrors
+  # assemble_timeseries / build_snapshot_intervals_for_daily).
+  real <- rev_dates %>%
+    dplyr::filter(!grepl('^(sched_|bnd_)', revision)) %>%
+    dplyr::arrange(effective_date)
+  if (nrow(real) == 0) return(empty)
+  intervals <- real %>%
+    dplyr::transmute(revision,
+                     valid_from  = as.Date(effective_date),
+                     valid_until = dplyr::lead(as.Date(effective_date)) - 1) %>%
+    dplyr::mutate(valid_until = dplyr::if_else(is.na(valid_until), horizon, valid_until))
+
+  # Interval owner of a date D (latest real revision with eff < D <= next_eff-1),
+  # i.e. the unique interval strictly containing D. NA when D is edge-coincident
+  # or outside every interval (R1 mitigation: edge boundaries never mint).
+  owner_of <- function(D) {
+    hit <- which(intervals$valid_from < D & D <= intervals$valid_until)
+    if (length(hit) == 0) return(NA_character_)
+    intervals$revision[hit[length(hit)]]
+  }
+
+  recs <- list()
+  add_rec <- function(date, owner, source) {
+    if (length(date) == 0 || is.na(date) || is.na(owner) || !nzchar(owner)) return(invisible())
+    recs[[length(recs) + 1L]] <<- tibble::tibble(date = as.Date(date),
+                                                 owner_rev = owner, source = source)
+  }
+
+  # (a) Ch99 effective_date_offset scan. For each real revision, an offset is a
+  #     boundary iff it is STRICTLY INTERIOR to THAT revision's own interval —
+  #     i.e. masked at the revision's effective_date (filter_active_ch99) and
+  #     active by the offset. The scanning revision is the owner by construction
+  #     (its archive carries the gated entry AND its interval contains the date),
+  #     which is exactly the "owner-archive carries the entry" requirement: an
+  #     offset interior to a LATER revision whose archive lacks it is NOT emitted.
+  for (i in seq_len(nrow(intervals))) {
+    rev_id <- intervals$revision[i]
+    ch99_p <- file.path(snapshot_dir, paste0('ch99_', rev_id, '.rds'))
+    if (!file.exists(ch99_p)) next
+    ch99 <- tryCatch(readRDS(ch99_p), error = function(e) NULL)
+    if (is.null(ch99) || !'effective_date_offset' %in% names(ch99)) next
+    offs <- unique(ch99$effective_date_offset)
+    offs <- offs[!is.na(offs)]
+    offs <- offs[offs > intervals$valid_from[i] & offs <= intervals$valid_until[i]]
+    for (o in offs) add_rec(o, rev_id, paste0('ch99:', rev_id))
+  }
+
+  # (b) Config boundaries the CALC re-resolves on recompute: collect_schedule_
+  #     boundaries() minus the SECTION_122 / SWISS expiries (handled downstream;
+  #     see mutual-exclusion note above). Today this leaves the IEEPA invalidation
+  #     date (+ any spec active windows, none populated).
+  cfg <- collect_schedule_boundaries(policy_params = policy_params, specs = specs)
+  cfg <- setdiff(as.Date(cfg), expiry_boundaries(policy_params))
+  for (d in cfg) add_rec(as.Date(d, origin = '1970-01-01'), owner_of(as.Date(d, origin = '1970-01-01')),
+                         'config')
+
+  # (c) §232 country-exemption expiries. The adapter gate is `rev_date < expiry`,
+  #     so `expiry` is the first day the exemption is GONE (a first-day-of-new-state
+  #     boundary). collect_schedule_boundaries does NOT carry these, so add them
+  #     here — this is the real signal for the 2025-03-12 metal-exemption cluster
+  #     (there is no Ch99 offset for it; the derivative lines are ungated).
+  if (!is.null(policy_params) && !is.null(policy_params$S232_COUNTRY_EXEMPTIONS)) {
+    for (ex in policy_params$S232_COUNTRY_EXEMPTIONS) {
+      if (is.null(ex$expiry_date) || length(ex$expiry_date) == 0 || is.na(ex$expiry_date)) next
+      E <- as.Date(ex$expiry_date)
+      add_rec(E, owner_of(E), 's232_exemption_expiry')
+    }
+  }
+
+  # (d) Curated overrides backstop.
+  if (!is.null(overrides) && length(overrides) > 0) {
+    for (o in as.Date(overrides)) add_rec(o, owner_of(o), 'override')
+  }
+
+  if (length(recs) == 0) return(empty)
+  df <- dplyr::bind_rows(recs) %>%
+    dplyr::filter(!is.na(owner_rev), date <= horizon) %>%
+    dplyr::group_by(date) %>%
+    dplyr::summarise(owner_rev = dplyr::first(owner_rev),
+                     source = paste(sort(unique(source)), collapse = '+'),
+                     .groups = 'drop') %>%
+    dplyr::arrange(date) %>%
+    dplyr::mutate(revision = paste0('bnd_', format(date, '%Y-%m-%d'))) %>%
+    dplyr::select(date, owner_rev, revision, source)
+  df
+}

@@ -220,9 +220,15 @@ build_scheduled_activations <- function(rev_dates, pp_build, output_dir,
   acts <- pp_build$scheduled_activations
   if (is.null(acts) || length(acts) == 0) return(rev_dates)
 
-  # Tip = latest real revision by effective_date — the archive the synthetic
-  # revisions parse, and the rev whose tail interval they split.
-  tip <- rev_dates %>% arrange(effective_date) %>% slice_tail(n = 1)
+  # Tip = latest REAL revision by effective_date — the archive the synthetic
+  # revisions parse, and the rev whose tail interval they split. Exclude synthetic
+  # rows (sched_/bnd_): boundary mints run before this and a `bnd_` row can hold
+  # the latest effective_date (e.g. a future turn-on), but only a real revision has
+  # a parseable HTS archive. Filtering is byte-identical to the original flow when
+  # no synthetic rows are present.
+  tip <- rev_dates %>%
+    filter(!grepl('^(sched_|bnd_)', revision)) %>%
+    arrange(effective_date) %>% slice_tail(n = 1)
   tip_rev <- tip$revision
 
   message('\n', strrep('=', 60))
@@ -269,6 +275,96 @@ build_scheduled_activations <- function(rev_dates, pp_build, output_dir,
   # bind_rows fills the other rev_dates columns (tpc_date, policy_event, …) with
   # NA for synthetic rows — correct, they have no HTS provenance.
   dplyr::bind_rows(rev_dates, dplyr::bind_rows(new_rows))
+}
+
+
+#' Mint synthetic boundary snapshots from discovered schedule boundaries.
+#'
+#' The baseline-eligible generalisation of build_scheduled_activations(): given the
+#' boundary table from discover_boundaries() (src/timeline.R), recompute each
+#' boundary's OWNING revision archive STAMPED at the boundary date, with EMPTY
+#' operations (a pure as-of recompute), writing one synthetic `bnd_<date>` snapshot
+#' per boundary and appending a `{revision, effective_date}` row to rev_dates.
+#' assemble_timeseries() then derives the new [D, next] interval from rev_dates
+#' ordering and auto-shortens the owning interval to D-1 — so the rate switches on
+#' the legal effective date D rather than at the next real revision. The calculator
+#' needs no change: its own date gates (Ch99 offset / IEEPA invalidation / §232
+#' country-exemption expiry) re-resolve as-of D during the recompute.
+#'
+#' Differs from build_scheduled_activations():
+#'   - arbitrary `archive_rev_id` (the OWNER of the interval containing D), not the
+#'     tip — a boundary can sit anywhere in the timeline.
+#'   - EMPTY operations allowed (the change is the as-of date itself, not a verb).
+#'   - `bnd_` prefix (distinct from `sched_`) — and BASELINE-eligible: unlike
+#'     scheduled activations, boundary mints belong in the baseline panel/golden,
+#'     so the re-freeze capture must EXPECT exactly the discovered `bnd_` set.
+#'     (R5 safety net: scripts/summarize_parity_results.R fails the parity run on
+#'     ANY golden-only OR candidate-only artifact, so a stale golden missing the
+#'     `bnd_` snapshots — or an unexpected synthetic snapshot — turns parity RED.)
+#'   - re-mints by default (DETERMINISTIC, not skip-if-exists): discover_boundaries
+#'     re-derives the set every build and we always recompute, so a code/config
+#'     change is always reflected (no stale on-disk bnd_ snapshot). The in-loop
+#'     `bid %in% rev_dates$revision` guard only de-dups WITHIN a single rev_dates
+#'     (it never fires across builds — rev_dates is reloaded from the CSV, which
+#'     carries no `bnd_` rows). Re-minting 3 small snapshots is cheap vs the array.
+#'
+#' Empty/absent boundaries => writes nothing and returns rev_dates unchanged.
+#'
+#' @param boundaries discover_boundaries() output (tibble of date/owner_rev/revision/source).
+#' @return rev_dates with one row appended per minted boundary (unchanged if none).
+build_boundary_mints <- function(rev_dates, boundaries, pp_build, output_dir,
+                                 country_lookup, countries, census_codes,
+                                 archive_dir = 'data/hts_archives',
+                                 stacking_method = 'mutual_exclusion',
+                                 tpc_path = NULL) {
+  if (is.null(boundaries) || nrow(boundaries) == 0) return(rev_dates)
+
+  message('\n', strrep('=', 60))
+  message('Minting ', nrow(boundaries), ' boundary snapshot(s)')
+
+  new_rows <- vector('list', nrow(boundaries))
+  for (k in seq_len(nrow(boundaries))) {
+    bid   <- boundaries$revision[k]
+    D     <- as.Date(boundaries$date[k])
+    owner <- boundaries$owner_rev[k]
+    src   <- boundaries$source[k] %||% ''
+    if (!startsWith(bid, 'bnd_')) {
+      stop("build_boundary_mints: id '", bid, "' must start with 'bnd_' ",
+           '(provenance: synthetic boundary mints must be distinguishable from ',
+           'real HTS revisions and scheduled activations).')
+    }
+    if (length(D) != 1 || is.na(D)) {
+      stop("build_boundary_mints '", bid, "': invalid boundary date.")
+    }
+    if (is.na(owner) || !nzchar(owner)) {
+      stop("build_boundary_mints '", bid, "': no owner revision resolved.")
+    }
+    if (bid %in% rev_dates$revision) {
+      # Within-run de-dup only (a colliding id, or a caller that pre-seeded the
+      # row). Across builds this never fires — rev_dates is reloaded from the CSV,
+      # which has no bnd_ rows — so the normal path always recomputes (intended:
+      # the snapshot then reflects current code/config; see fn docstring).
+      message('  [bnd] ', bid, ' already in rev_dates — skipping')
+      next
+    }
+
+    message('  [bnd] ', bid, ' = owner ', owner, ' stamped at ', D,
+            ' (', src, ')')
+    build_revision_snapshot(
+      rev_id = bid, eff_date = D, tpc_date = NA,
+      archive_rev_id = owner,
+      archive_dir = archive_dir, output_dir = output_dir,
+      country_lookup = country_lookup, countries = countries,
+      census_codes = census_codes, pp_build = pp_build,
+      stacking_method = stacking_method, tpc_path = tpc_path,
+      operations = list()
+    )
+    new_rows[[k]] <- tibble(revision = bid, effective_date = D)
+  }
+
+  bound <- dplyr::bind_rows(new_rows)
+  if (nrow(bound) == 0) return(rev_dates)
+  dplyr::bind_rows(rev_dates, bound)
 }
 
 
@@ -641,6 +737,23 @@ build_full_timeseries <- function(
     message('\nWARNING: ', length(failed_revisions), ' revision(s) failed: ',
             paste(failed_revisions, collapse = ', '))
   }
+
+  # ---- Synthetic boundary mints (unified timeline / P2-1) ----
+  # After the real-revision snapshots + their ch99_<rev>.rds caches exist, discover
+  # every schedule boundary that falls strictly inside a real interval and that the
+  # calc re-resolves on recompute (Ch99 offsets / IEEPA invalidation / §232
+  # country-exemption expiries), and mint one `bnd_<date>` snapshot per boundary.
+  # assemble_timeseries derives the new interval from rev_dates ordering. Empty
+  # discovery => no-op. NOTE: these are NOT fed to the 09 expiry splitter — the
+  # mint already creates the interval; feeding it would duplicate the owner.
+  boundaries <- discover_boundaries(rev_dates, output_dir, pp_build,
+                                    overrides = pp_build$BOUNDARY_OVERRIDES,
+                                    horizon = pp_build$SERIES_HORIZON_END)
+  rev_dates <- build_boundary_mints(
+    rev_dates, boundaries, pp_build, output_dir,
+    country_lookup = country_lookup, countries = countries,
+    census_codes = census_codes, archive_dir = archive_dir,
+    stacking_method = stacking_method, tpc_path = tpc_path)
 
   # ---- Synthetic future revisions (scheduled activations) ----
   # After the real-revision snapshots exist (tip now known), emit one synthetic

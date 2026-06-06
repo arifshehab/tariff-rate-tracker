@@ -1,0 +1,128 @@
+# Unified timeline splitter — integration note (Pass-2 / P2-1)
+
+**Status:** code + unit tests landed on `theseus`; golden re-freeze pending the array
+build. This is a **behavior-changing** plank (it moves in-window numbers on 2025-03-12),
+so it is validated by **statute invariants + a golden re-freeze**, NOT by parity vs the
+old golden. Plan: `bright-gathering-waterfall.md`; supersedes the P2-1 stub in
+`docs/spec_driven_calculator_plan.md`.
+
+## What changed
+
+The daily series was a step function over dated revision snapshots: a rate whose legal
+effective date fell *between* two revisions could only turn on at the next revision —
+late. Manual redating (`config/revision_dates.csv` `policy_effective_date`) hand-aligned
+each revision to its *headline* event, but missed effective dates that aren't a
+revision's headline.
+
+We now make the timeline emerge from the snapshots. After the per-revision snapshots are
+built, `discover_boundaries()` (`src/timeline.R`) finds every schedule boundary that
+(a) falls **strictly inside** a real revision interval on the build grid, and (b) the
+calculator's own date gates **re-resolve** on an as-of recompute. `build_boundary_mints()`
+(`src/00_build_timeseries.R`) mints one synthetic `bnd_<date>` revision per boundary — the
+owning revision's archive re-run **stamped at the boundary date**, with empty operations —
+and `assemble_timeseries()` turns each mint into its own `[D, next]` interval via
+`rev_dates` ordering (auto-shortening the owner to `D-1`). No calculator change: the date
+gates already do the work.
+
+This is the baseline-eligible generalisation of `build_scheduled_activations()` (the
+future turn-ON mechanism): arbitrary owner archive (not just the tip), empty operations
+allowed (the change is the as-of date itself), a distinct `bnd_` prefix, idempotent, and
+**part of the baseline/golden** (scheduled activations are scenario-only).
+
+## The mintable set (verified on the production policy grid, 2026-06-06)
+
+A systematic scan of the cached `ch99_<rev>.rds` parses + the config dates produced
+**exactly three** boundaries:
+
+| boundary    | owner        | source                              | window | what it fixes |
+|-------------|--------------|-------------------------------------|--------|---------------|
+| 2025-03-12  | `rev_4`      | §232 country-exemption expiry       | IN     | CA/MX/EU/UK/JP/KR/AU/BR/AR/UA steel+aluminum jump 0→25% on 03-12, not at rev_5 (03-14) |
+| 2026-02-20  | `2026_rev_3` | IEEPA invalidation (SCOTUS)         | out    | reciprocal + fentanyl → 0 on 02-20, not at 2026_rev_4 (02-24); opens the genuine 4-day [02-20,02-23] window where IEEPA **and** S122 are both 0 (S122 starts 02-24) |
+| 2026-11-10  | `2026_rev_9` | §301 Ch99 `effective_date_offset`   | out    | 9903.91.12–.16 (intermodal chassis + ship-to-shore gantry cranes, China) turn ON 2026-11-10 — previously masked **forever** by `filter_active_ch99` (no real revision is dated ≥ 11-10) |
+
+Two findings corrected the plan's assumptions:
+
+1. **2025-03-12 is NOT a Ch99 offset.** The plan expected a "Mar-12 derivative offset" to
+   auto-discover it; the scan found none, and the §232 derivative codes (9903.81.89–.93,
+   9903.85.04/.07/.08) are present in `rev_4` **ungated** (already active). The real signal
+   is the `section_232_country_exemptions` `expiry_date` (the adapter gate
+   `rev_date < expiry`, `authority_adapter.R`), which `collect_schedule_boundaries()` does
+   not carry — so `discover_boundaries()` adds §232 country-exemption expiries as a
+   first-class source.
+2. **2026-11-10 is a real discovery** (not in the plan). It is the genuine
+   scheduled-turn-ON gap (`scheduled-activations-gap`): real §301 entries dated "on or
+   after November 10, 2026" that the current pipeline never activates.
+
+Edge-coincident boundaries correctly produce **no mint** (they sit on a real revision's
+date): 2025-04-09 (Phase-1 country rates = `rev_8`), 2025-05-03 (auto parts = `rev_11`),
+2026-04-06 (§232 annex = `2026_rev_5`), 2026-04-01/2026-07-24 (Swiss/S122 expiries — see
+below).
+
+## Mutual-exclusion rule (R4/R8: recompute-vs-zeroing drift)
+
+A boundary is handled by **exactly one** mechanism:
+
+- **mint** (this plank): boundaries the calc re-resolves on recompute — Ch99 offsets,
+  IEEPA invalidation, §232 country-exemption expiries.
+- **downstream zeroing** (`09_daily_series` + `helpers.R::apply_expiry_zeroing`): the
+  **SECTION_122 / SWISS expiries**. These are **NOT minted**; `discover_boundaries()`
+  subtracts `expiry_boundaries()` from the config set.
+
+Why expiries stay on zeroing (`tests/test_mint_equals_zeroing.R` proves it):
+- **S122** — mint ≡ zeroing (the calc gate `eff <= expiry_date` zeros `rate_s122` exactly
+  as the downstream zeroing does), so moving it would be a pure refactor with no gain.
+- **SWISS** — mint ≠ zeroing. `apply_expiry_zeroing` *forces* CH/LI `rate_ieepa_recip` to
+  0 (the pre-floor surcharge isn't stored in the snapshot). A recompute merely turns OFF
+  the floor override and **reverts to the underlying surcharge** — nonzero whenever IEEPA
+  is live. They diverge structurally; they coincide today only because IEEPA is invalidated
+  (02-20) before the Swiss expiry (03-31), a fragile regime accident.
+
+The 09 expiry splitter is therefore **left unchanged** (the plan's optional Stage-3 swap of
+`09:~326` is deliberately NOT done) — `tests/test_timeline_realdata.R` keeps the
+live-≡-legacy parity assertion green.
+
+## Wiring
+
+`discover_boundaries()` + `build_boundary_mints()` run immediately **before**
+`build_scheduled_activations()` in both post-array sites:
+`build_full_timeseries()` (`src/00_build_timeseries.R`) and `scripts/build_gather.R`. The
+mints are **not** fed to the 09 splitter (the mint already creates the interval; feeding it
+would duplicate the owner). `build_scheduled_activations()`'s tip selection was hardened to
+pick the latest **real** revision (a `bnd_` row can now hold the latest `effective_date`).
+
+`config/policy_params.yaml` gains an empty `boundary_overrides: []` block (a curated
+backstop, loaded as `pp$BOUNDARY_OVERRIDES`) — empty because all three boundaries are
+auto-discovered.
+
+## Tests
+
+- `tests/test_boundary_discovery.R` — discovery emits exactly the three boundaries with the
+  right owners/sources, drops edges + expiries, owner-is-interior, idempotency. (26 ✓)
+- `tests/test_mint_equals_zeroing.R` — S122 mint≡zeroing, SWISS mint≠zeroing, expiries
+  excluded from the mint set. (9 ✓)
+- `tests/test_timeline_realdata.R` — kept the live-≡-legacy 09 splitter parity (42
+  intervals) + a discovery positive control (R1/R6). (4 ✓)
+- `tests/test_timeline_invariants.R` — absolute rate-state assertions on the built
+  snapshots (skips until a build produces the `bnd_` snapshots): §232 exemption flip on
+  03-12, IEEPA+fentanyl=0 on 02-20, the 02-20→02-24 both-zero window, S122 on 02-24, §301
+  cranes on 11-10, and no-spurious-split positive controls.
+
+## Golden re-freeze (after the array build lands + invariants pass)
+
+Stage 1 moves in-window numbers (the 03-12 cluster, 2 days × the exempted countries'
+steel/aluminum), so the golden must be re-frozen:
+1. `GATHER_ARGS="--unweighted" bash scripts/submit_build_array.sh` → `afterok` gather (now
+   mints the three `bnd_` snapshots post-array).
+2. Run `tests/test_timeline_invariants.R` against the new build (must be green).
+3. `scripts/report_timeline_split_impact.R` → `output/timeline_split_impact/` (expect the
+   §232 bump on CA/MX/EU/UK/JP/KR around 2025-03-12; 2026 IEEPA/301 changes out-of-window).
+4. Re-capture the golden via `scripts/capture_parity_golden.R` (+ `build_parity_manifest.R`)
+   into `tests/golden/<new_sha>/`; update `policy_params_md5` and `n_snapshots`. **The
+   capture must contain exactly the real + three `bnd_` snapshots.** R5 safety net:
+   `scripts/summarize_parity_results.R` fails the parity run (exit 1) on any golden-only OR
+   candidate-only artifact — so a stale golden missing the `bnd_` snapshots, or an
+   unexpected synthetic snapshot in the candidate, turns parity RED rather than green-on-bad.
+   (`build_parity_manifest.R` itself only compares the shared intersection; the refusal lives
+   in the summarizer.) Retain `70b6b97` for provenance.
+
+New golden sha: _TBD (fill in after capture)_. Prior golden retained: `70b6b97`.
