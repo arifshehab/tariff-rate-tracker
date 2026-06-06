@@ -234,7 +234,8 @@ get_country_constants <- function(pp = NULL) {
       'AR' = '3570', 'BR' = '3510', 'UA' = '4623'
     ),
     STEEL_CHAPTERS = if (!is.null(pp)) pp$section_232_chapters$steel else c('72', '73'),
-    ALUM_CHAPTERS  = if (!is.null(pp)) pp$section_232_chapters$aluminum else c('76')
+    ALUM_CHAPTERS  = if (!is.null(pp)) pp$section_232_chapters$aluminum else c('76'),
+    COPPER_CHAPTERS = if (!is.null(pp)) pp$section_232_chapters$copper else c('74')
   )
 }
 

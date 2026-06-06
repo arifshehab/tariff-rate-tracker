@@ -438,7 +438,8 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
         stop('Section 232 annex mapping is empty for annex-era revision ', revision_id,
              ' (effective ', effective_date, '). Expected non-empty mapping at ', annex_path)
       }
-      a1a_ch <- annex_cfg$annexes$annex_1a$chapters %||% c('72', '73', '76', '74')
+      a1a_ch <- annex_cfg$annexes$annex_1a$chapters %||%
+        c(cc$STEEL_CHAPTERS, cc$ALUM_CHAPTERS, cc$COPPER_CHAPTERS)
       deriv  <- load_232_derivative_products(effective_date = effective_date)
       hts    <- as.character(products$hts10)
       tier   <- classify_s232_annex(hts, annex_map, deriv, a1a_ch)
@@ -456,7 +457,7 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       .ovs <- list()
       # UK annex deal: tier 1a/1b on steel/aluminum chapters (72/73/76, NOT copper).
       uk_code <- cc$CTY_UK %||% '4120'
-      uk_chap <- substr(hts, 1, 2) %in% c('72', '73', '76')
+      uk_chap <- substr(hts, 1, 2) %in% c(cc$STEEL_CHAPTERS, cc$ALUM_CHAPTERS)
       uk_rate <- ifelse(tier == 'annex_1a' & uk_chap, as.numeric(annex_cfg$annexes$annex_1a$uk_rate),
                  ifelse(tier == 'annex_1b' & uk_chap, as.numeric(annex_cfg$annexes$annex_1b$uk_rate),
                         NA_real_))
@@ -468,7 +469,7 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       # the metal-type product set (primary chapters + type-tagged derivative prefixes)
       # exactly as the calc did, then scope to the surcharge's annexes via the tier map.
       deriv_by_type <- if (!is.null(deriv) && nrow(deriv) > 0) split(deriv$hts_prefix, deriv$derivative_type) else list()
-      prim_by_type  <- list(steel = c('72', '73'), aluminum = '76', copper = '74')
+      prim_by_type  <- list(steel = cc$STEEL_CHAPTERS, aluminum = cc$ALUM_CHAPTERS, copper = cc$COPPER_CHAPTERS)
       for (sc in (annex_cfg$country_surcharges %||% list())) {
         rate_s <- suppressWarnings(as.numeric(sc$rate))
         if (length(rate_s) != 1L || !is.finite(rate_s) || rate_s <= 0) next

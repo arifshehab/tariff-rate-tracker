@@ -96,6 +96,9 @@ authority_ranges:
 section_232_chapters:
   steel: ['72', '73']
   aluminum: ['76']
+  copper: ['74']   # per-type metal-chapter map (single source of truth; Plank 5a).
+                   # Distinct from metal_content.primary_chapters below (which excludes 74
+                   # because copper heading products are scaled by copper_share, not full-metal).
 
 # Additional 232 tariffs beyond steel/aluminum (9903.94 auto tariffs, copper, etc.)
 # These use HTS heading/subheading prefixes rather than full chapter coverage.
