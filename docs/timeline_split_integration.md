@@ -53,28 +53,37 @@ Two findings corrected the plan's assumptions:
    scheduled-turn-ON gap (`scheduled-activations-gap`): real §301 entries dated "on or
    after November 10, 2026" that the current pipeline never activates.
 
-### Discovered data gap: the 2026-11-10 §301 mint is currently daily-INERT
+### The 2026-11-10 §301 codes were a discovered data gap — now PRICED
 
-The validation build (job 13905511/512, golden `70b6b97`) showed the impact is exactly
-the intended set and nothing else: **6 daily rows move, all inside the boundary windows,
-0 outside** (regression guard green). 2025-03-12/13 = +0.22pp (§232 exemption); 2026-02-20→23
-= −9.2pp (IEEPA reciprocal pulled forward 4 days). **2026-11-10 shows NO daily movement.**
+The systematic scan surfaced that the §301 crane/chassis codes `9903.91.12`/`.14` carry a
+parsed **100%** rate in the Ch99 text but were **absent from `section_301_rates`** (the calc
+assigns `rate_301` only from that config lookup, `06: s301_rate_lookup` inner-join), so the
+2026-11-10 mint was initially **daily-inert**. We then **priced them**:
+- `config/policy_params.yaml` `section_301_rates` += `9903.91.12 → 1.00` (chassis, US note
+  31(k)(i)) and `9903.91.14 → 1.00` (ship-to-shore gantry cranes, note 31(l)).
+- `resources/s301_product_lists.csv` += the covered hts8 → code mappings: `87163900`,
+  `87169030`, `87169050` → `9903.91.12`; `84261900` → `9903.91.14`.
 
-Reason: the §301 crane/chassis codes `9903.91.12`/`.14` carry a parsed **100%** rate in the
-Ch99 text, but the calculator assigns `rate_301` **only** from the `section_301_rates` config
-lookup (`06: s301_rate_lookup` inner-join), and `9903.91.12–.16` are **not in that list**
-(`.13/.15/.16` are conditional "notwithstanding/except" provisions). So activating them adds
-no rate — `bnd_2026-11-10` differs from its owner snapshot only in `rate_s122` (the S122
-sunset, which the downstream zeroing already applies to that date range), leaving the daily
-series unchanged.
+Result on `bnd_2026-11-10` (verified): China cranes `8426.19` + chassis `8716.39/.90`
+`rate_301` rises **0.25 → 1.00** (bumped via `MAX`-per-hts8 from the pre-11-10 listing — e.g.
+cranes `9903.92.10` = 0.25). The mint is now meaningful: it moves the daily series across its
+whole priced interval `[2026-11-10, horizon]`. Final impact vs `70b6b97`: **58 daily rows move,
+all inside the boundary windows, 0 outside** (regression guard green) — 2 for 2025-03-12/13
+(§232, +0.22pp), 4 for 2026-02-20→23 (IEEPA, −9.2pp unweighted / weighted_etr 13.1%→7.5%), and
+52 for `[2026-11-10, 12-31]` (small in aggregate — `etr_301` +0.016pp — as it is a handful of
+products). `tests/test_timeline_invariants.R` asserts `rate_301 == 1.00` on 2026-11-10 (was
+0.25 on 11-09).
 
-**This is a genuine modeling gap the systematic scan surfaced — separate from the timeline
-mechanism, which is correct.** The boundary is properly discovered + minted, and the mint is
-**forward-compatible**: the moment `9903.91.12`/`.14` (and the conditional `.13/.15/.16`) are
-priced into `section_301_rates`, `bnd_2026-11-10` will reflect them with no further timeline
-work. Pricing them (with their USMCA / exception handling) is a follow-up data task with its
-own validation. `tests/test_timeline_invariants.R` asserts the documented daily-inert state
-now and auto-strengthens to "footprint grows" once the codes are priced.
+**Two modeling judgment calls** (documented in the `section_301_rates` config comment; refine
+if calibrated):
+1. **Omitted `.13/.15/.16`** — "duty provided in the applicable subheading" = **+0%** (the
+   chassis note 31(k)(ii) complement + the crane attestation exemptions for non-China-origin /
+   grandfathered cranes). `MAX`-per-hts8 would moot 0% entries, and modeling these carve-outs
+   needs an exemption-*share* mechanism (uncalibrated/out-of-scope).
+2. **hts8 over-application** — `.12` legally targets only `8716390090`, but the 301 list is
+   hts8-keyed, so all of `87163900` (6 product lines) gets 100%; likewise the (k)(i)/(k)(ii)
+   split within an hts8 cannot be represented. Same hts8-granularity limitation as the
+   tracker's other 301 lists.
 
 Edge-coincident boundaries correctly produce **no mint** (they sit on a real revision's
 date): 2025-04-09 (Phase-1 country rates = `rev_8`), 2025-05-03 (auto parts = `rev_11`),

@@ -129,30 +129,37 @@ check(max(s122_on$rate_s122) > 0,
       'S122 turns on 2026-02-24 (rate_s122 > 0)')
 
 # --- (4) §301 cranes/chassis 2026-11-10 turn-on (China) ------------------------
-# The boundary is correctly DISCOVERED + minted (snapshot exists). Whether it
-# MOVES rate_301 depends on the codes being priced in section_301_rates — a
-# SEPARATE data gap the scan surfaced: 9903.91.12-.16 carry a parsed 100% rate in
-# the Ch99 text but are NOT in section_301_rates, so the calc (06: s301_rate_lookup
-# inner_join) assigns them no rate and the mint is currently daily-INERT. Assert
-# the mechanism + the documented current state; auto-strengthen to "footprint
-# grows" once the codes are priced. See docs/timeline_split_integration.md.
+# The boundary is DISCOVERED + minted (snapshot exists). The duty-imposing codes
+# 9903.91.12 (chassis, note 31(k)(i)) + 9903.91.14 (cranes, note 31(l)) are now
+# PRICED at +100% in section_301_rates (with the covered hts8 in
+# s301_product_lists.csv), so on 2026-11-10 the China crane (8426.19) + chassis
+# (8716.39/.90) hts8 rate_301 jumps to 1.00 (bumped via MAX from their pre-11-10
+# 301 listing, e.g. cranes 9903.92.10 = 0.25). The 0% complements/exemptions
+# (.13/.15/.16) are MAX-mooted and not separately modeled. The test detects the
+# priced state and asserts the RATE rises (the COUNT is unchanged — those products
+# were already 301-listed); it falls back to the inert-gap assertion if unpriced.
+# See docs/timeline_split_integration.md.
 check(file.exists(file.path(snapshot_dir, 'snapshot_bnd_2026-11-10.rds')),
       'bnd_2026-11-10 snapshot exists (§301 cranes/chassis boundary minted)')
 crane_codes <- c('9903.91.12', '9903.91.13', '9903.91.14', '9903.91.15', '9903.91.16')
-priced <- !is.null(pp$S301_RATES) && any(crane_codes %in% pp$S301_RATES$ch99_pattern)
-china301_n <- function(D) { s <- snap_on(D); sum(s$rate_301[s$country == '5700'] > 0) }
-n_before <- china301_n('2026-11-09'); n_after <- china301_n('2026-11-10')
+priced <- !is.null(pp$SECTION_301_RATES) && any(crane_codes %in% pp$SECTION_301_RATES$ch99_pattern)
+cc_hts8 <- c('84261900', '87163900', '87169030', '87169050')   # cranes 8426.19 + chassis 8716.39/.90
+cc_maxr <- function(D) {
+  s <- snap_on(D); v <- s$rate_301[s$country == '5700' & substr(s$hts10, 1, 8) %in% cc_hts8]
+  if (length(v)) max(v) else NA_real_
+}
+before <- cc_maxr('2026-11-09'); after <- cc_maxr('2026-11-10')
 if (priced) {
-  check(n_after > n_before,
-        sprintf('China §301 footprint grows on 2026-11-10 (%d -> %d products priced)',
-                n_before, n_after))
+  check(isTRUE(after == 1.0),
+        sprintf('§301 cranes/chassis rate_301 == 1.00 (100%%) on 2026-11-10 (was %.2f on 11-09)', before))
+  check(isTRUE(before < after),
+        sprintf('§301 cranes/chassis rate_301 RISES on 2026-11-10 (%.2f -> %.2f; mint is meaningful)', before, after))
 } else {
-  cat('  NOTE — flagged modeling gap: §301 cranes/chassis 9903.91.12-.16 are NOT in\n',
-      '        section_301_rates, so bnd_2026-11-10 is daily-INERT (China rate_301 count ',
-      n_before, ' -> ', n_after, '). The unified-timeline MECHANISM is correct (the\n',
-      '        boundary is discovered + minted); pricing those codes is a separate task.\n', sep = '')
-  check(n_after == n_before,
-        '§301 codes currently unpriced => bnd_2026-11-10 daily-inert (documented gap)')
+  cat('  NOTE — flagged modeling gap: §301 cranes/chassis 9903.91.12/.14 not in\n',
+      '        section_301_rates => bnd_2026-11-10 daily-INERT (max crane/chassis rate_301 ',
+      before, ' -> ', after, '). Mechanism OK; pricing those codes is a separate task.\n', sep = '')
+  check(isTRUE(is.na(after) || after < 1.0),
+        '§301 codes unpriced => bnd_2026-11-10 daily-inert (documented gap)')
 }
 
 cat(sprintf('\nALL %d TIMELINE-INVARIANT ASSERTIONS PASSED (%d skipped)\n', pass, skip))

@@ -47,10 +47,12 @@ rd  <- function(d, f) suppressMessages(read_csv(file.path(d, f), show_col_types 
 ppf <- function(x) sprintf('%+.4fpp', 100 * x)
 
 # Boundary windows (a couple of days either side, for context).
+# 2026-11-10 extends to the horizon: the §301 cranes/chassis mint is the new tip,
+# so its priced interval [2026-11-10, horizon] all moves vs golden (expected).
 windows <- list(
-  `2025-03-12 §232 exemption (in-window)` = as.Date(c('2025-03-08', '2025-03-18')),
-  `2026-02-20 IEEPA invalidation + gap`    = as.Date(c('2026-02-16', '2026-02-28')),
-  `2026-11-10 §301 cranes/chassis turn-on` = as.Date(c('2026-11-06', '2026-11-14'))
+  `2025-03-12 §232 exemption (in-window)`  = as.Date(c('2025-03-08', '2025-03-18')),
+  `2026-02-20 IEEPA invalidation + gap`     = as.Date(c('2026-02-16', '2026-02-28')),
+  `2026-11-10 §301 cranes/chassis turn-on`  = as.Date(c('2026-11-06', '2026-12-31'))
 )
 in_window <- function(d) Reduce(`|`, lapply(windows, function(w) d >= w[1] & d <= w[2]))
 

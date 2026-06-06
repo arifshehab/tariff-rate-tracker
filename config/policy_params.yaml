@@ -419,6 +419,21 @@ section_301_rates:
     s301_rate: 0.25
   - ch99_pattern: '9903.92.10'
     s301_rate: 0.25
+  # US note 31(k)/(l) — China intermodal chassis (9903.91.12) + ship-to-shore
+  # gantry cranes (9903.91.14), +100%, legally effective 2026-11-10 (gated by the
+  # Ch99 effective_date_offset, so active only from that date — surfaced by the
+  # unified-timeline scan; see docs/timeline_split_integration.md). Only the two
+  # DUTY-imposing arms are listed: 9903.91.13 (chassis note 31(k)(ii) complement)
+  # and 9903.91.15/.16 (crane attestation exemptions) are "duty provided in the
+  # applicable subheading" = +0%, which MAX-per-hts8 would moot anyway, so they are
+  # intentionally omitted. LIMITATION: hts8 granularity over-applies .12 to all of
+  # 87163900 (note targets only 8716390090) and cannot model the (k)(i)/(k)(ii) or
+  # crane-attestation sub-hts8 carve-outs — consistent with the tracker's other
+  # hts8-blanket 301 lists; refine via exemption shares if calibrated.
+  - ch99_pattern: '9903.91.12'
+    s301_rate: 1.00
+  - ch99_pattern: '9903.91.14'
+    s301_rate: 1.00
 
 # --- Weighted ETR reporting and comparison defaults ---
 # These are reporting-time convenience parameters, not tariff policy logic.
