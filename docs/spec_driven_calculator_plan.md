@@ -367,9 +367,20 @@ rebuild the resolved-program intermediate table fresh; generalize `stacking.R` t
 (per-country) / `set_country_scope` / `disable` for IEEPA to `src/scenario_ops.R` (today they
 error). Baseline = empty ops → parity; add scenario-correctness unit tests.
 
-**Plank 7 — drop the dual signature (end of Pass 1).** Once every authority is spec-driven,
-remove the bespoke args from `calculate_rates_for_revision()` so it takes **specs only**.
-(Optional within Pass 1; can defer if risky.)
+**Plank 7 — drop the dual signature.** — ✅ **DONE (pulled FORWARD of 4b; parity GREEN 47/47
+vs `tests/golden/9f9837d` — full 43-rev array `13836424` → gather `13836425` → compare
+`13836687`/`13836688`, 0 violations / 0 errors).** `calculate_rates_for_revision()` now
+REQUIRES `specs` and no longer accepts the bespoke `ieepa_rates`/`s232_rates`/`fentanyl_rates`
+args (they were unconditionally overwritten from the spec). 3 commits: `74abc7d` (test-rewire:
+Test-16 builds a per-half spec — the ONLY live specs-less caller); `cd94dd3` (signature-collapse:
+drop the 3 args + delete every whole-authority specs-less fallback arm [301/201/122/232
+re-extractions + scope hardcodes] + collapse the IEEPA/annex/301-tier guards, keeping the annex
+`stop()` fail-closed guard + the §301 `from_list` sentinel ternary); `613a582` (gut the three
+now-unreachable §232 helper blob fallbacks + strip dead params + delete `HEADING_RESOLVED_RATE_FIELD`
++ the deal-only `iso_to_census_vec` closure; net −62 lines). Byte-identical by construction
+(production already passed specs at `00:138`/`09:1376`). The §232 residual blob (decision-8 gate
+inputs + derivative blends) stays by design. NOTE: `test_rate_calculation.R` was NEVER a calc
+caller (the earlier "rewire the parity-blind invariant test" cost was illusory — decision #10).
 
 ## Plank 4c — §232 ANNEX-REGIME RATE DE-BLOB — ✅ CLOSED (parity GREEN 47/47; commits 143a2b1 + 350c159)
 
@@ -506,6 +517,25 @@ This plan consolidates and supersedes the scattered phase docs (`parallel_full_p
 
 ## Progress log
 
+- **2026-06-05 — Plank 7 DONE (pulled FORWARD of 4b) — parity GREEN 47/47.** Retired the
+  specs-less dual signature: `calculate_rates_for_revision()` now requires `specs`. 3 commits
+  (`74abc7d` test-rewire → `cd94dd3` signature-collapse → `613a582` §232-helper-cleanup; net
+  −62 lines in `06`). Scoped first by the `plank7-4b-lockdown` fan-out workflow (5 mappers → 3
+  adversarial verifiers → synth), which CORRECTED the plan: `test_rate_calculation.R` is NOT a
+  calc caller (only Test-16 in `run_tests_daily_series.R` was specs-less), so the feared "rewire
+  the parity-blind invariant test without silencing its Russia-leak invariants" cost did not
+  exist (decision #10 fixed). Deleted every whole-authority specs-less fallback (301/201/122/232
+  re-extractions + scope hardcodes) + the three §232 helpers' blob fallbacks + their unused
+  params/maps. Units green modulo pre-existing fails (daily-series 78/1 pharma-gate; adapter
+  41/41; scenario_ops 50/50; spec 19/19; rate_calculation 86/3 Russia-leak). Gate: array
+  `13836424` (43/43 COMPLETED) → gather `13836425` (COMPLETED) → parity array `13836687` +
+  summary `13836688` = 47/47 pass, 0 violations, 0 errors vs `tests/golden/9f9837d`. Byte-identical
+  by construction (production already passed specs). **Remaining Pass-1: 4b (IEEPA — the last
+  blob), 5 (stacking), 6 (IEEPA verbs).** 4b deep-design pass pending; 4 open decisions surfaced
+  for John — only the live one is per-country `rate_type` in the schema vs calc-derived (the §232
+  annex tag-in-spec / math-in-calc pattern applies); the other 3 have low-risk defaults (country-EO
+  blend stays calc-side; CA/MX baseline exclusion reuses `country_scope`; floor-exempt groups stay
+  calc-side).
 - **2026-06-05 — Plank 4c S2b+S2c DONE → PLANK 4c CLOSED (parity GREEN 47/47; commit `350c159`).** Relocated the
   last two §232 annex calc steps — the UK annex deal and country surcharges (Russia) — into the spec, spec-only/no
   fallback. The adapter emits `section_232$annex$country_overrides`: an ordered list of per-(country) per-product rate
