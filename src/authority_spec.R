@@ -399,6 +399,22 @@ validate_rate <- function(rate, ctx) {
   if (!.rate_is_hollow(due) && !is.character(due))
     stop(sprintf('[%s] rate$default_unlisted_exclude must be a character vector of census codes', ctx))
 
+  # carveouts (Plank 4b/S2 fentanyl): per-ch99 x census carve-out rates as three
+  # equal-length parallel vectors {ch99_code, census_code, rate}. The calc joins
+  # ch99_code to the hts8 carve-out product CSV. Reader-invisible to resolve_rate.
+  cvo <- .rate_get(rate, 'carveouts')
+  if (!.rate_is_hollow(cvo)) {
+    if (!is.list(cvo) || is.null(cvo$ch99_code) || is.null(cvo$census_code) || is.null(cvo$rate))
+      stop(sprintf('[%s] rate$carveouts must be a list with ch99_code/census_code/rate', ctx))
+    n <- length(cvo$ch99_code)
+    if (length(cvo$census_code) != n || length(cvo$rate) != n)
+      stop(sprintf('[%s] rate$carveouts vectors must be equal length', ctx))
+    if (!is.character(cvo$ch99_code) || !is.character(cvo$census_code))
+      stop(sprintf('[%s] rate$carveouts ch99_code/census_code must be character', ctx))
+    if (!is.numeric(cvo$rate) || any(!is.finite(cvo$rate)) || any(cvo$rate < 0))
+      stop(sprintf('[%s] rate$carveouts$rate must be finite non-negative numbers', ctx))
+  }
+
   invisible(TRUE)
 }
 

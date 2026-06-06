@@ -231,4 +231,55 @@ check(identical(rrate$default_unlisted_exclude, c('1220', '2010')),
       'spec rate$default_unlisted_exclude = c(CA, MX)')
 check(isTRUE(validate_spec_set(specs)), 'full spec set validates (new fields pass validate_rate)')
 
-cat('\nAll', pass, 'IEEPA reciprocal de-blob checks passed.\n')
+cat('\n--- S2: fentanyl de-blob (general max-per-census + carve-out rates) ---\n')
+# ORACLE = the exact pre-S2 calc extraction.
+fent_fix <- data.frame(
+  ch99_code = c('9903.01.20', '9903.01.24', '9903.01.10', '9903.01.01',
+                '9903.01.13', '9903.01.05'),
+  rate = c(0.10, 0.20, 0.35, 0.25, 0.10, 0.10),
+  country_name = NA_character_,
+  census_code = c('5700', '5700', '1220', '2010', '1220', '2010'),
+  entry_type = c('general', 'general', 'general', 'general', 'carveout', 'carveout'),
+  stringsAsFactors = FALSE)
+orac_general <- fent_fix %>% filter(entry_type == 'general') %>%
+  group_by(census_code) %>% summarise(fent_rate = max(rate), .groups = 'drop')
+orac_carveout <- fent_fix %>% filter(entry_type == 'carveout') %>%
+  select(ch99_code, census_code, carveout_rate = rate)
+
+fres <- .resolve_ieepa_fentanyl(fent_fix)
+exp_bc <- setNames(orac_general$fent_rate, as.character(orac_general$census_code))
+check(identical(names(fres$by_country)[order(names(fres$by_country))],
+                names(exp_bc)[order(names(exp_bc))]) &&
+        isTRUE(all.equal(fres$by_country[names(exp_bc)], exp_bc[names(exp_bc)],
+                         check.attributes = FALSE)),
+      'fentanyl by_country == oracle general max-per-census (China .10/.20 -> .20)')
+check(isTRUE(all.equal(unname(fres$by_country['5700']), 0.20)) &&
+        isTRUE(all.equal(unname(fres$by_country['1220']), 0.35)) &&
+        isTRUE(all.equal(unname(fres$by_country['2010']), 0.25)),
+      'fentanyl by_country hand-check: CN 0.20, CA 0.35, MX 0.25')
+check(identical(fres$carveouts$ch99_code, orac_carveout$ch99_code) &&
+        identical(fres$carveouts$census_code, as.character(orac_carveout$census_code)) &&
+        isTRUE(all.equal(fres$carveouts$rate, orac_carveout$carveout_rate)),
+      'fentanyl carveouts == oracle carveout_fent {ch99, census, rate}')
+check(is.null(.resolve_ieepa_fentanyl(NULL)), 'NULL fentanyl_rates -> NULL')
+fent_nocarve <- fent_fix[fent_fix$entry_type == 'general', ]
+check(is.null(.resolve_ieepa_fentanyl(fent_nocarve)$carveouts),
+      'no carve-out entries -> carveouts NULL')
+
+cat('\n--- S2 end-to-end: ieepa_fentanyl emits structured layers, no blob ---\n')
+specs_f <- build_authority_specs(
+  products = data.frame(), ch99_data = data.frame(),
+  ieepa_rates = ieepa, usmca = data.frame(),
+  countries = c('5700', '1220', '2010'),
+  revision_id = 'rev_test', effective_date = d_in,
+  s232_rates = NULL, fentanyl_rates = fent_fix, policy_params = pp
+)
+frate <- specs_f[['ieepa_fentanyl']]$programs[[1]]$rate
+check(is.null(frate$resolved), 'ieepa_fentanyl carries NO resolved blob (de-blobbed)')
+check(isTRUE(all.equal(unname(frate$by_country['1220']), 0.35)),
+      'fentanyl spec rate$by_country populated (Canada 0.35)')
+check(identical(frate$carveouts$ch99_code, c('9903.01.13', '9903.01.05')),
+      'fentanyl spec rate$carveouts carries both carve-out entries')
+check(isTRUE(validate_spec_set(specs_f)), 'spec set with fentanyl carveouts validates')
+
+cat('\nAll', pass, 'IEEPA reciprocal+fentanyl de-blob checks passed.\n')

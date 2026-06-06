@@ -66,8 +66,15 @@ s232  <- list(has_232 = TRUE, steel_rate = 0.50, aluminum_rate = 0.50,
               wood_deal_rates = data.frame(
                 country = 'UK', rate = 0.10, rate_type = 'surcharge',
                 program = 'softwood', ch99_code = '9903.76.01', stringsAsFactors = FALSE))
-fent  <- data.frame(country = c('5700', '1220', '2010'), rate = c(0.20, 0.25, 0.25),
-                    stringsAsFactors = FALSE)
+# Plank 4b/S2: ieepa_fentanyl is de-blobbed too — fixture carries the real parsed
+# columns (entry_type/census_code). China .20+10% / .24+20% -> max-per-census 0.20.
+fent  <- data.frame(
+  ch99_code = c('9903.01.20', '9903.01.24', '9903.01.10', '9903.01.01', '9903.01.13'),
+  rate = c(0.10, 0.20, 0.35, 0.25, 0.10),
+  country_name = NA_character_,
+  census_code = c('5700', '5700', '1220', '2010', '1220'),
+  entry_type = c('general', 'general', 'general', 'general', 'carveout'),
+  stringsAsFactors = FALSE)
 
 cat('--- build_authority_specs (no IEEPA invalidation) ---\n')
 specs <- build_authority_specs(
@@ -92,8 +99,12 @@ check(is.null(specs[['ieepa_reciprocal']]$programs[[1]]$rate$resolved),
       'ieepa_reciprocal carries NO resolved blob (Plank 4b/S1 de-blobbed)')
 check(isTRUE(all.equal(unname(specs[['ieepa_reciprocal']]$programs[[1]]$rate$by_country['5700']), 0.20)),
       'ieepa reciprocal rate$by_country resolved from spec (China 0.20)')
-check(identical(fentanyl_rates_from_specs(specs), fent),
-      'fentanyl tibble reachable via fentanyl_rates_from_specs (still blob in S1)')
+check(is.null(specs[['ieepa_fentanyl']]$programs[[1]]$rate$resolved),
+      'ieepa_fentanyl carries NO resolved blob (Plank 4b/S2 de-blobbed)')
+check(isTRUE(all.equal(unname(specs[['ieepa_fentanyl']]$programs[[1]]$rate$by_country['5700']), 0.20)),
+      'fentanyl rate$by_country = max-per-census general (China 0.10/0.20 -> 0.20)')
+check(identical(specs[['ieepa_fentanyl']]$programs[[1]]$rate$carveouts$ch99_code, '9903.01.13'),
+      'fentanyl rate$carveouts carries the carve-out entry (9903.01.13)')
 check(identical(specs[['section_122']]$programs[[1]]$rate$default, S122_SENTINEL$s122_rate),
       's122 blanket rate structured into rate$default (Plank 3, de-blobbed)')
 check(identical(specs[['section_122']]$programs[[1]]$rate$rate_type, 'surcharge'),

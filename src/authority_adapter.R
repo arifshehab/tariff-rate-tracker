@@ -257,6 +257,39 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
   )
 }
 
+# ---- IEEPA fentanyl per-country resolution (Plank 4b / S2) --------------------
+#
+# De-blob the fentanyl tibble into structured rate layers. Relocates the calculator's
+# general-rate collapse (max-per-census over the 'general' entries — China's 9903.01.20
+# +10% / .24 +20% supersede to the max) into the adapter and emits:
+#   by_country  the per-country general (blanket) fentanyl rate
+#   carveouts   the per-ch99 x census carve-out rates {ch99_code, census_code, rate}
+#               (the 'carveout' entries — CA energy/potash, MX potash). The carve-out
+#               PRODUCT lists (hts8 prefixes, resources/fentanyl_carveout_products.csv)
+#               stay reference data loaded calc-side (like the IEEPA exempt CSVs) and
+#               are joined to these rates there. NULL when there are no carve-out entries.
+# Returns NULL when fentanyl_rates is absent/empty.
+.resolve_ieepa_fentanyl <- function(fentanyl_rates) {
+  if (is.null(fentanyl_rates) || !nrow(fentanyl_rates)) return(NULL)
+  general_fent <- fentanyl_rates |>
+    dplyr::filter(entry_type == 'general') |>
+    dplyr::group_by(census_code) |>
+    dplyr::summarise(fent_rate = max(rate), .groups = 'drop')
+  carveout_fent <- fentanyl_rates |>
+    dplyr::filter(entry_type == 'carveout') |>
+    dplyr::select(ch99_code, census_code, carveout_rate = rate)
+  carveouts <- NULL
+  if (nrow(carveout_fent) > 0) carveouts <- list(
+    ch99_code   = as.character(carveout_fent$ch99_code),
+    census_code = as.character(carveout_fent$census_code),
+    rate        = as.numeric(carveout_fent$carveout_rate))
+  list(
+    by_country = stats::setNames(as.numeric(general_fent$fent_rate),
+                                 as.character(general_fent$census_code)),
+    carveouts  = carveouts
+  )
+}
+
 # ---- the adapter ------------------------------------------------------------
 
 #' Re-package the bespoke per-authority parser outputs into an authority_spec_set.
@@ -500,8 +533,17 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   )
 
   # --- ieepa_fentanyl — content_split except China (additive), as data ------
+  # Plank 4b / S2: DE-BLOBBED. .resolve_ieepa_fentanyl() collapses the general rates
+  # (max-per-census) into rate$by_country and emits the carve-out rates as rate$carveouts;
+  # the calc READS them (joining carveouts to the hts8 product CSV calc-side). No blob.
   fentanyl_scope <- c(CTY_CHINA, CTY_CANADA, CTY_MEXICO)
   fentanyl_scope <- fentanyl_scope[!is.na(fentanyl_scope)]
+  fent <- .resolve_ieepa_fentanyl(fentanyl_rates)
+  fent_rate <- list()
+  if (!is.null(fent)) {
+    fent_rate$by_country <- fent$by_country
+    if (!is.null(fent$carveouts)) fent_rate$carveouts <- fent$carveouts
+  }
   ieepa_fentanyl <- authority_spec(
     authority = 'ieepa_fentanyl',
     stacking  = list(class = 'content_split',
@@ -512,10 +554,8 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       id = 'fentanyl',
       product_scope = list(include = 'all'),
       country_scope = list(include = fentanyl_scope),
-      rate = list(by_country = 'from_raw')))
+      rate = fent_rate))
   )
-  # Phase 6b: relocate into the program. Read via fentanyl_rates_from_specs().
-  ieepa_fentanyl$programs[[1]]$rate$resolved <- fentanyl_rates
 
   # --- section_301 — China gate as data (no raw embed; footnote-seeded) -----
   section_301 <- authority_spec(

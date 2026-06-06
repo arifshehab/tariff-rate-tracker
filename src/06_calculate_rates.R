@@ -865,15 +865,15 @@ calculate_rates_for_revision <- function(
 
   # AuthoritySpec is the sole rate input (Plank 7: the specs-less dual signature is
   # retired — `specs` is required). Reconstruct the bespoke per-authority locals the
-  # body and helpers consume from the spec's normalized programs: recip_rate is the
-  # de-blobbed IEEPA reciprocal rate object (Plank 4b/S1 — structured by_country +
-  # companions, read below); fentanyl_rates is still the residual blob (S2);
-  # s232_rates is the residual decision-8 §232 blob (gate inputs + derivative blends).
-  # The resolve_rate-driven reads (122/201/301/232 statutory layers + annex) come
+  # body and helpers consume from the spec's normalized programs: recip_rate /
+  # fent_rate are the de-blobbed IEEPA reciprocal / fentanyl rate objects (Plank 4b
+  # S1/S2 — structured by_country + companions, read below); s232_rates is the
+  # residual decision-8 §232 blob (gate inputs + derivative blends). The
+  # resolve_rate-driven reads (122/201/301/232 statutory layers + annex) come
   # straight off `specs` below.
   recip_rate     <- specs[['ieepa_reciprocal']]$programs[[1]]$rate
+  fent_rate      <- specs[['ieepa_fentanyl']]$programs[[1]]$rate
   s232_rates     <- s232_rates_from_specs(specs)
-  fentanyl_rates <- fentanyl_rates_from_specs(specs)
 
   # Date-gate Ch99 entries: drop rows whose legal effective_date_offset is
   # AFTER this revision's effective_date. The HTS publishes new authorities
@@ -921,7 +921,7 @@ calculate_rates_for_revision <- function(
   if (ieepa_invalidated) {
     message('  IEEPA invalidated as of ', ieepa_invalidation,
             ' — zeroing reciprocal and fentanyl for ', revision_id)
-    fentanyl_rates <- NULL   # reciprocal handled via has_active_ieepa below (S1)
+    # Both reciprocal + fentanyl gated off via ieepa_invalidated below (S1/S2).
   }
 
   # 2. Apply IEEPA reciprocal (blanket, country-level)
@@ -1255,21 +1255,30 @@ calculate_rates_for_revision <- function(
   #      - 9903.01.15 (CA): Potash → +10%
   #      - 9903.01.05 (MX): Potash → +10%
   #    Product lists from resources/fentanyl_carveout_products.csv.
-  has_fentanyl <- !is.null(fentanyl_rates) && nrow(fentanyl_rates) > 0
+  # Plank 4b / S2: fentanyl is read from the de-blobbed spec layers. by_country holds
+  # the per-country general rate (the max-per-census collapse — e.g. China 9903.01.20
+  # +10% / .24 +20% -> max — was done in the adapter). carveouts holds the per-ch99 x
+  # census carve-out rates; the carve-out PRODUCT lists (hts8 prefixes) stay reference
+  # data loaded here and joined to those rates, exactly as before.
+  fent_by_country <- {
+    bc <- .rate_get(fent_rate, 'by_country')
+    if (.rate_is_hollow(bc)) numeric(0) else bc
+  }
+  fent_carveouts <- .rate_get(fent_rate, 'carveouts')
+  has_fentanyl <- !ieepa_invalidated &&
+                  (length(fent_by_country) > 0 || !is.null(fent_carveouts))
 
   if (has_fentanyl) {
-    # Separate general (blanket) and carve-out entries.
-    # Some countries have multiple general entries (e.g., China 9903.01.20 +10%
-    # and 9903.01.24 +20%) — the later entry supersedes. Take max rate per
-    # country to get the effective rate (avoids row multiplication in joins).
-    general_fent <- fentanyl_rates %>%
-      filter(entry_type == 'general') %>%
-      group_by(census_code) %>%
-      summarise(fent_rate = max(rate), .groups = 'drop')
+    general_fent <- tibble(census_code = names(fent_by_country),
+                           fent_rate = unname(fent_by_country))
 
-    carveout_fent <- fentanyl_rates %>%
-      filter(entry_type == 'carveout') %>%
-      select(ch99_code, census_code, carveout_rate = rate)
+    carveout_fent <- if (is.null(fent_carveouts)) {
+      tibble(ch99_code = character(), census_code = character(), carveout_rate = numeric())
+    } else {
+      tibble(ch99_code = fent_carveouts$ch99_code,
+             census_code = fent_carveouts$census_code,
+             carveout_rate = fent_carveouts$rate)
+    }
 
     # Load carve-out product lists and build lookup (once, reused below)
     carveout_products <- load_fentanyl_carveouts()
