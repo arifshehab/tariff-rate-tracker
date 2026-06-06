@@ -53,6 +53,29 @@ Two findings corrected the plan's assumptions:
    scheduled-turn-ON gap (`scheduled-activations-gap`): real §301 entries dated "on or
    after November 10, 2026" that the current pipeline never activates.
 
+### Discovered data gap: the 2026-11-10 §301 mint is currently daily-INERT
+
+The validation build (job 13905511/512, golden `70b6b97`) showed the impact is exactly
+the intended set and nothing else: **6 daily rows move, all inside the boundary windows,
+0 outside** (regression guard green). 2025-03-12/13 = +0.22pp (§232 exemption); 2026-02-20→23
+= −9.2pp (IEEPA reciprocal pulled forward 4 days). **2026-11-10 shows NO daily movement.**
+
+Reason: the §301 crane/chassis codes `9903.91.12`/`.14` carry a parsed **100%** rate in the
+Ch99 text, but the calculator assigns `rate_301` **only** from the `section_301_rates` config
+lookup (`06: s301_rate_lookup` inner-join), and `9903.91.12–.16` are **not in that list**
+(`.13/.15/.16` are conditional "notwithstanding/except" provisions). So activating them adds
+no rate — `bnd_2026-11-10` differs from its owner snapshot only in `rate_s122` (the S122
+sunset, which the downstream zeroing already applies to that date range), leaving the daily
+series unchanged.
+
+**This is a genuine modeling gap the systematic scan surfaced — separate from the timeline
+mechanism, which is correct.** The boundary is properly discovered + minted, and the mint is
+**forward-compatible**: the moment `9903.91.12`/`.14` (and the conditional `.13/.15/.16`) are
+priced into `section_301_rates`, `bnd_2026-11-10` will reflect them with no further timeline
+work. Pricing them (with their USMCA / exception handling) is a follow-up data task with its
+own validation. `tests/test_timeline_invariants.R` asserts the documented daily-inert state
+now and auto-strengthens to "footprint grows" once the codes are priced.
+
 Edge-coincident boundaries correctly produce **no mint** (they sit on a real revision's
 date): 2025-04-09 (Phase-1 country rates = `rev_8`), 2025-05-03 (auto parts = `rev_11`),
 2026-04-06 (§232 annex = `2026_rev_5`), 2026-04-01/2026-07-24 (Swiss/S122 expiries — see

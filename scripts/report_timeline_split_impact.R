@@ -31,7 +31,9 @@ golden_dir <- get_arg('--golden', here('tests', 'golden', '70b6b97'))
 if (dir.exists(file.path(golden_dir, 'daily'))) golden_dir <- file.path(golden_dir, 'daily')
 new_dir <- get_arg('--new', NULL)
 if (is.null(new_dir)) {
-  for (cand in c(here('output', 'daily'), here('output', 'actual', 'daily'),
+  # output/actual/daily is where save_daily_outputs() (actual_daily_dir()) writes
+  # the live build — check it FIRST. output/daily can be a stale hand-run leftover.
+  for (cand in c(here('output', 'actual', 'daily'), here('output', 'daily'),
                  here('data', 'timeseries', 'daily'))) {
     if (file.exists(file.path(cand, 'daily_overall.csv'))) { new_dir <- cand; break }
   }
