@@ -357,6 +357,38 @@ exactly the decision-8 designed endpoint (gate inputs + derivative blends), not 
   groups (`06:~1020`), phase supersession (`06:~973-1008`) into data; wire the already-
   declared China-fentanyl `stacking.exceptions` so `stacking.R:~145` stops branching.
   IEEPA invalidation stays `active.until` (already wired).
+  - **The 4 design decisions — DELEGATED to Claude (John, 2026-06-05: "I trust your decisions"),
+    then RE-WEIGHTED by John's follow-up: IEEPA is REPEALED and will NOT return.** So IEEPA has no
+    forward-scenario future; its only counterfactuals are RETROSPECTIVE and COARSE ("what did IEEPA
+    add to ETRs while it was in force?" = on/off; at most rescope or per-country rate level). That
+    removes the value of fine-grained IEEPA tunability and right-sizes the whole plank. Locked:**
+    1. **Country-EO two-term surcharge → calc-side** (decision-8 blend: two independently-gated
+       components, `06:~1294-1296` + the `new_pairs` dup; raw `country_eo_rate`/`country_eo_ch99`
+       ride the residual blob, calc does the math).
+    2. **Per-country `rate_type` → calc-side (REVERSED from the earlier "promote to schema" lean).**
+       The only thing promoting it bought was fine-grained tunability (flip a country surcharge↔floor
+       in a scenario) — a use case that does NOT exist for a repealed authority. So it would be pure
+       cost (permanent schema surface + the #1 parity trap, the two-stage `floor_post_mfn`) for zero
+       payoff. The per-country surcharge/floor classification stays the calc-derived `ieepa_type`.
+    3. **CA/MX universal-baseline exclusion → reuse `country_scope`** (§201 pattern) if the
+       `default_unlisted` complement honors scope; else a small `default_unlisted_exclude` set.
+    4. **Floor-exempt country-group membership → calc-side** (masking math stays calc-side; labels
+       add no scenario value).
+  - **Net scope = LEAN 4b: de-blob ONLY the clean rate layers** — `by_country` country rates +
+    `default_unlisted` universal baseline — enough to make IEEPA spec-driven for the coarse,
+    historically-meaningful counterfactuals (disable / rescope / retune a country's rate via Plank 6)
+    and consistent with the other authorities. **Keep ALL the fancy mechanics calc-side** as
+    decision-8 blends: `floor_post_mfn` (the two-stage recompute, `06:1298` + `06:~2738`, gated on
+    the transient `ieepa_type`), per-country rate_type, the country-EO two-term split, phase
+    supersession (replace-then-SUM), the floor-exempt group map. This deliberately sidesteps the
+    worst parity trap (the two-stage floor): read the country RATES off the spec, leave the
+    floor/surcharge MATH where it is. The headline "what did IEEPA add to ETRs?" on/off counterfactual
+    may already be reachable via the existing `active.until` invalidation — which de-risks 4b further;
+    the design pass confirms the minimal boundary (and whether Plank 6's IEEPA verbs can be just
+    disable/rescope rather than rich per-country set_rate).
+  - Parity TRAPS still live for whatever IS de-blobbed: CA/MX complement-skip; phase supersession
+    (replace-then-SUM, not max); MAX-per-census on the fentanyl general rates. Slice S-style;
+    adversarially re-derive Brazil (50%) + a floor country vs the golden before each gate.
 
 **Plank 5 — stacking generalization.** Delete the drifted dormant `resolved_programs.R`;
 rebuild the resolved-program intermediate table fresh; generalize `stacking.R` to read
