@@ -367,4 +367,46 @@ check(identical(np2[['other']]$programs[[2]]$id, 'drone_no_auth'),
 expect_error(apply_operations(specs, list(list(op = 'disable'))),
   'a non-add_program verb without `authority` still errors')
 
+# =============================================================================
+# Plank 5d — set_stacking. Mutates a spec's stacking {class, exceptions}, which
+# Plank 5b made load-bearing in the calc (stacking_policy_from_specs). Baseline =
+# empty ops, so this affects only counterfactual runs; parity untouched (UNIT-only).
+# =============================================================================
+cat('\n--- Plank 5d: set_stacking (authority-level class) ---\n')
+s_cs <- apply_operations(specs, list(list(op = 'set_stacking', authority = 'section_301',
+                                          stacking = list(class = 'content_split'))))
+check(identical(s_cs[['section_301']]$stacking$class, 'content_split'),
+      'set_stacking flips section_301 authority class -> content_split')
+check(identical(specs[['section_301']]$stacking$class, 'additive'),
+      'original specs unchanged (copy-on-modify isolation)')
+
+cat('\n--- set_stacking: program-level write leaves the authority class intact ---\n')
+s_pg <- apply_operations(specs, list(list(op = 'set_stacking', authority = 'section_232',
+                                          program = 'steel', stacking = list(class = 'content_split'))))
+check(identical(s_pg[['section_232']]$programs[[1]]$stacking$class, 'content_split'),
+      'set_stacking on section_232/steel writes the program-level class')
+check(identical(s_pg[['section_232']]$stacking$class, 'primary_metal'),
+      'the section_232 authority-level class is untouched by the program-level set')
+
+cat('\n--- set_stacking: modifyList top-level merge (exceptions-only preserves class) ---\n')
+s_ex <- apply_operations(specs, list(list(op = 'set_stacking', authority = 'section_301',
+                                          stacking = list(exceptions = setNames(list('additive'), '5700')))))
+check(identical(s_ex[['section_301']]$stacking$class, 'additive'),
+      'exceptions-only set preserves the existing class (modifyList)')
+check(identical(s_ex[['section_301']]$stacking$exceptions, setNames(list('additive'), '5700')),
+      'set_stacking writes the exceptions map')
+
+cat('\n--- set_stacking: fail-loud guards ---\n')
+expect_error(apply_operations(specs, list(list(op = 'set_stacking', authority = 'section_301',
+  stacking = list(class = 'bogus')))),
+  'invalid stacking.class errors via validate_spec_set')
+expect_error(apply_operations(specs, list(list(op = 'set_stacking', authority = 'section_301',
+  stacking = list(class = 'primary_metal')))),
+  'primary_metal on a non-metal authority errors (program lacks metal.type)')
+expect_error(apply_operations(specs, list(list(op = 'set_stacking', authority = 'nope',
+  stacking = list(class = 'additive')))),
+  'set_stacking on an unknown authority errors')
+expect_error(apply_operations(specs, list(list(op = 'set_stacking', authority = 'section_301'))),
+  'set_stacking without `stacking` errors')
+
 cat(sprintf('\nALL %d SCENARIO_OPS ASSERTIONS PASSED\n', pass))

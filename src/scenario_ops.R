@@ -31,6 +31,11 @@
 #   * add_program — add a NEW-COVERAGE tariff with no Ch99 backing (Phase 8). The
 #     program carries a flat rate + product/country scope, rides rate_other, and is
 #     applied by the calc's no-Ch99 seeder (src/new_coverage.R) before stacking.
+#   * set_stacking — change an authority's (or program's) stacking {class, exceptions}
+#     (Plank 5b/5d). Load-bearing in the calc: stacking_policy_from_specs() reads the
+#     spec's class/exceptions into the stacking engine, so this re-routes how an
+#     authority stacks (e.g. 301 -> content_split). Caveat: flows through 06 only; the
+#     09 daily re-stack is specs-less (Pass-2). See op_set_stacking.
 #
 # NOT YET SUPPORTED (error loudly — never a silent no-op):
 #   * set_floor (IEEPA universal baseline / phase-1 floor rate): a deferred follow-up.
@@ -153,11 +158,12 @@ apply_operation <- function(specs, op, idx = NA_integer_) {
     disable           = op_disable(specs, op, idx),
     set_rate          = op_set_rate(specs, op, idx),
     set_exempt        = op_set_exempt(specs, op, idx),
+    set_stacking      = op_set_stacking(specs, op, idx),
     add_program       = op_add_program(specs, op, idx),
     stop(sprintf(paste0('operation[%s]: verb "%s" is not supported. Supported: %s. ',
                         'set_floor is a deferred follow-up.'),
                  idx, verb,
-                 'set_country_scope, set_active, disable, set_rate, set_exempt, add_program'))
+                 'set_country_scope, set_active, disable, set_rate, set_exempt, set_stacking, add_program'))
   )
 }
 
@@ -330,6 +336,40 @@ op_set_active <- function(specs, op, idx) {
     pos <- .find_program_index(specs[[op$authority]], op$program, idx, 'set_active')
     specs[[op$authority]]$programs[[pos]]$active <-
       modifyList(specs[[op$authority]]$programs[[pos]]$active %||% list(), active)
+  }
+  specs
+}
+
+#' set_stacking — change an authority's (or a program's) stacking {class, exceptions}.
+#' Load-bearing in the CALCULATOR as of Plank 5b: stacking_policy_from_specs() reads
+#' stacking.class + exceptions off the spec and feeds them to the contribution engine,
+#' so this verb re-routes how an authority stacks — e.g. flip section_301 to
+#' content_split (yield to a 232 on metal content), or edit fentanyl's per-country
+#' `additive` exceptions. `op$stacking` = {class, exceptions}, merged at the TOP LEVEL
+#' (modifyList: providing `class` alone preserves `exceptions`, and vice versa; providing
+#' `exceptions` replaces the whole map). class is validated against STACKING_CLASSES (and
+#' primary_metal-requires-metal.type) by apply_operations() -> validate_spec_set() —
+#' fail-loud, never a silent no-op. Applies to ANY authority (every spec has a stacking
+#' field), so there is no category allow-list.
+#'
+#' SCOPE NOTE (honest boundary): the mutation flows into calculate_rates_for_revision (06),
+#' where a scenario rebuild runs, so the recomputed snapshot reflects it. The 09 daily
+#' aggregate RE-STACK reads the PERSISTED rate_* columns with NO specs (it falls back to
+#' default_stacking_policy), so a set_stacking counterfactual is NOT seen by a daily
+#' re-aggregation that bypasses 06. Threading the spec/policy into 09 (or persisting the
+#' policy with the snapshot) is a Pass-2 concern — see docs/spec_driven_calculator_plan.md.
+op_set_stacking <- function(specs, op, idx) {
+  stacking <- op$stacking %||% stop(sprintf(
+    'operation[%s] (set_stacking): missing `stacking` ({class, exceptions})', idx))
+  if (!is.list(stacking)) stop(sprintf(
+    'operation[%s] (set_stacking): `stacking` must be a list {class, exceptions}', idx))
+  auth <- op$authority
+  if (is.null(op$program)) {
+    specs[[auth]]$stacking <- modifyList(specs[[auth]]$stacking %||% list(), stacking)
+  } else {
+    pos <- .find_program_index(specs[[auth]], op$program, idx, 'set_stacking')
+    specs[[auth]]$programs[[pos]]$stacking <-
+      modifyList(specs[[auth]]$programs[[pos]]$stacking %||% list(), stacking)
   }
   specs
 }
