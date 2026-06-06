@@ -294,6 +294,76 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
   )
 }
 
+# ---- product-exemption SETS -> spec (Pass-1.5) -------------------------------
+#
+# Relocate the hand-curated product-exemption SETS the calculator used to load
+# inline from resource CSVs into the spec, so the spec is the single source of
+# truth (rate -> spec was done in Planks 1-4b; the exempt SETS were the last
+# calc-loaded policy input). Only the SETS move; the MASKING stays calc-side
+# (it needs the product grid). Each helper reproduces the calc's old load +
+# date-gate VERBATIM, so the relocation is bit-exact (oracle-tested). Baked onto
+# the program as `$exempt_products` (a plain attached field, like §232's residual
+# `rate$resolved` blob — invisible to validate_authority_spec, no schema change):
+#   ieepa_reciprocal$programs[[1]]$exempt_products = {universal, country_eo, floor}
+#   section_122$programs[[1]]$exempt_products       = {hts8}
+# The fentanyl Ch98 subset rides along — the calc derives it as universal[ch==98].
+
+# Universal IEEPA Annex II exempt list (hts10 vector), date-windowed by the
+# effective_date_start/_end columns (blank = always active). VERBATIM from
+# 06_calculate_rates.R (the old inline load).
+.resolve_ieepa_exempt_products <- function(effective_date) {
+  ieepa_exempt_path <- here::here('resources', 'ieepa_exempt_products.csv')
+  if (!file.exists(ieepa_exempt_path)) {
+    warning('ieepa_exempt_products.csv not found — all products subject to IEEPA')
+    return(character(0))
+  }
+  ie_raw <- readr::read_csv(ieepa_exempt_path,
+                            col_types = readr::cols(hts10 = readr::col_character(),
+                                                    .default = readr::col_character()))
+  rd_exempt <- as.Date(effective_date)
+  if ('effective_date_start' %in% names(ie_raw)) {
+    ie_raw <- ie_raw |>
+      dplyr::filter(is.na(effective_date_start) |
+                      as.Date(effective_date_start) <= rd_exempt)
+  }
+  if ('effective_date_end' %in% names(ie_raw)) {
+    ie_raw <- ie_raw |>
+      dplyr::filter(is.na(effective_date_end) |
+                      as.Date(effective_date_end) >= rd_exempt)
+  }
+  ie_raw$hts10
+}
+
+# Country-EO exempt list -> distinct (ch99_code, hts8_prefix), date-windowed.
+# VERBATIM (modulo qualification + base pipe) from 06_calculate_rates.R.
+.resolve_country_eo_exempt <- function(effective_date) {
+  country_eo_exempt_path <- here::here('resources', 'country_eo_exempt_products.csv')
+  if (!file.exists(country_eo_exempt_path)) {
+    return(tibble::tibble(ch99_code = character(), hts8_prefix = character()))
+  }
+  raw <- readr::read_csv(country_eo_exempt_path, comment = '#',
+                         col_types = readr::cols(.default = readr::col_character()))
+  rev_date_chr <- as.character(effective_date)
+  raw |>
+    dplyr::mutate(
+      effective_date_start = dplyr::if_else(is.na(effective_date_start) | effective_date_start == '',
+                                            '1900-01-01', effective_date_start),
+      effective_date_end   = dplyr::if_else(is.na(effective_date_end)   | effective_date_end == '',
+                                            '2099-12-31', effective_date_end)
+    ) |>
+    dplyr::filter(rev_date_chr >= effective_date_start, rev_date_chr <= effective_date_end) |>
+    dplyr::mutate(hts8_prefix = substr(gsub('\\.', '', hts10), 1, 8)) |>
+    dplyr::distinct(ch99_code, hts8_prefix)
+}
+
+# Section 122 Annex II exempt list (hts8 vector). VERBATIM from
+# 06_calculate_rates.R (the old inline load).
+.resolve_s122_exempt <- function() {
+  s122_exempt_path <- here::here('resources', 's122_exempt_products.csv')
+  if (!file.exists(s122_exempt_path)) return(character(0))
+  readr::read_csv(s122_exempt_path, col_types = readr::cols(hts8 = readr::col_character()))$hts8
+}
+
 # ---- the adapter ------------------------------------------------------------
 
 #' Re-package the bespoke per-authority parser outputs into an authority_spec_set.
@@ -536,6 +606,17 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       country_scope = list(include = 'all'),
       rate = recip_rate))
   )
+  # Pass-1.5: bake the IEEPA product-exemption SETS onto the program so the spec
+  # is the single source of truth. Done UNCONDITIONALLY (not gated on recip rates)
+  # because the universal list is also consumed by the fentanyl Ch98 carve-out,
+  # which runs on its own gate. The calc reads these via `$exempt_products` and
+  # keeps the product-grid masking. floor = the per-revision file (or static
+  # fallback) — same call the calc used, so it is bit-identical.
+  ieepa_reciprocal$programs[[1]]$exempt_products <- list(
+    universal  = .resolve_ieepa_exempt_products(effective_date),
+    country_eo = .resolve_country_eo_exempt(effective_date),
+    floor      = load_revision_floor_exemptions(revision_id)
+  )
 
   # --- ieepa_fentanyl — content_split except China (additive), as data ------
   # Plank 4b / S2: DE-BLOBBED. .resolve_ieepa_fentanyl() collapses the general rates
@@ -615,6 +696,9 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
     section_122$programs[[1]]$rate$default   <- s122_extracted$s122_rate
     section_122$programs[[1]]$rate$rate_type <- 'surcharge'
   }
+  # Pass-1.5: bake the §122 product-exemption SET onto the program (read by the
+  # calc via `$exempt_products$hts8` inside the in-force block; masking calc-side).
+  section_122$programs[[1]]$exempt_products <- list(hts8 = .resolve_s122_exempt())
 
   # --- mfn (base layer) + other (catch-all) — inert in Phase 1 --------------
   mfn <- authority_spec(

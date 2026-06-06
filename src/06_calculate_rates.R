@@ -958,78 +958,38 @@ calculate_rates_for_revision <- function(
             ' (DIAGNOSTIC — produces legally-incorrect output)')
   }
 
-  # Load IEEPA product exemptions. The list is date-windowed: Annex II has
-  # been amended repeatedly (electronics Apr 5 2025, EO 14346 metals Sept 8,
-  # agricultural expansion Nov 13; copper/wood REMOVED when their 232
-  # programs began Aug 1 / Oct 14). effective_date_start/_end columns are
-  # stamped by scripts/build_annex_ii_dates.R from the chapter-99 change
-  # records; blank = always active. Without the filter the static list
-  # applied amendments retroactively (extreme-eta review item 3).
-  ieepa_exempt_path <- here('resources', 'ieepa_exempt_products.csv')
-  ieepa_exempt_products <- if (file.exists(ieepa_exempt_path)) {
-    ie_raw <- read_csv(ieepa_exempt_path,
-                       col_types = cols(hts10 = col_character(),
-                                        .default = col_character()))
-    rd_exempt <- as.Date(effective_date)
-    n_before <- nrow(ie_raw)
-    if ('effective_date_start' %in% names(ie_raw)) {
-      ie_raw <- ie_raw %>%
-        filter(is.na(effective_date_start) |
-                 as.Date(effective_date_start) <= rd_exempt)
-    }
-    if ('effective_date_end' %in% names(ie_raw)) {
-      ie_raw <- ie_raw %>%
-        filter(is.na(effective_date_end) |
-                 as.Date(effective_date_end) >= rd_exempt)
-    }
-    if (nrow(ie_raw) < n_before) {
-      message('  IEEPA exempt list: ', n_before - nrow(ie_raw),
-              ' entries outside their effective window at ', effective_date)
-    }
-    ie_raw$hts10
-  } else {
-    warning('ieepa_exempt_products.csv not found — all products subject to IEEPA')
-    character(0)
-  }
+  # IEEPA product-exemption SETS — read from the spec (Pass-1.5). The adapter
+  # (build_authority_specs) bakes the hand-curated exempt sets onto
+  # ieepa_reciprocal$programs[[1]]$exempt_products, date-resolved at the revision
+  # date; the calc READS them here and keeps the product-grid MASKING below.
+  # Provenance (now in .resolve_* helpers in authority_adapter.R):
+  #   universal  — Annex II (US Note 2 subdiv (v)(iii)) hts10 list, date-windowed
+  #     by effective_date_start/_end (Annex II amended repeatedly: electronics
+  #     Apr 5 2025, EO 14346 metals Sept 8, ag Nov 13; copper/wood REMOVED when
+  #     their 232 programs began). Without the window, amendments applied
+  #     retroactively (extreme-eta review item 3).
+  #   country_eo — per-EO exempt (ch99_code, hts8_prefix) pairs (Brazil 9903.01.77,
+  #     India 9903.01.84, ...), date-windowed; separate from the universal Annex A
+  #     so the country-EO surcharge is not wrongly suppressed. See
+  #     docs/country_eo_annex_overshoot.md.
+  #   floor      — (hts8, country_group) floor-tariff exemptions (EU/JP/KR/Swiss),
+  #     US Note 2 subdiv (v)(xx)-(xxiv) + Note 3; per-revision file or static.
+  .ieepa_exempt <- specs[['ieepa_reciprocal']]$programs[[1]]$exempt_products %||% list()
+  ieepa_exempt_products <- .ieepa_exempt$universal %||% character(0)
   if (length(ieepa_exempt_products) > 0) {
     message('  IEEPA exempt products loaded: ', length(ieepa_exempt_products))
   }
 
-  # Load country-specific EO product exemptions.
-  # See docs/country_eo_annex_overshoot.md. Country EOs (Brazil 9903.01.77,
-  # India 9903.01.84, etc.) carry their own exempt lists separate from the
-  # universal EO 14257 Annex A above. Without this, the country-EO surcharge
-  # is wrongly suppressed by Annex A.
-  country_eo_exempt_path <- here('resources', 'country_eo_exempt_products.csv')
-  country_eo_exempt <- if (file.exists(country_eo_exempt_path)) {
-    raw <- read_csv(country_eo_exempt_path, comment = '#',
-                    col_types = cols(.default = col_character()))
-    rev_date_chr <- as.character(effective_date)
-    raw %>%
-      mutate(
-        effective_date_start = if_else(is.na(effective_date_start) | effective_date_start == '',
-                                        '1900-01-01', effective_date_start),
-        effective_date_end   = if_else(is.na(effective_date_end)   | effective_date_end == '',
-                                        '2099-12-31', effective_date_end)
-      ) %>%
-      filter(rev_date_chr >= effective_date_start, rev_date_chr <= effective_date_end) %>%
-      mutate(hts8_prefix = substr(gsub('\\.', '', hts10), 1, 8)) %>%
-      distinct(ch99_code, hts8_prefix)
-  } else {
+  country_eo_exempt <- .ieepa_exempt$country_eo %||%
     tibble(ch99_code = character(), hts8_prefix = character())
-  }
   if (nrow(country_eo_exempt) > 0) {
     message('  Country-EO exempt products active at ', effective_date, ': ',
             nrow(country_eo_exempt), ' (HS8, ch99) pairs across ',
             n_distinct(country_eo_exempt$ch99_code), ' EOs')
   }
 
-  # Load floor country product exemptions (EU/Japan/Korea/Swiss)
-  # Products exempt from the 15% tariff floor — defined by US Note 2
-  # subdivisions (v)(xx)-(xxiv) and Note 3. These are distinct from the
-  # general IEEPA Annex A exemptions above.
-  # Per-revision file takes priority; falls back to static resource.
-  floor_exempt_products <- load_revision_floor_exemptions(revision_id)
+  floor_exempt_products <- .ieepa_exempt$floor %||%
+    tibble(hts8 = character(), country_group = character())
 
   # Load product-level USMCA utilization shares from DataWeb SPI data (S/S+).
   # Year configured in policy_params.yaml (usmca_shares.year). Falls back to binary eligibility.
@@ -2534,14 +2494,9 @@ calculate_rates_for_revision <- function(
   if (s122_rates$has_s122 && s122_in_force) {
     s122_rate <- s122_rates$s122_rate
 
-    # Load product exemptions (Annex II)
-    s122_exempt_path <- here('resources', 's122_exempt_products.csv')
-    s122_exempt_hts8 <- if (file.exists(s122_exempt_path)) {
-      read_csv(s122_exempt_path, col_types = cols(hts8 = col_character()))$hts8
-    } else {
-      message('  WARNING: s122_exempt_products.csv not found — no exemptions applied')
-      character(0)
-    }
+    # Product exemptions (Annex II) — read from the spec (Pass-1.5; the adapter
+    # bakes section_122$programs[[1]]$exempt_products$hts8). Masking stays below.
+    s122_exempt_hts8 <- specs[['section_122']]$programs[[1]]$exempt_products$hts8 %||% character(0)
     if (length(s122_exempt_hts8) > 0) {
       message('  Section 122 exempt products: ', length(s122_exempt_hts8), ' HTS8 codes')
     }
