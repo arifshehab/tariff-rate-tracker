@@ -51,6 +51,22 @@ future, but is **not** in scope now.
    Do not pull shares into the spec in Pass 1.
 9. **`resolved_programs.R`:** **delete & rebuild** the intermediate table fresh as part
    of the stacking plank (it has drifted — references an orphan `section_301_cs`).
+10. **Dual signature retired EARLY — Plank 7 pulled forward of 4b (decided with John,
+    2026-06-05, option "b").** The no-fallbacks directive (4c) is now **standing**.
+    Sequence: retire the specs-less branch of `calculate_rates_for_revision()` FIRST,
+    THEN write 4b spec-only (`stop()` if no spec, like 4c) on the clean single-signature
+    engine. Production already passes specs (`00:138`, `09:1376`), so the specs-less
+    branch is dead there. **Scoped by the `plank7-4b-lockdown` workflow (2026-06-05):**
+    the ONLY live specs-less caller is the single `run_tests_daily_series.R:972/985`
+    Test-16 block (policy-vs-HTS IEEPA-invalidation). `test_rate_calculation.R` is NOT a
+    caller — it never invokes the calc (only a header comment at `:6`); its Russia-§232
+    invariants (`:856/872/908`) are `readRDS(snapshot_2026_rev_5.rds)` reads of the frozen
+    golden, blind to the signature and unchanged by Plank 7. **The one load-bearing edit:**
+    Test-16 must build a DISTINCT spec per half (`pp_policy` vs `pp_hts`) via `.specs_for_calc`
+    — reusing one spec erases the invalidation-date divergence the test checks. Everything
+    else is mechanical (trim 3 redundant overwritten args + delete dead branches). Parity:
+    production behavior is unchanged → a rebuild is byte-identical; gate = unit suites +
+    one cheap parity tripwire, not a full 43-rev array.
 
 ## Target end-state (the dream — reached at the end of Pass 1)
 

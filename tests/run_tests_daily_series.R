@@ -969,6 +969,19 @@ run_test('calculator zeroes IEEPA on 2026-02-20 while Section 122 remains HTS-da
   pp_policy <- load_policy_params(use_policy_dates = TRUE)
   pp_hts <- load_policy_params(use_policy_dates = FALSE)
 
+  # Plank 7: the calc is spec-only. The policy-vs-HTS divergence this test checks IS the
+  # IEEPA invalidation date, which flows pp$IEEPA_INVALIDATION_DATE -> ieepa_until ->
+  # specs[['ieepa_reciprocal']]$active$until. A DISTINCT spec must be built per half;
+  # reusing one spec would erase the divergence and make the test vacuous.
+  specs_policy <- .specs_for_calc(products, ch99_data, s232_rates, pp_policy,
+                                  countries = '5700', revision_id = '2026_rev_4',
+                                  effective_date = as.Date('2026-02-20'),
+                                  ieepa_rates = ieepa_rates)
+  specs_hts <- .specs_for_calc(products, ch99_data, s232_rates, pp_hts,
+                               countries = '5700', revision_id = '2026_rev_4',
+                               effective_date = as.Date('2026-02-20'),
+                               ieepa_rates = ieepa_rates)
+
   rates_policy <- calculate_rates_for_revision(
     products = products,
     ch99_data = ch99_data,
@@ -979,7 +992,8 @@ run_test('calculator zeroes IEEPA on 2026-02-20 while Section 122 remains HTS-da
     effective_date = as.Date('2026-02-20'),
     s232_rates = s232_rates,
     fentanyl_rates = NULL,
-    policy_params = pp_policy
+    policy_params = pp_policy,
+    specs = specs_policy
   )
 
   rates_hts <- calculate_rates_for_revision(
@@ -992,7 +1006,8 @@ run_test('calculator zeroes IEEPA on 2026-02-20 while Section 122 remains HTS-da
     effective_date = as.Date('2026-02-20'),
     s232_rates = s232_rates,
     fentanyl_rates = NULL,
-    policy_params = pp_hts
+    policy_params = pp_hts,
+    specs = specs_hts
   )
 
   stopifnot(all(rates_policy$rate_ieepa_recip == 0))
