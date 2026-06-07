@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# Smoke test for ieepa_exempt_audit_2026-04-28 changes.
+# Smoke test for the IEEPA Annex II exempt-list (ITA prefix) changes.
 # Reads rev_6 snapshot and inspects target cells.
 
 snap <- readRDS("data/timeseries/snapshot_2026_rev_6.rds")

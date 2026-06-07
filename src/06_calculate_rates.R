@@ -1043,8 +1043,7 @@ calculate_rates_for_revision <- function(
   #     retroactively (extreme-eta review item 3).
   #   country_eo — per-EO exempt (ch99_code, hts8_prefix) pairs (Brazil 9903.01.77,
   #     India 9903.01.84, ...), date-windowed; separate from the universal Annex A
-  #     so the country-EO surcharge is not wrongly suppressed. See
-  #     docs/country_eo_annex_overshoot.md.
+  #     so the country-EO surcharge is not wrongly suppressed.
   #   floor      — (hts8, country_group) floor-tariff exemptions (EU/JP/KR/Swiss),
   #     US Note 2 subdiv (v)(xx)-(xxiv) + Note 3; per-revision file or static.
   .ieepa_exempt <- specs[['ieepa_reciprocal']]$programs[[1]]$exempt_products %||% list()

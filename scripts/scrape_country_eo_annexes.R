@@ -10,7 +10,7 @@
 # distinct from the universal EO 14257 Annex II / Annex A list captured in
 # resources/ieepa_exempt_products.csv. Treating them as if they shared the
 # same exempt list causes the tracker to under-apply country-EO surcharges
-# for products like Brazilian coffee — see docs/country_eo_annex_overshoot.md.
+# for products like Brazilian coffee.
 #
 # Currently parses:
 #   - Brazil EO 14323 modifying scope (Nov 20, 2025) ANNEXES PDF

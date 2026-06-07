@@ -25,7 +25,7 @@
 #   usmca_monthly, usmca_2024, usmca_dec2025, metal_flat, dutyfree_nonzero,
 #   subdivision_r_mid. Default (omit --rebuild-alts) runs all of them.
 #
-# Parallel mode (Phase 0/1; see docs/parallel_full_pipeline_plan_v2.md):
+# Parallel mode (Phase 0/1):
 #   --parallel             Enable parallel mode (off by default)
 #   --workers N            Per-revision worker count (Phase 3, currently no-op)
 #   --alt-workers M        Concurrent rebuild alternatives (Phase 1, active)
@@ -197,8 +197,7 @@ build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
 #' in `output_dir` and appending a `{revision = id, effective_date = D}` row to
 #' `rev_dates`. assemble_timeseries() then globs the new snapshot and derives its
 #' `[D, horizon]` interval purely from rev_dates ordering, automatically shortening
-#' the prior tip's `valid_until` to D-1 (no interval-logic change). See
-#' docs/scheduled_activations_code_review.md §4.
+#' the prior tip's `valid_until` to D-1 (no interval-logic change).
 #'
 #' Empty/absent scheduled_activations => writes nothing and returns `rev_dates`
 #' unchanged: the baseline stays byte-identical to the golden.

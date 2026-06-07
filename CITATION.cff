@@ -26,8 +26,8 @@ keywords:
   - Section 232
   - Section 301
   - IEEPA
-# DOI per release is deferred. To turn it on later, follow the steps in
-# docs/zenodo_setup.md and uncomment the block below with the concept DOI.
+# DOI per release is deferred. To turn it on later, set up Zenodo integration
+# and uncomment the block below with the concept DOI.
 # identifiers:
 #   - type: doi
 #     value: "10.5281/zenodo.XXXXXXX"

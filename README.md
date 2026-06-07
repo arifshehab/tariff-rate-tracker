@@ -45,9 +45,8 @@ BibTeX:
 
 GitHub's "Cite this repository" widget (top of the repo page) reads
 [`CITATION.cff`](CITATION.cff) and offers both APA and BibTeX. If you
-need a citable DOI (e.g. for an academic paper), see
-[`docs/zenodo_setup.md`](docs/zenodo_setup.md) — Zenodo integration is
-deferred but documented.
+need a citable DOI (e.g. for an academic paper), note that Zenodo
+integration is deferred.
 
 If you build on this data we'd appreciate hearing about it — open an
 issue or email [budgetlab@yale.edu](mailto:budgetlab@yale.edu).

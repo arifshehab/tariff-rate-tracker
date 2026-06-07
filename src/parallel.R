@@ -2,8 +2,7 @@
 # Parallel execution helper module
 # =============================================================================
 #
-# Phase 0/1 scaffolding for the parallel pipeline plan
-# (docs/parallel_full_pipeline_plan_v2.md). Provides:
+# Phase 0/1 scaffolding for the parallel pipeline. Provides:
 #
 #   resolve_parallel_config(args, mem_gb = NULL)
 #       Parses --parallel / --workers / --alt-workers / --backend out of an
@@ -86,7 +85,6 @@ detect_memory_gb <- function() {
 
 #' Default revision-worker count for a given memory ceiling
 #'
-#' Implements the table in docs/parallel_full_pipeline_plan_v2.md.
 #' Conservative by design — the build is memory-bound, so this caps lower
 #' than CPU count would suggest. Returns 1 (serial) when memory is unknown
 #' or below 32 GB.

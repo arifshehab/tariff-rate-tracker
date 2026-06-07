@@ -25,7 +25,7 @@
 #   2 concurrent alt workers * ~40 GB peak = ~80 GB working set + overhead.
 #   192 GB matches the production allocation and is conservative.
 #
-# Phase 1 acceptance (per docs/parallel_full_pipeline_plan_v2.md):
+# Phase 1 acceptance:
 #   - Serial-baseline diff is empty for all 6 rebuild alts.
 #   - One injected alt failure (if we ever add one) is isolated, not fatal.
 #

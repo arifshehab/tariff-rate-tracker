@@ -196,7 +196,6 @@ Five modes are available in `config/policy_params.yaml` (`usmca_shares.mode`):
 | `annual` | Single-year average | Alternative: blends pre- and post-tariff regimes |
 | `fixed_month` | One month's shares for all revisions | Alternative: specific month (e.g., Dec 2025) |
 
-See [analysis/usmca_share_method_comparison.md](analysis/usmca_share_method_comparison.md) for the full comparison.
 
 ### Section 122
 

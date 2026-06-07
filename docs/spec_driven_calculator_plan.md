@@ -651,8 +651,8 @@ cannot validate them — each needs an **external oracle**, which does not exist
 
 ## Supersedes
 
-This plan consolidates and supersedes the scattered phase docs (`parallel_full_pipeline_plan*`,
-`phase4/5/6_*`, `scheduled_activations_plan`) for the calculator-refactor strand.
+This plan consolidates and supersedes the earlier scattered phase docs for the
+calculator-refactor strand (since removed).
 
 ## Progress log
 

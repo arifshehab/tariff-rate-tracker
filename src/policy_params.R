@@ -239,8 +239,8 @@ load_policy_params <- function(yaml_path = NULL,
   }
 
   # Scheduled future tariff activations ("turn-ON" dates). Each entry emits a
-  # synthetic future revision (build_scheduled_activations(),
-  # docs/scheduled_activations_*.md): the tip archive re-run stamped at
+  # synthetic future revision (build_scheduled_activations()): the tip
+  # archive re-run stamped at
   # `effective_date` with `operations` applied. Normalize to a list and coerce
   # each effective_date to Date; ids/ops are validated at build time. EMPTY or
   # absent => no synthetic revisions => byte-identical baseline.

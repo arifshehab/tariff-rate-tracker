@@ -72,8 +72,7 @@ cat("Fix 2 - Ch98 statutory exemption: +", length(new_ch98), "codes",
 # the latter would over-extend — e.g. an "8541" prefix wrongly captures
 # 8541.42/.43 PV cells, which are NOT on Annex II. Likewise, only 8523.51
 # (solid-state semiconductor storage) is exempt under 8523, not the magnetic
-# media, optical media, or smart card subheadings. See
-# docs/ieepa_exempt_audit_2026-04-28.md for full audit.
+# media, optical media, or smart card subheadings.
 ita_prefixes <- c(
   "8471",        # whole heading: computers
   "847330",      # whole subheading: parts of computers
