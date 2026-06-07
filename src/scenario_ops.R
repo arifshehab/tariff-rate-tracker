@@ -446,6 +446,11 @@ op_set_rate <- function(specs, op, idx) {
   pos <- .find_program_index(spec, prog, idx, 'set_rate')
   spec$programs[[pos]]$rate$default   <- rate
   spec$programs[[pos]]$rate$rate_type <- spec$programs[[pos]]$rate$rate_type %||% 'surcharge'
+  if (!is.null(op$by_country)) {
+    bc <- op$by_country
+    if (is.list(bc)) bc <- unlist(bc)
+    spec$programs[[pos]]$rate$by_country <- stats::setNames(as.numeric(bc), names(bc))
+  }
   r <- .op_get_resolved(spec)
   if (!is.null(r)) {
     r$has_232 <- .s232_recompute_has_232(spec)   # spec already carries the new default

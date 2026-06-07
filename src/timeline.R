@@ -158,8 +158,9 @@ expiry_boundaries <- function(policy_params) {
 #' @return tibble(date, owner_rev, revision = "bnd_<date>", source), one row per
 #'   boundary strictly interior to a real interval and <= horizon, sorted by date.
 #'   Empty tibble (0 rows, same columns) when nothing is discovered.
-discover_boundaries <- function(rev_dates, snapshot_dir, policy_params = NULL,
-                                specs = NULL, overrides = NULL, horizon = NULL) {
+discover_boundaries <- function(rev_dates, snapshot_dir = NULL, policy_params = NULL,
+                                specs = NULL, overrides = NULL, horizon = NULL,
+                                archive_dir = NULL) {
   empty <- tibble::tibble(date = as.Date(character()), owner_rev = character(),
                           revision = character(), source = character())
   horizon <- as.Date(horizon %||%
@@ -204,9 +205,14 @@ discover_boundaries <- function(rev_dates, snapshot_dir, policy_params = NULL,
   #     offset interior to a LATER revision whose archive lacks it is NOT emitted.
   for (i in seq_len(nrow(intervals))) {
     rev_id <- intervals$revision[i]
-    ch99_p <- file.path(snapshot_dir, paste0('ch99_', rev_id, '.rds'))
-    if (!file.exists(ch99_p)) next
-    ch99 <- tryCatch(readRDS(ch99_p), error = function(e) NULL)
+    ch99 <- if (!is.null(archive_dir)) {
+      tryCatch(parse_chapter99(resolve_json_path(rev_id, archive_dir)),
+               error = function(e) NULL)
+    } else {
+      ch99_p <- file.path(snapshot_dir, paste0('ch99_', rev_id, '.rds'))
+      if (!file.exists(ch99_p)) next
+      tryCatch(readRDS(ch99_p), error = function(e) NULL)
+    }
     if (is.null(ch99) || !'effective_date_offset' %in% names(ch99)) next
     offs <- unique(ch99$effective_date_offset)
     offs <- offs[!is.na(offs)]

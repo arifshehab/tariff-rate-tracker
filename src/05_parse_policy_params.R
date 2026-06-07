@@ -673,7 +673,7 @@ extract_country_specific_overrides <- function(entries, label = 'country overrid
 #'
 #' @param ch99_data Parsed Chapter 99 data from parse_chapter99()
 #' @return List with per-tariff rates, exemptions, and has_232 flag
-extract_section232_rates <- function(ch99_data) {
+extract_section232_rates <- function(ch99_data, effective_date = NULL, policy_params = NULL) {
   message('Extracting Section 232 blanket rates...')
 
   # --- Steel and Aluminum (9903.80-85) ---
@@ -1016,12 +1016,23 @@ extract_section232_rates <- function(ch99_data) {
     message('  Semiconductor 232: ', round(semi_rate * 100), '%')
   }
 
-  # Pharmaceuticals (chapter 30): DORMANT register-then-activate 232 sub-program.
-  # No Ch99 code is assigned in baseline, so pharma_rate is 0 here (byte-identical).
-  # A scenario activates it via set_rate(section_232, program='pharmaceuticals', ...),
-  # which writes the resolved pharma_rate and flips has_232 via .s232_recompute_has_232
-  # (scenario_ops.R) — keep that formula in lockstep with the has_232 OR-gate below.
+  # Pharmaceuticals (chapter 30): no Ch99 code is assigned, so the rate comes from
+  # config (section_232_headings$pharmaceuticals$default_rate), DATE-GATED on that
+  # block's `effective_date` (current law: 2026-09-29). Before the date — and for
+  # callers that don't pass effective_date/policy_params — pharma_rate stays 0
+  # (byte-identical). Date-gating here (vs the old set_rate scheduled-activation op)
+  # is what makes pharma fire on EVERY revision >= the date, including the empty-ops
+  # boundary mints (bnd_2026-11-10) — an op-activated rate would silently drop at the
+  # next mint (see docs/forced_labor_scenario.md). The has_232 OR-gate below already
+  # keys off pharma_rate > 0, so activation + the gate stay in lockstep automatically.
   pharma_rate <- 0
+  .ph_cfg <- policy_params$section_232_headings$pharmaceuticals
+  if (!is.null(.ph_cfg) && !is.null(.ph_cfg$effective_date) && !is.null(effective_date) &&
+      as.Date(effective_date) >= as.Date(.ph_cfg$effective_date)) {
+    pharma_rate <- .ph_cfg$default_rate %||% 0.0001
+    message('  Pharmaceutical 232: activated (eff ', .ph_cfg$effective_date,
+            '), default_rate=', pharma_rate)
+  }
 
   has_232 <- (steel_rate > 0 || aluminum_rate > 0 || auto_rate > 0 || auto_has_deals ||
               wood_rate > 0 || wood_furniture_rate > 0 || mhd_rate > 0 || copper_rate > 0 ||

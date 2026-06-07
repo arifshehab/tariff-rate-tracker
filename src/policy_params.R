@@ -8,6 +8,32 @@ library(tidyverse)
 library(yaml)
 library(here)
 
+#' Recursively deep-merge an overlay onto a base (both parsed-YAML lists).
+#'
+#' The scenario harness (config/scenarios/<name>/overlay.yaml) supplies ONLY the
+#' diff vs the baseline config; this merges it in. Merge rules (decision: overlay
+#' folders, not full copies):
+#'   * two MAPS (named lists) at the same key  -> recurse (deep merge)
+#'   * anything else (scalar, sequence/unnamed list, type mismatch, new key)
+#'     -> the overlay value REPLACES the base value wholesale.
+#' So `scheduled_activations:` or a `tier_10pct:` list in an overlay replaces the
+#' baseline's outright (no element-wise list merging), while a nested block like
+#' `section_232: {steel: {...}}` merges field-by-field. An empty/NULL overlay is a
+#' no-op, so an empty overlay == baseline (the `actual` invariant).
+.is_yaml_map <- function(x) is.list(x) && !is.null(names(x)) && all(nzchar(names(x)))
+.deep_merge_lists <- function(base, overlay) {
+  if (!.is_yaml_map(base) || !.is_yaml_map(overlay)) return(overlay)
+  out <- base
+  for (k in names(overlay)) {
+    if (k %in% names(base) && .is_yaml_map(base[[k]]) && .is_yaml_map(overlay[[k]])) {
+      out[[k]] <- .deep_merge_lists(base[[k]], overlay[[k]])
+    } else {
+      out[[k]] <- overlay[[k]]
+    }
+  }
+  out
+}
+
 #' Load policy parameters from YAML config
 #'
 #' Returns a list with convenience fields unpacked for direct use.
@@ -19,7 +45,8 @@ library(here)
 #'   need raw HTS timing. See docs/policy_timing.md.
 #' @return List with raw params plus convenience fields
 load_policy_params <- function(yaml_path = NULL,
-                               use_policy_dates = TRUE) {
+                               use_policy_dates = TRUE,
+                               scenario = NULL) {
   # TARIFF_POLICY_PARAMS overrides the config path (mirrors TARIFF_TS_DIR /
   # TARIFF_SCENARIO_OPS) so a fixture can build against a config variant — e.g.
   # a populated section_301_content_split_codes — without editing the tracked
@@ -33,6 +60,29 @@ load_policy_params <- function(yaml_path = NULL,
   }
 
   params <- read_yaml(yaml_path)
+
+  # --- Scenario overlay (the counterfactual harness) -------------------------
+  # `scenario` (arg or TARIFF_SCENARIO env) names a folder under config/scenarios/.
+  # Its overlay.yaml is deep-merged onto the baseline; the rest of the pipeline
+  # then runs unchanged on the merged params. The baseline IS the "actual"
+  # scenario: scenario unset / '' / 'actual' => no overlay => byte-identical.
+  # See docs (scenario harness) + .deep_merge_lists() above.
+  if (is.null(scenario)) scenario <- Sys.getenv('TARIFF_SCENARIO', '')
+  scenario <- as.character(scenario)[1] %||% ''
+  if (length(scenario) && !is.na(scenario) && nzchar(scenario) && scenario != 'actual') {
+    overlay_path <- here('config', 'scenarios', scenario, 'overlay.yaml')
+    if (!file.exists(overlay_path)) {
+      stop('Scenario "', scenario, '": overlay not found at ', overlay_path,
+           '. Create config/scenarios/', scenario, '/overlay.yaml (only the diff vs baseline).')
+    }
+    overlay <- read_yaml(overlay_path)
+    if (!is.null(overlay) && length(overlay) > 0) {
+      params <- .deep_merge_lists(params, overlay)
+      message('  Scenario "', scenario, '": merged overlay ', overlay_path)
+    } else {
+      message('  Scenario "', scenario, '": empty overlay (== baseline)')
+    }
+  }
 
   # Unpack convenience fields for country codes
   for (nm in names(params$country_codes)) {

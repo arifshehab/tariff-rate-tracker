@@ -63,6 +63,27 @@ check(iv$valid_until[iv$revision == 'basic'] == as.Date('2025-01-26'),
       'basic valid_until is INCLUSIVE (day before rev_1 effective)')
 check(iv$valid_until[iv$revision == 'rev_2'] == horizon, 'tip interval extends to horizon')
 
+err_missing <- tryCatch({
+  build_rev_intervals(c(names(src_rows), 'sched_pharma_2026_09_29'), rev_dates, horizon)
+  NA_character_
+}, error = function(e) conditionMessage(e))
+check(!is.na(err_missing) && grepl('no effective_date metadata', err_missing),
+      'built sched_* revision without metadata fails loud')
+
+synth_dir <- file.path(tmp, 'synthetic_meta'); dir.create(synth_dir)
+saveRDS(
+  tibble(revision = 'sched_pharma_2026_09_29',
+         effective_date = as.Date('2026-09-29')),
+  file.path(synth_dir, 'synthetic_revisions.rds')
+)
+rev_dates_aug <- load_augmented_revision_dates(synth_dir, rev_dates)
+iv_aug <- build_rev_intervals(c(names(src_rows), 'sched_pharma_2026_09_29'),
+                              rev_dates_aug, horizon)
+check(iv_aug$valid_until[iv_aug$revision == 'rev_2'] == as.Date('2026-09-28'),
+      'synthetic revision shortens prior tip interval')
+check(iv_aug$valid_until[iv_aug$revision == 'sched_pharma_2026_09_29'] == horizon,
+      'synthetic revision extends to horizon')
+
 # --- 2. dry-run: records + Hive paths, writes nothing --------------------------
 cat('\n--- publish_series_snapshots(dry_run = TRUE) ---\n')
 vintage_dir <- file.path(tmp, 'vintage')

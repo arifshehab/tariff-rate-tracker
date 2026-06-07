@@ -41,6 +41,7 @@ RESOLVED_AUTHORITIES <- tibble::tribble(
   'rate_ieepa_fent',  'ieepa_fentanyl',    'fentanyl',
   'rate_301',         'section_301',       's301',
   'rate_301_cs',      'section_301_cs',    's301cs',
+  'rate_s301fl',      'section_301_forced_labor', 's301fl',
   'rate_s122',        'section_122',       's122',
   'rate_section_201', 'section_201',       's201',
   'rate_other',       'other',             'other'

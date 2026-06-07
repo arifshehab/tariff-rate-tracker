@@ -86,6 +86,14 @@ build_rev_intervals <- function(revs_built, rev_dates, horizon_end = Sys.Date())
   if (length(matched) == 0) {
     stop('build_rev_intervals: none of revs_built match revision_dates.csv')
   }
+  missing_dates <- setdiff(revs_built, rev_dates$revision)
+  if (length(missing_dates) > 0) {
+    stop('build_rev_intervals: ', length(missing_dates),
+         ' built revision(s) have no effective_date metadata: ',
+         paste(missing_dates, collapse = ', '),
+         '. Synthetic bnd_/sched_ revisions must be supplied via augmented ',
+         'rev_dates before publishing.')
+  }
   last_eff <- max(matched)
   if (horizon_end < last_eff) horizon_end <- last_eff
 

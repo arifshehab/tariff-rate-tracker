@@ -141,12 +141,14 @@ publish_internal <- function(shared_root = SHARED_ROOT_DEFAULT,
   # the combined rds) would catch any convention drift.
   rev_dates   <- load_revision_dates()
   horizon_end <- load_policy_params()$SERIES_HORIZON_END %||% Sys.Date()
+  actual_ts_dir <- file.path(repo_root, 'data', 'timeseries')
+  rev_dates_actual <- load_augmented_revision_dates(actual_ts_dir, rev_dates)
 
   copied <- list()
   out_root <- file.path(repo_root, 'output')
 
   copied$timeseries <- publish_timeseries(repo_root, vintage_dir,
-                                          rev_dates = rev_dates,
+                                          rev_dates = rev_dates_actual,
                                           horizon_end = horizon_end,
                                           dry_run = dry_run)
 
@@ -160,8 +162,9 @@ publish_internal <- function(shared_root = SHARED_ROOT_DEFAULT,
     for (sub in list.dirs(ts_src_root, recursive = FALSE)) {
       if (length(list.files(sub, pattern = '^snapshot_.*\\.rds$')) == 0) next
       name <- basename(sub)
+      sub_rev_dates <- load_augmented_revision_dates(sub, rev_dates)
       recs <- publish_series_snapshots(sub, scenario_snapshots_dir(vintage_dir, name),
-                                       rev_dates = rev_dates, horizon_end = horizon_end,
+                                       rev_dates = sub_rev_dates, horizon_end = horizon_end,
                                        dry_run = dry_run)
       if (isTRUE(recs$present)) {
         series_snapshots[[paste0('scenarios/', name)]] <- recs$snapshots
@@ -223,6 +226,20 @@ publish_internal <- function(shared_root = SHARED_ROOT_DEFAULT,
                  vintage_dir = vintage_dir,
                  manifest = manifest,
                  n_files = n_files))
+}
+
+load_augmented_revision_dates <- function(snapshot_dir, rev_dates) {
+  synth_path <- file.path(snapshot_dir, 'synthetic_revisions.rds')
+  if (!file.exists(synth_path)) return(rev_dates)
+  synth <- readRDS(synth_path)
+  if (is.null(synth) || nrow(synth) == 0) return(rev_dates)
+  synth <- synth %>%
+    mutate(effective_date = as.Date(effective_date)) %>%
+    select(any_of(names(rev_dates)))
+  bind_rows(
+    rev_dates %>% filter(!revision %in% synth$revision),
+    synth
+  )
 }
 
 

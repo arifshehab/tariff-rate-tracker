@@ -1086,9 +1086,9 @@ run_daily_series <- function(ts = NULL, imports = NULL, policy_params = NULL,
                                           policy_params = policy_params,
                                           weight_mode = weight_mode)
     if (is.null(daily)) {
-      message('Falling back to snapshot-streaming daily aggregation.')
-      daily <- build_daily_aggregates_streaming(snapshot_dir, rev_dates,
-                                                imports = imports, policy_params = policy_params)
+      stop('Daily aggregate parts are missing or stale for ', snapshot_dir,
+           '. Re-run the array build so every timeline row writes a current ',
+           weight_mode, ' daily_part_<revision>.rds.')
     }
   } else {
     daily <- build_daily_aggregates(ts, imports = imports, policy_params = policy_params)
@@ -1358,7 +1358,8 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
       products <- parse_products(json_path)
       ieepa_rates <- extract_ieepa_rates(hts_raw, country_lookup, effective_date = eff_date)
       fentanyl_rates <- extract_ieepa_fentanyl_rates(hts_raw, country_lookup, effective_date = eff_date)
-      s232_rates <- extract_section232_rates(filter_active_ch99(ch99_data, as.Date(eff_date)))
+      s232_rates <- extract_section232_rates(filter_active_ch99(ch99_data, as.Date(eff_date)),
+                                             effective_date = eff_date, policy_params = pp_override)
       usmca <- extract_usmca_eligibility(hts_raw)
 
       # Phase 6f: AuthoritySpec path always on (specs = authoritative input).

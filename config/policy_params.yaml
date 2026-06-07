@@ -181,9 +181,40 @@ section_232_headings:
   # metal content must resolve nonmetal_share = 0; if it leaks, give pharma an
   # explicit full-value entry per docs/counterfactual_generality_ground_truth.md).
   pharmaceuticals:
-    prefixes: ['30']
-    default_rate: 0.25
-    usmca_exempt: true
+    products_file: 'resources/s232_pharma_products.csv'
+    prefixes: ['30']  # fallback only if the Annex I resource is unavailable
+    # Tariff-ETRs current-law treatment (2026-04-06 scenario, Sept. 29 layer):
+    # a tiny default rate activates the heading; target_total below supplies the
+    # effective 100%/15% floors, while the UK uses an MFN + 10% surcharge.
+    # effective_date DATE-GATES the activation (extract_section232_rates, 05): the
+    # heading turns on for every revision >= this date, including empty-ops boundary
+    # mints — so it does NOT need (and must NOT use) a scheduled_activation op, which
+    # would silently drop at the next bnd_ mint. Paired with boundary_overrides below.
+    effective_date: '2026-09-29'
+    default_rate: 0.0001
+    country_rates:
+      CTY_UK: 0.10
+    target_total:
+      default: 1.00
+      CTY_JAPAN: 0.15
+      eu: 0.15
+      CTY_SKOREA: 0.15
+      CTY_SWITZERLAND: 0.15
+      CTY_LIECHTENSTEIN: 0.15
+      CTY_UK: 0
+    generic_share:
+      CTY_CHINA: 0.95
+      '5330': 0.95
+      default: 0.20
+    exempt_share:
+      eu: 0.75
+      CTY_UK: 0.75
+      CTY_JAPAN: 0.75
+      default: 0.40
+      '4190': 0.95
+      CTY_SWITZERLAND: 0.95
+      '4231': 0.95
+    usmca_exempt: false
 
 # --- Section 232 country exemptions (pre-March 2025) ---
 # TRQ/quota agreements and full exemptions from Proclamations 9705/9704.
@@ -744,7 +775,8 @@ series_horizon:
 # assemble_timeseries then carries it as a new [effective_date, horizon] interval
 # and shortens the prior tip to effective_date-1. See docs/scheduled_activations_*.
 #
-# EMPTY => no synthetic revisions => baseline byte-identical to the golden.
+# The baseline includes scheduled activations with a published legal effective
+# date. Emptying this list restores the pre-activation byte-identical baseline.
 # Rules: `id` MUST start with `sched_` (provenance — synthetic, not HTS-backed);
 # only bake in activations with a published legal effective date (speculative ones
 # stay what-if scenarios). Example (commented):
@@ -752,6 +784,10 @@ series_horizon:
 #     effective_date: '2026-09-01'
 #     operations:
 #       - { op: set_rate, authority: section_232, program: pharmaceuticals, rate: 0.25 }
+# Pharma §232 (Sept 29) is no longer a scheduled_activation op — it is now DATE-GATED
+# in extract_section232_rates (section_232_headings.pharmaceuticals.effective_date) and
+# materialized via boundary_overrides below, so it fires on every revision >= 2026-09-29
+# INCLUDING the empty-ops boundary mints (a set_rate op dropped it at bnd_2026-11-10).
 scheduled_activations: []
 
 # --- Boundary-mint overrides (unified timeline / P2-1) ---
@@ -763,11 +799,12 @@ scheduled_activations: []
 # AND that the calculator's own date gates re-resolve as-of that date (so a pure
 # as-of recompute reproduces the change — no new operations).
 #
-# EMPTY in baseline: the three in-grid boundaries (2025-03-12 §232 metal-exemption
-# expiry, 2026-02-20 IEEPA invalidation, 2026-11-10 §301 cranes/chassis turn-on)
-# are all auto-discovered, so nothing needs listing here. Add an ISO date string
-# (e.g. '2025-12-15') only if a future scan gap is found.
-boundary_overrides: []
+# The three in-grid boundaries (2025-03-12 §232 metal-exemption expiry, 2026-02-20
+# IEEPA invalidation, 2026-11-10 §301 cranes/chassis turn-on) are auto-discovered.
+# 2026-09-29 is the pharma §232 turn-on: it has no Ch99 offset (config-driven), so the
+# scan can't see it, but the calc's pharma date-gate re-resolves it as-of that date —
+# exactly the "config date the scan can't see" case this backstop is for.
+boundary_overrides: ['2026-09-29']
 
 # --- Validation thresholds ---
 validation_thresholds:

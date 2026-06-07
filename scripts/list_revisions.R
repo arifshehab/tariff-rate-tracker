@@ -3,10 +3,10 @@
 # list_revisions.R — print the revision ids the build would process, in order
 # =============================================================================
 #
-# Same set build_full_timeseries() iterates: all revisions in revision_dates.csv
-# that have a JSON archive available, in effective-date order. Used to size and
-# index the Slurm array build (scripts/submit_build_array.sh). Prints ONE id per
-# line to stdout (diagnostics go to stderr, so the list stays clean to capture).
+# Full build timeline: real revisions from revision_dates.csv that have a JSON
+# archive, plus synthetic boundary/scheduled revisions, in effective-date order.
+# Used to size and index the Slurm array build. Writes the revision-id text file
+# and the full timeline RDS for build_revision.R.
 #
 # Usage:
 #   Rscript scripts/list_revisions.R [--use-hts-dates]
@@ -19,12 +19,21 @@ suppressPackageStartupMessages({
 suppressMessages({
   source(here('src', '00_build_timeseries.R'))
   source(here('src', 'revisions.R'))
+  source(here('src', 'policy_params.R'))
 })
 
-use_policy_dates <- !('--use-hts-dates' %in% commandArgs(trailingOnly = TRUE))
+args <- commandArgs(trailingOnly = TRUE)
+use_policy_dates <- !('--use-hts-dates' %in% args)
+timeline_path <- Sys.getenv('REV_TIMELINE', 'output/build_array_timeline.rds')
+revlist_path <- Sys.getenv('REVLIST', 'output/build_array_revisions.txt')
+
 rev_dates <- load_revision_dates(use_policy_dates = use_policy_dates)
-all_revisions <- rev_dates$revision
-available <- get_available_revisions_all_years(all_revisions, here('data', 'hts_archives'))
-revs <- all_revisions[all_revisions %in% available]
-cat(revs, sep = '\n')
-cat('\n')
+pp <- load_policy_params(use_policy_dates = use_policy_dates)
+timeline <- build_array_revision_timeline(rev_dates, pp, here('data', 'hts_archives'))
+
+dir.create(dirname(timeline_path), recursive = TRUE, showWarnings = FALSE)
+dir.create(dirname(revlist_path), recursive = TRUE, showWarnings = FALSE)
+saveRDS(timeline, timeline_path)
+writeLines(timeline$revision, revlist_path)
+message('Wrote ', nrow(timeline), ' build timeline row(s): ', revlist_path,
+        ' and ', timeline_path)

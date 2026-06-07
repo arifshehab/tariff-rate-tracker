@@ -150,6 +150,11 @@ default_stacking_policy <- function(cty_china = '5700') {
     # All-zero in baseline until codes are classified into it (A2), so adding it
     # here contributes 0 to total_additional regardless of position (FP-safe).
     rate_301_cs      = list(net = 'net_301_cs',      class = 'content_split'),
+    # Section 301 forced-labor (scenario authority): content_split like the
+    # reciprocal/122 (displaced by 232, USMCA-eligible). All-zero / absent in
+    # baseline, so it contributes 0 here regardless of position (0 + x == x is
+    # bit-exact for doubles) — FP-safe, like rate_301_cs above.
+    rate_s301fl      = list(net = 'net_s301fl',      class = 'content_split'),
     rate_s122        = list(net = 'net_s122',        class = 'content_split'),
     rate_section_201 = list(net = 'net_section_201', class = 'additive'),
     rate_other       = list(net = 'net_other',       class = 'additive')
@@ -191,6 +196,7 @@ stacking_policy_from_specs <- function(specs, cty_china = '5700') {
     list(col = 'rate_ieepa_fent',  net = 'net_fentanyl',    auth = 'ieepa_fentanyl',   dflt = 'content_split', dflt_add = cty_china),
     list(col = 'rate_301',         net = 'net_301',         auth = 'section_301',      dflt = 'additive',      dflt_add = character(0)),
     list(col = 'rate_301_cs',      net = 'net_301_cs',      auth = NA_character_,      dflt = 'content_split', dflt_add = character(0)),
+    list(col = 'rate_s301fl',      net = 'net_s301fl',      auth = 'section_301_forced_labor', dflt = 'content_split', dflt_add = character(0)),
     list(col = 'rate_s122',        net = 'net_s122',        auth = 'section_122',      dflt = 'content_split', dflt_add = character(0)),
     list(col = 'rate_section_201', net = 'net_section_201', auth = 'section_201',      dflt = 'additive',      dflt_add = character(0)),
     list(col = 'rate_other',       net = 'net_other',       auth = 'other',            dflt = 'additive',      dflt_add = character(0))

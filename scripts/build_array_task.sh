@@ -41,6 +41,11 @@ if [ ! -f "$REVLIST" ]; then
   echo "ERROR: revision list not found: $REVLIST" >&2
   exit 1
 fi
+REV_TIMELINE="${REV_TIMELINE:-output/build_array_timeline.rds}"
+if [ ! -f "$REV_TIMELINE" ]; then
+  echo "ERROR: revision timeline not found: $REV_TIMELINE" >&2
+  exit 1
+fi
 
 # Array index is 0-based; revision list lines are 1-based.
 REV=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" "$REVLIST")
@@ -54,7 +59,7 @@ echo "Array task ${SLURM_ARRAY_TASK_ID} -> revision ${REV} on $(hostname)"
 echo "Start: $(date -Iseconds) | Mem: ${SLURM_MEM_PER_NODE:-?} MB"
 echo "=========================================================="
 
-Rscript scripts/build_revision.R "$REV" ${USE_HTS_DATES:+--use-hts-dates} ${BUILD_REVISION_ARGS:-}
+REV_TIMELINE="$REV_TIMELINE" Rscript scripts/build_revision.R "$REV" ${USE_HTS_DATES:+--use-hts-dates} ${BUILD_REVISION_ARGS:-}
 RC=$?
 
 echo "Task ${SLURM_ARRAY_TASK_ID} (${REV}) exit: $RC at $(date -Iseconds)"

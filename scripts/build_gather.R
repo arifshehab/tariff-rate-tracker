@@ -39,11 +39,42 @@ args <- commandArgs(trailingOnly = TRUE)
 use_policy_dates <- !('--use-hts-dates' %in% args)
 unweighted <- '--unweighted' %in% args
 allow_partial <- '--allow-partial' %in% args   # opt out of the completeness gate
+
+# Scenario harness (counterfactual): --scenario <name> (or TARIFF_SCENARIO env).
+# A named scenario deep-merges config/scenarios/<name>/overlay.yaml into pp and
+# writes an isolated data/timeseries/<name>/ panel, REUSING the baseline real-
+# revision snapshots (symlinked below) — only the synthetic future revisions are
+# rebuilt with the scenario's pp. 'actual'/'baseline'/unset => the canonical
+# baseline, byte-identical. See src/policy_params.R (.deep_merge_lists).
+scenario <- ''
+for (i in seq_along(args)) if (args[i] == '--scenario' && i < length(args)) scenario <- args[i + 1]
+if (!nzchar(scenario)) scenario <- Sys.getenv('TARIFF_SCENARIO', '')
+is_baseline <- !nzchar(scenario) || scenario %in% c('actual', 'baseline')
+# Propagate to any nested load_policy_params().
+Sys.setenv(TARIFF_SCENARIO = if (is_baseline) '' else scenario)
+
+# Isolate DOWNSTREAM outputs too. run_daily_series() -> save_daily_outputs() writes
+# to output_root()/actual/daily (actual_daily_dir, src/output_paths.R), which is NOT
+# TARIFF_TS_DIR — so without this a scenario's daily/ETR series would CLOBBER the
+# baseline output/actual/daily. Route output_root to a scenario-specific tree via
+# TARIFF_OUTPUT_DIR unless the caller already set one.
+if (!is_baseline && !nzchar(Sys.getenv('TARIFF_OUTPUT_DIR'))) {
+  Sys.setenv(TARIFF_OUTPUT_DIR = file.path('output', paste0('scenario_', scenario)))
+  message('  Scenario "', scenario, '": downstream outputs -> ', Sys.getenv('TARIFF_OUTPUT_DIR'))
+}
+
 # Where the array tasks wrote their snapshots. Overridable (TARIFF_TS_DIR) so the
 # gather can read an isolated candidate build without touching data/timeseries —
-# mirrors scripts/build_revision.R. Downstream (daily/ETR) honors TARIFF_OUTPUT_DIR.
+# mirrors scripts/build_revision.R. A named scenario derives its own dir.
+baseline_dir <- here('data', 'timeseries')
 ts_dir_env <- Sys.getenv('TARIFF_TS_DIR')
-output_dir <- if (nzchar(ts_dir_env)) ts_dir_env else here('data', 'timeseries')
+output_dir <- if (nzchar(ts_dir_env)) {
+  ts_dir_env
+} else if (is_baseline) {
+  baseline_dir
+} else {
+  here('data', 'timeseries', scenario)
+}
 
 init_logging(
   log_file = file.path(ensure_dir(here('output', 'logs')),
@@ -52,17 +83,39 @@ init_logging(
 )
 
 rev_dates <- load_revision_dates(use_policy_dates = use_policy_dates)
-pp <- load_policy_params(use_policy_dates = use_policy_dates)
+pp <- load_policy_params(use_policy_dates = use_policy_dates,
+                         scenario = if (is_baseline) NULL else scenario)
+timeline_path <- Sys.getenv('REV_TIMELINE', 'output/build_array_timeline.rds')
+if (!file.exists(timeline_path)) {
+  stop('revision timeline not found: ', timeline_path,
+       ' — run scripts/list_revisions.R before build_gather.R', call. = FALSE)
+}
+rev_dates <- readRDS(timeline_path) %>%
+  mutate(effective_date = as.Date(effective_date),
+         tpc_date = as.Date(tpc_date))
 
-# Calculator-setup inputs — needed only to build synthetic future revisions
-# (scheduled activations) below. Cheap to set up unconditionally; mirrors
-# scripts/build_revision.R so the synthetic builds use the same inputs the
-# array tasks did.
-census_codes   <- read_csv(here('resources', 'census_codes.csv'),
-                           col_types = cols(.default = col_character()))
-countries      <- census_codes$Code
-country_lookup <- build_country_lookup(here('resources', 'census_codes.csv'))
-tpc_path       <- load_local_paths()$tpc_benchmark
+# --- Scenario reuse: hydrate the isolated output_dir from the baseline build ---
+# Symlink the baseline REAL-revision snapshots + parse caches into the scenario
+# dir so the gather can reuse real-revision artifacts. Synthetic bnd_/sched_ rows
+# are array-built from the timeline. No-op for baseline.
+if (!is_baseline &&
+    normalizePath(output_dir, mustWork = FALSE) != normalizePath(baseline_dir, mustWork = FALSE)) {
+  ensure_dir(output_dir)
+  real_revs <- rev_dates$revision[!grepl('^(sched_|bnd_)', rev_dates$revision)]
+  linked <- 0L
+  for (rev in real_revs) {
+    for (pat in c('snapshot_', 'ch99_', 'products_', 'delta_', 'daily_part_')) {
+      src <- file.path(baseline_dir, paste0(pat, rev, '.rds'))
+      dst <- file.path(output_dir, paste0(pat, rev, '.rds'))
+      if (file.exists(src) && !file.exists(dst)) {
+        file.symlink(normalizePath(src), dst)
+        linked <- linked + 1L
+      }
+    }
+  }
+  message('Scenario "', scenario, '": hydrated ', output_dir, ' with ',
+          linked, ' baseline artifact symlink(s) across ', length(real_revs), ' revisions')
+}
 
 # Ordered list of revisions that actually have a snapshot on disk.
 all_revs <- rev_dates$revision
@@ -82,8 +135,7 @@ message('Gathering ', length(ordered), ' revisions: ', ordered[1], ' .. ', order
 # set against what landed on disk and fail loud unless --allow-partial is set.
 # When the array fully succeeded (the normal case), `missing_revs` is empty and
 # this is a no-op — no stop(), identical assembly path.
-available <- get_available_revisions_all_years(all_revs, here('data', 'hts_archives'))
-expected_revs <- all_revs[all_revs %in% available]
+expected_revs <- all_revs
 missing_revs <- setdiff(expected_revs, ordered)
 if (length(missing_revs) > 0 && !allow_partial) {
   stop('build_gather: ', length(missing_revs), ' of ', length(expected_revs),
@@ -128,52 +180,18 @@ products_last %>%
   select(hts10, base_rate, base_rate_raw, ch99_refs, n_ch99_refs, description) %>%
   write_csv(here('data', 'processed', 'products_raw.csv'))
 
-# ---- 2a. Synthetic boundary mints (unified timeline / P2-1) ----
-# The array tasks wrote each revision's ch99_<rev>.rds; discover every schedule
-# boundary strictly inside a real interval that the calc re-resolves on recompute
-# (Ch99 offsets / IEEPA invalidation / §232 country-exemption expiries) and mint
-# one baseline-eligible `bnd_<date>` snapshot per boundary (owner archive stamped
-# at D, empty ops). Appends {revision, effective_date} rows so the daily series
-# carries each as its own interval. Empty discovery => no-op. NOT fed to the 09
-# splitter (the mint already creates the interval).
-boundaries <- discover_boundaries(rev_dates, output_dir, pp,
-                                  overrides = pp$BOUNDARY_OVERRIDES,
-                                  horizon = pp$SERIES_HORIZON_END)
-rev_dates <- build_boundary_mints(
-  rev_dates, boundaries, pp, output_dir,
-  country_lookup = country_lookup, countries = countries,
-  census_codes = census_codes, archive_dir = here('data', 'hts_archives'),
-  tpc_path = tpc_path)
-
-# ---- 2b. Synthetic future revisions (scheduled activations) ----
-# Build one synthetic revision per scheduled activation (tip archive stamped at
-# the future date D + the activation's ops), writing snapshot_sched_*.rds into
-# output_dir and appending {revision, effective_date} rows to rev_dates. Empty
-# config => no-op (rev_dates unchanged, baseline byte-identical). Done here in
-# the single-node gather (all archives available, tip known) rather than as
-# extra array tasks. `last_rev` (the real tip from `ordered`) is pinned as
-# last_revision so it tracks the last REAL HTS revision, not the synthetic one.
-rev_dates <- build_scheduled_activations(
-  rev_dates, pp, output_dir,
-  country_lookup = country_lookup, countries = countries,
-  census_codes = census_codes, archive_dir = here('data', 'hts_archives'),
-  tpc_path = tpc_path)
-
 # ---- 3. Downstream ----
-# Daily prefers the small daily_part_<rev>.rds files written by the array tasks
+# Daily binds the small daily_part_<rev>.rds files written by the array tasks
 # while their snapshots were still in memory. The loader validates weight mode
-# and final intervals first; missing/stale parts (including scheduled revisions
-# that shorten the tip interval) fall back to snapshot-streaming, which reads one
-# snapshot at a time and remains parity-equivalent to the combined-panel path.
+# and final intervals first; missing/stale parts fail the gather.
 # Quality currently streams snapshots serially.
 # Neither needs the 204M-row rate_timeseries.rds. (Weighted-ETR / 08 was removed —
 # the daily series already emits the import-weighted ETR columns it duplicated.)
 # Import weights load OUTSIDE tryCatch so a missing-weights failure aborts loudly.
 imports <- if (unweighted) NULL else { ensure_import_weights(); load_import_weights() }
-tryCatch(run_daily_series(snapshot_dir = output_dir, rev_dates = rev_dates,
-                          imports = imports, policy_params = pp,
-                          weight_mode = if (unweighted) 'unweighted' else NULL),
-         error = function(e) message('Daily series failed: ', conditionMessage(e)))
+run_daily_series(snapshot_dir = output_dir, rev_dates = rev_dates,
+                 imports = imports, policy_params = pp,
+                 weight_mode = if (unweighted) 'unweighted' else NULL)
 quality <- tryCatch(
   run_quality_report(snapshot_dir = output_dir, rev_dates = rev_dates),
   error = function(e) {
@@ -189,15 +207,21 @@ present_revs <- rev_dates %>%
   filter(file.exists(file.path(output_dir, paste0('snapshot_', revision, '.rds')))) %>%
   arrange(effective_date) %>%
   pull(revision)
+synth <- save_synthetic_revision_dates(rev_dates, output_dir)
 metadata <- list(
   last_revision = last_rev,
   last_build_time = Sys.time(),
   n_revisions = length(present_revs),
   n_rows = if (!is.null(quality$n_rows)) quality$n_rows else NA_integer_,
-  scenario = 'baseline',
+  scenario = if (is_baseline) 'baseline' else scenario,
   expected_revisions = expected_revs,
   skipped_revisions = setdiff(expected_revs, present_revs)
 )
+if (nrow(synth) > 0) {
+  metadata$synthetic_revisions <- synth %>%
+    select(revision, effective_date) %>%
+    mutate(effective_date = as.character(effective_date))
+}
 saveRDS(metadata, file.path(output_dir, 'metadata.rds'))
 message('Wrote metadata: ', file.path(output_dir, 'metadata.rds'))
 message('Gather complete (streaming; combined panel skipped).')

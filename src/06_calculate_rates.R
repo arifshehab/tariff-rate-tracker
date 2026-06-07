@@ -344,6 +344,72 @@ s232_deal_records <- function(specs, program_id) {
   recs
 }
 
+resolve_policy_country_values <- function(config, countries, pp, default = NULL) {
+  if (is.null(config) || length(config) == 0) {
+    return(stats::setNames(rep(default %||% 0, length(countries)), countries))
+  }
+  expand_key <- function(k) {
+    if (k == 'default') return('default')
+    if (k == 'eu') return(pp$EU27_CODES %||% names(pp$eu27_codes) %||% character(0))
+    if (k %in% names(pp$country_codes)) return(as.character(pp$country_codes[[k]]))
+    if (k %in% names(pp)) {
+      v <- pp[[k]]
+      if (is.character(v) && length(v) == 1L) return(v)
+    }
+    as.character(k)
+  }
+
+  out <- stats::setNames(rep(default %||% 0, length(countries)), countries)
+  vals <- config
+  dflt <- vals[['default']]
+  vals[['default']] <- NULL
+  if (!is.null(dflt)) out[] <- as.numeric(dflt)
+  for (k in names(vals)) {
+    codes <- intersect(expand_key(k), countries)
+    if (length(codes) > 0) out[codes] <- as.numeric(vals[[k]])
+  }
+  out
+}
+
+apply_pharma_232_adjustments <- function(rates, pharma_products, cfg, countries, pp) {
+  if (!length(pharma_products) || is.null(cfg)) return(rates)
+
+  country_rate <- resolve_policy_country_values(cfg$country_rates, countries, pp, default = cfg$default_rate %||% 0)
+  target_total <- resolve_policy_country_values(cfg$target_total, countries, pp, default = NA_real_)
+  generic      <- resolve_policy_country_values(cfg$generic_share, countries, pp, default = 0)
+  exempt       <- resolve_policy_country_values(cfg$exempt_share, countries, pp, default = 0)
+
+  adj <- tibble(
+    country = names(country_rate),
+    pharma_country_rate = as.numeric(country_rate),
+    pharma_target_total = as.numeric(target_total),
+    pharma_generic_share = pmin(pmax(as.numeric(generic), 0), 1),
+    pharma_exempt_share = pmin(pmax(as.numeric(exempt), 0), 1)
+  )
+
+  rates %>%
+    left_join(adj, by = 'country', relationship = 'many-to-one') %>%
+    mutate(
+      .pharma_hit = hts10 %in% pharma_products & rate_232 > 0,
+      .pharma_base = coalesce(pharma_country_rate, 0),
+      .pharma_floor = if_else(
+        !is.na(pharma_target_total),
+        pmax(pharma_target_total - base_rate, 0),
+        0
+      ),
+      rate_232 = if_else(
+        .pharma_hit,
+        pmax(.pharma_base, .pharma_floor) *
+          (1 - coalesce(pharma_generic_share, 0)) *
+          (1 - coalesce(pharma_exempt_share, 0)),
+        rate_232
+      )
+    ) %>%
+    select(-pharma_country_rate, -pharma_target_total,
+           -pharma_generic_share, -pharma_exempt_share,
+           -.pharma_hit, -.pharma_base, -.pharma_floor)
+}
+
 
 #' Check if country applies to a Chapter 99 entry
 #'
@@ -776,7 +842,14 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
                        'total_additional', 'total_rate',
                        'statutory_base_rate', 'usmca_eligible',
                        'revision', 'effective_date',
-                       'valid_from', 'valid_until')
+                       'valid_from', 'valid_until',
+                       # rate_s301fl — forced-labor §301 scenario column. The 6b-fl
+                       # block creates it (0 when the authority is dormant/absent) just
+                       # ABOVE this dense-grid pass, so new MFN-only pairs get NA here;
+                       # calculate_rates_for_revision coalesces it to 0 before stacking
+                       # and DROPS the column entirely when all-zero, so the NA is safe
+                       # and baseline panels never carry it.
+                       'rate_s301fl')
 
   # Columns `new_pairs` sets explicitly (must match the mutate() below).
   # `statutory_rate_232` is set to 0 here so MFN-only rows carry a valid
@@ -1423,6 +1496,7 @@ calculate_rates_for_revision <- function(
     wood_products <- character(0)
     mhd_products <- character(0)
     semi_products <- character(0)
+    pharma_products <- character(0)
     heading_product_lists <- list()
     # Fractional applicability shares accumulated in the heading loop; applied
     # to heading_232_rate after heading_product_rate is built (see below).
@@ -1538,6 +1612,8 @@ calculate_rates_for_revision <- function(
           mhd_products <- c(mhd_products, matched)
         } else if (grepl('semi', tariff_name, ignore.case = TRUE)) {
           semi_products <- c(semi_products, matched)
+        } else if (grepl('pharma', tariff_name, ignore.case = TRUE)) {
+          pharma_products <- c(pharma_products, matched)
         }
       }
     }
@@ -1546,6 +1622,7 @@ calculate_rates_for_revision <- function(
     wood_products <- unique(wood_products)
     mhd_products <- unique(mhd_products)
     semi_products <- unique(semi_products)
+    pharma_products <- unique(pharma_products)
 
     # Note 39(a)(1)-(9) excludes semi articles from stacking with 232 autos,
     # auto parts, MHD, MHD parts, copper, aluminum, and steel. The auto_parts
@@ -1802,6 +1879,12 @@ calculate_rates_for_revision <- function(
       message('  Adding ', nrow(new_232_pairs), ' product-country pairs for 232-only duties')
       rates <- bind_rows(rates, new_232_pairs)
     }
+
+    rates <- apply_pharma_232_adjustments(
+      rates, pharma_products,
+      s232_headings$pharmaceuticals,
+      countries, pp
+    )
   }
 
   # statutory_rate_232 is set after step 4c (deal overrides) — see below.
@@ -2528,6 +2611,45 @@ calculate_rates_for_revision <- function(
             length(s122_exempt_hts8), ' HTS8 exempt)')
   }
 
+  # 6b-fl. Apply Section 301 forced-labor duties (SCENARIO authority).
+  #     Per-country two tiers (10% / 12.5%) on ALL products of the in-scope
+  #     economies EXCEPT the Annex A exclusion list (hts8). Stacks like the
+  #     reciprocal/§122 — content_split (displaced by §232) + USMCA-eligible
+  #     (applied in step 7 + apply_stacking_rules). The authority is built only
+  #     when the merged config carries `section_301_forced_labor`
+  #     (config/scenarios/forced_labor/) AND is DATE-GATED to >= effective_date,
+  #     so by_country is empty in baseline / pre-turn-on revisions and rate_s301fl
+  #     stays all-zero; the all-zero column is DROPPED before return (see end of
+  #     function), keeping baseline byte-identical with no RATE_SCHEMA change.
+  fl_spec <- specs[['section_301_forced_labor']]
+  fl_by_country <- if (is.null(fl_spec)) numeric(0) else {
+    bc <- .rate_get(fl_spec$programs[[1]]$rate, 'by_country')
+    if (.rate_is_hollow(bc)) numeric(0) else bc
+  }
+  rates$rate_s301fl <- 0   # present for the USMCA step; dropped at end if all-zero
+  if (length(fl_by_country) > 0) {
+    fl_exempt_hts8 <- fl_spec$programs[[1]]$exempt_products$hts8 %||% character(0)
+    fl_scope <- intersect(names(fl_by_country), countries)
+    fl_tbl <- tibble(country = names(fl_by_country),
+                     .fl_rate = unname(as.numeric(fl_by_country)))
+    rates <- rates %>%
+      left_join(fl_tbl, by = 'country', relationship = 'many-to-one') %>%
+      mutate(rate_s301fl = if_else(
+        !is.na(.fl_rate) & !(substr(hts10, 1, 8) %in% fl_exempt_hts8),
+        .fl_rate, 0)) %>%
+      select(-.fl_rate)
+    # Seed all-products pairs for in-scope economies (blanket), excluding Annex A.
+    fl_country_rates <- tibble(country = fl_scope,
+                               blanket_rate = unname(as.numeric(fl_by_country[fl_scope])))
+    fl_non_exempt_hts10 <- products %>%
+      filter(!substr(hts10, 1, 8) %in% fl_exempt_hts8) %>% pull(hts10)
+    rates <- add_blanket_pairs(rates, products, fl_non_exempt_hts10, fl_country_rates,
+                               'rate_s301fl', 'Section 301 forced labor')
+    message('  Section 301 forced labor: 10%/12.5% on ', sum(rates$rate_s301fl > 0),
+            ' product-country pairs across ', length(fl_scope), ' economies (',
+            length(fl_exempt_hts8), ' Annex A HTS8 exempt)')
+  }
+
   # 6b1. Apply Section 201 (Trade Act §201 safeguard) tariffs.
   #      Currently models Solar 201 (Proc 9693 + Proc 10454, 9903.45.21–.25)
   #      on CSPV cells/modules. The 201 rate stacks on top of MFN, separate
@@ -2590,6 +2712,7 @@ calculate_rates_for_revision <- function(
       statutory_rate_ieepa_fent  = rate_ieepa_fent,
       statutory_rate_301         = rate_301,
       statutory_rate_301_cs      = rate_301_cs,
+      statutory_rate_s301fl      = rate_s301fl,
       statutory_rate_s122        = rate_s122,
       statutory_rate_section_201 = rate_section_201,
       statutory_rate_other       = rate_other
@@ -2777,6 +2900,11 @@ calculate_rates_for_revision <- function(
           # in. A re-scope scenario (301 -> CA/MX) then receives USMCA preference.
           rate_301 = rate_301 * (1 - usmca_share),
           rate_301_cs = rate_301_cs * (1 - usmca_share),
+          # Forced-labor §301 (scenario, usmca_treatment='eligible'): USMCA-compliant
+          # CA/MX goods are exempt. rate_s301fl is 0 on CA/MX in baseline (column all-
+          # zero) so this is a no-op there. The FRN exempts USMCA-COMPLIANT goods
+          # outright; the share path approximates that via (1 - usmca_share).
+          rate_s301fl = rate_s301fl * (1 - usmca_share),
           # Apply USMCA shares to 232 auto/MHD (heading products with usmca_exempt flag)
           # Steel/aluminum 232 are NOT USMCA-eligible — only heading-level tariffs
           # Auto/MHD products use adjusted USMCA share: usmca_share * us_auto_content_share
@@ -2817,6 +2945,11 @@ calculate_rates_for_revision <- function(
           rate_301_cs = if_else(
             country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
             0, rate_301_cs
+          ),
+          # Forced-labor §301 (scenario): USMCA-compliant CA/MX exempt (binary).
+          rate_s301fl = if_else(
+            country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
+            0, rate_s301fl
           ),
           # Binary fallback: 232 for USMCA-eligible CA/MX auto/MHD
           # Auto/MHD: scale by (1 - us_auto_content_share); others: zero
@@ -2956,6 +3089,17 @@ calculate_rates_for_revision <- function(
     }
   }
 
+  # Forced-labor §301 column: 0-fill any rows added AFTER the 6b-fl block (the
+  # dense-grid MFN-only seeder + other late bind_rows don't know about it), so it
+  # contributes cleanly in stacking rather than poisoning total_additional with NA.
+  # No-op when the authority is inactive (column already all-zero).
+  if ('rate_s301fl' %in% names(rates)) {
+    rates$rate_s301fl <- coalesce(rates$rate_s301fl, 0)
+  }
+  if ('statutory_rate_s301fl' %in% names(rates)) {
+    rates$statutory_rate_s301fl <- coalesce(rates$statutory_rate_s301fl, 0)
+  }
+
   # 8. Re-apply stacking rules with updated IEEPA and 232 rates. Phase 3b: when
   # enabled (TARIFF_RESOLVED_STACKING), route through the resolved-program long
   # table — the scenario/new-coverage substrate — and collapse back; default OFF
@@ -2986,6 +3130,15 @@ calculate_rates_for_revision <- function(
 
   # 9b. Enforce canonical schema
   rates <- enforce_rate_schema(rates)
+
+  # Forced-labor §301 is a SCENARIO-scoped extra column (not in RATE_SCHEMA). Drop
+  # it when it carries no duty — baseline and every pre-turn-on revision — so those
+  # panels are byte-identical to the pre-scenario schema (no new all-zero column,
+  # no golden re-freeze). Kept (non-zero) only in revisions where forced-labor is live.
+  if ('rate_s301fl' %in% names(rates) && all(rates$rate_s301fl == 0)) {
+    rates$rate_s301fl <- NULL
+    if ('statutory_rate_s301fl' %in% names(rates)) rates$statutory_rate_s301fl <- NULL
+  }
 
   # Summary
   n_with_ieepa <- sum(rates$rate_ieepa_recip > 0)

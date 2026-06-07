@@ -1,0 +1,57 @@
+# Scenario: forced_labor
+# =============================================================================
+# USTR Section 301 "Forced Labor" action (FRN 91 FR 34272, published 2026-06-05).
+# PROPOSED (not law): additional ad-valorem duty on ALL products of 60 economies
+# except an Annex A exclusion list, at two tiers — 10% (economies with a forced-
+# labor import ban / Agreement-on-Reciprocal-Trade commitment / partial regime)
+# and 12.5% (all other investigated economies, incl. China/Hong Kong/Vietnam).
+# Modeled as the successor to the §122 10% blanket (s122 last active 2026-07-23),
+# turning ON 2026-07-24.
+#
+# This overlay is the ONLY diff vs config/policy_params.yaml. Deep-merged at load
+# (src/policy_params.R). Run:  build with TARIFF_SCENARIO=forced_labor (or
+# scripts/build_gather.R --scenario forced_labor) -> data/timeseries/forced_labor/.
+# It inherits everything baseline has (incl. the pharma Sept-29 activation).
+# See memory [[forced-labor-301-scenario]] + plan dapper-singing-pearl.md.
+# =============================================================================
+
+# New first-class authority: a content_split (displaced by §232) + USMCA-eligible
+# clone of ieepa_reciprocal, per-country two-tier from these rosters, all products
+# minus Annex A (resources/s301fl_exempt_products.csv, ~1,632 hts8). The adapter
+# builds it ONLY because this block is present, and DATE-GATES it to effective_date
+# (so it is dormant before the turn-on and in every pre-date synthetic mint).
+section_301_forced_labor:
+  effective_date: '2026-07-24'
+  rate_10: 0.10
+  rate_12_5: 0.125
+  exempt_products: 'resources/s301fl_exempt_products.csv'
+  # 10% tier — 14 economies (EU expanded to its 27 member census codes; Taiwan,
+  # Canada, Mexico, UK individual). Census codes.
+  tier_10pct: ['1220', '2010', '2050', '2110', '3310', '3570', '4010', '4050',
+               '4099', '4120', '4190', '4210', '4231', '4239', '4279', '4280',
+               '4330', '4351', '4359', '4370', '4470', '4490', '4510', '4550',
+               '4700', '4710', '4730', '4759', '4791', '4792', '4840', '4850',
+               '4870', '4910', '5350', '5380', '5550', '5570', '5600', '5830']
+  # 12.5% tier — the other 46 economies (incl. 5700 China, 5820 Hong Kong,
+  # 5520 Vietnam, 5800 South Korea, 5880 Japan, 5330 India, 3510 Brazil, ...).
+  tier_12_5pct: ['2150', '2190', '2230', '2360', '2470', '2740', '3010', '3070',
+                 '3120', '3330', '3370', '3510', '3550', '4039', '4419', '4621',
+                 '4634', '4890', '5050', '5081', '5110', '5130', '5170', '5180',
+                 '5200', '5230', '5250', '5330', '5420', '5490', '5520', '5590',
+                 '5650', '5700', '5800', '5820', '5880', '6021', '6141', '7140',
+                 '7210', '7250', '7290', '7530', '7620', '7910']
+
+# Materialize the 2026-07-24 turn-on as a synthetic boundary-mint revision. The
+# turn-on coincides with the §122 expiry boundary (2026-07-23 + 1), which
+# discover_boundaries() subtracts from the auto-discovered set — so it MUST be
+# listed here (the override path bypasses that subtraction). build_boundary_mints
+# re-stamps the tip archive at 2026-07-24 with EMPTY ops; the authority's date-gate
+# then fires (and s122 is already expired via the calc's in-force gate), giving the
+# [2026-07-24 .. horizon] interval its forced-labor layer. Because the gate is by
+# DATE, the later empty-ops bnd_2026-11-10 (cranes/chassis) and the pharma sched_
+# mint also carry forced-labor — no per-mint op needed.
+# NOTE: deep-merge REPLACES a list wholesale (it doesn't concatenate), so this must
+# re-list the baseline boundary_overrides too. 2026-09-29 is baseline's pharma §232
+# turn-on; dropping it here would push pharma to the next mint (2026-11-10). 2026-07-24
+# is the forced-labor turn-on. Keep both.
+boundary_overrides: ['2026-07-24', '2026-09-29']

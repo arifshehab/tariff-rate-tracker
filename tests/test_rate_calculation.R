@@ -1323,6 +1323,37 @@ run_test('rev_6 snapshot baseline still pre-fix at subdivision (r) HTS10s with d
   stopifnot(all(abs(kr$rate_232 - 0.25) < 1e-9))
 })
 
+run_test('pharma 232 target-total and share scaling matches Tariff-ETRs treatment', {
+  countries <- c('4280', '5880', '4120', '5700')
+  cfg <- list(
+    default_rate = 0.0001,
+    country_rates = list(CTY_UK = 0.10),
+    target_total = list(default = 1.00, CTY_JAPAN = 0.15, eu = 0.15, CTY_UK = 0),
+    generic_share = list(CTY_CHINA = 0.95, default = 0.20),
+    exempt_share = list(eu = 0.75, CTY_UK = 0.75, CTY_JAPAN = 0.75, default = 0.40)
+  )
+  pp <- list(
+    country_codes = list(CTY_UK = '4120', CTY_JAPAN = '5880', CTY_CHINA = '5700'),
+    EU27_CODES = c('4280')
+  )
+  rates <- tibble(
+    hts10 = '3004901000',
+    country = countries,
+    base_rate = c(0.02, 0.02, 0.02, 0.02),
+    rate_232 = 0.0001
+  )
+  out <- apply_pharma_232_adjustments(rates, '3004901000', cfg, countries, pp)
+  got <- setNames(out$rate_232, out$country)
+
+  # EU/Japan: 15% total-duty floor less MFN, then patented/exempt scaling.
+  stopifnot(abs(got['4280'] - ((0.15 - 0.02) * 0.80 * 0.25)) < 1e-12)
+  stopifnot(abs(got['5880'] - ((0.15 - 0.02) * 0.80 * 0.25)) < 1e-12)
+  # UK: additive 10%, no target-total floor, then UK exempt share.
+  stopifnot(abs(got['4120'] - (0.10 * 0.80 * 0.25)) < 1e-12)
+  # China/default target: 100% total-duty floor, high generic share.
+  stopifnot(abs(got['5700'] - ((1.00 - 0.02) * 0.05 * 0.60)) < 1e-12)
+})
+
 
 # =============================================================================
 # Summary

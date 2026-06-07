@@ -75,8 +75,11 @@ export_snapshot_for_etrs <- function(ts,
     stop('Snapshot missing required columns: ', paste(missing, collapse = ', '))
   }
 
+  # any_of('rate_s301fl'): the forced-labor §301 column is scenario-scoped (present
+  # only when that authority is live), so surface it when there, omit it otherwise.
+  # total_rate already includes its contribution either way.
   export <- snapshot %>%
-    select(all_of(export_cols))
+    select(all_of(export_cols), any_of('rate_s301fl'))
 
   # Write
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)

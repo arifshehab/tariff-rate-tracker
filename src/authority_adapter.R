@@ -364,6 +364,77 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
   readr::read_csv(s122_exempt_path, col_types = readr::cols(hts8 = readr::col_character()))$hts8
 }
 
+# ---- section 301 forced labor (scenario authority) --------------------------
+# USTR forced-labor §301 (FRN 91 FR 34272): per-country additional duty (two
+# tiers, 10% / 12.5%) on ALL products of ~60 economies EXCEPT an Annex A
+# exclusion list. Built ONLY when the (merged) config carries a
+# `section_301_forced_labor` block — supplied by config/scenarios/forced_labor/
+# overlay.yaml — so the authority is ABSENT in baseline. See [[forced-labor-301-scenario]].
+
+# Two-tier per-country rate map (census code -> 0.10/0.125) from the config tier
+# rosters. tier_10pct / tier_12_5pct are census-code lists; 10% wins on overlap.
+.resolve_s301fl_by_country <- function(cfg, countries) {
+  t10  <- as.character(unlist(cfg$tier_10pct   %||% character(0)))
+  t125 <- as.character(unlist(cfg$tier_12_5pct %||% character(0)))
+  r10  <- as.numeric(cfg$rate_10   %||% 0.10)
+  r125 <- as.numeric(cfg$rate_12_5 %||% 0.125)
+  m <- numeric(0)
+  for (c in t125) m[c] <- r125
+  for (c in t10)  m[c] <- r10   # 10% overrides if a code appears in both (disjoint in practice)
+  m <- m[intersect(names(m), as.character(countries))]  # only economies the model knows
+  m
+}
+
+# Annex A exclusion list (hts8 vector), date-windowed like the s122/IEEPA exempt
+# loaders. Empty file / missing => no exclusions.
+.resolve_s301fl_exempt <- function(cfg, effective_date) {
+  path <- here::here(cfg$exempt_products %||% 'resources/s301fl_exempt_products.csv')
+  if (!file.exists(path)) return(character(0))
+  ex <- readr::read_csv(path, col_types = readr::cols(.default = readr::col_character()))
+  if (!'hts8' %in% names(ex)) return(character(0))
+  rd <- as.Date(effective_date)
+  if ('effective_date_start' %in% names(ex)) {
+    ex <- dplyr::filter(ex, is.na(effective_date_start) | as.Date(effective_date_start) <= rd)
+  }
+  if ('effective_date_end' %in% names(ex)) {
+    ex <- dplyr::filter(ex, is.na(effective_date_end) | as.Date(effective_date_end) >= rd)
+  }
+  unique(as.character(ex$hts8))
+}
+
+# Build the section_301_forced_labor authority_spec, or NULL if the config block
+# is absent (baseline). content_split + USMCA-eligible (stacks like ieepa_reciprocal /
+# §122). DATE-GATED: by_country (and country scope) are populated only when the
+# revision's effective_date >= the action's effective_date, so the authority is
+# hollow before the turn-on AND in every synthetic mint stamped before it. Because
+# the gate is by DATE (not a scenario op), every synthetic revision stamped on/after
+# the turn-on (the bnd_<date> mint + any later empty-ops boundary mint) carries it.
+.build_section_301_forced_labor <- function(pp, countries, effective_date) {
+  cfg <- pp$section_301_forced_labor
+  if (is.null(cfg)) return(NULL)
+  eff <- if (!is.null(cfg$effective_date)) as.Date(cfg$effective_date) else as.Date(NA)
+  active_now <- is.na(eff) || as.Date(effective_date) >= eff
+  rate_layer <- list()
+  if (active_now) {
+    bc <- .resolve_s301fl_by_country(cfg, countries)
+    if (length(bc) > 0) rate_layer$by_country <- bc
+  }
+  scope <- if (length(rate_layer$by_country)) names(rate_layer$by_country) else character(0)
+  spec <- authority_spec(
+    authority = 'section_301_forced_labor',
+    stacking  = list(class = 'content_split', exceptions = list()),
+    usmca_treatment = 'eligible',
+    active = list(from = eff, until = NA),
+    programs = list(authority_program(
+      id = 's301fl',
+      product_scope = list(include = 'all'),
+      country_scope = list(include = scope),
+      rate = rate_layer))
+  )
+  spec$programs[[1]]$exempt_products <- list(hts8 = .resolve_s301fl_exempt(cfg, effective_date))
+  spec
+}
+
 # ---- the adapter ------------------------------------------------------------
 
 #' Re-package the bespoke per-authority parser outputs into an authority_spec_set.
@@ -721,10 +792,18 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       country_scope = list(include = 'all')))
   )
 
-  specs <- authority_spec_set(
-    section_232, section_301, ieepa_reciprocal, ieepa_fentanyl,
-    section_122, section_201, mfn, other
-  )
+  # --- section_301_forced_labor — per-country forced-labor §301 (SCENARIO) ---
+  # NULL in baseline (the config block ships only in config/scenarios/forced_labor/),
+  # so the authority — and its rate_s301fl column — never materialize there.
+  # Date-gated, content_split + USMCA-eligible. See .build_section_301_forced_labor.
+  section_301_forced_labor <- .build_section_301_forced_labor(pp, countries, effective_date)
+
+  spec_list <- list(section_232, section_301, ieepa_reciprocal, ieepa_fentanyl,
+                    section_122, section_201, mfn, other)
+  if (!is.null(section_301_forced_labor)) {
+    spec_list <- c(spec_list, list(section_301_forced_labor))
+  }
+  specs <- do.call(authority_spec_set, spec_list)
 
   # Record revision context as set-level metadata (not read in Phase 1; useful
   # for per-revision persistence in Phase 8 / debugging). Kept off the specs so

@@ -116,7 +116,8 @@ build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
   ieepa_rates <- extract_ieepa_rates(hts_raw, country_lookup, effective_date = eff_date)
   fentanyl_rates <- extract_ieepa_fentanyl_rates(hts_raw, country_lookup, effective_date = eff_date)
   ch99_data_active <- filter_active_ch99(ch99_data, as.Date(eff_date))
-  s232_rates <- extract_section232_rates(ch99_data_active)
+  s232_rates <- extract_section232_rates(ch99_data_active, effective_date = eff_date,
+                                         policy_params = pp_build)
   usmca <- extract_usmca_eligibility(hts_raw)
 
   # f. AuthoritySpec path (Phase 6f: ALWAYS ON — specs are the authoritative input;
@@ -367,6 +368,109 @@ build_boundary_mints <- function(rev_dates, boundaries, pp_build, output_dir,
   dplyr::bind_rows(rev_dates, bound)
 }
 
+save_synthetic_revision_dates <- function(rev_dates, output_dir) {
+  synth <- rev_dates %>%
+    filter(grepl('^(sched_|bnd_)', revision)) %>%
+    filter(file.exists(file.path(output_dir, paste0('snapshot_', revision, '.rds')))) %>%
+    arrange(effective_date) %>%
+    select(revision, effective_date, everything())
+  path <- file.path(output_dir, 'synthetic_revisions.rds')
+  if (nrow(synth) > 0) {
+    saveRDS(synth, path)
+  } else if (file.exists(path)) {
+    unlink(path)
+  }
+  synth
+}
+
+build_array_revision_timeline <- function(rev_dates, pp_build,
+                                          archive_dir = 'data/hts_archives',
+                                          horizon = NULL) {
+  horizon <- as.Date(horizon %||% pp_build$SERIES_HORIZON_END %||% Sys.Date())
+  available <- get_available_revisions_all_years(rev_dates$revision, archive_dir)
+  real <- rev_dates %>%
+    filter(revision %in% available) %>%
+    arrange(effective_date) %>%
+    mutate(
+      archive_rev_id = revision,
+      source = 'real',
+      operations = rep(list(list()), n())
+    )
+  if (nrow(real) == 0) stop('No available real revisions found in ', archive_dir)
+
+  boundaries <- discover_boundaries(
+    real,
+    snapshot_dir = NULL,
+    policy_params = pp_build,
+    overrides = pp_build$BOUNDARY_OVERRIDES,
+    horizon = horizon,
+    archive_dir = archive_dir
+  )
+  bnd <- if (nrow(boundaries) > 0) {
+    boundaries %>%
+      transmute(
+        revision,
+        effective_date = as.Date(date),
+        tpc_date = as.Date(NA),
+        archive_rev_id = owner_rev,
+        source = 'boundary',
+        operations = rep(list(list()), n())
+      )
+  } else {
+    tibble(
+      revision = character(), effective_date = as.Date(character()),
+      tpc_date = as.Date(character()), archive_rev_id = character(),
+      source = character(), operations = list()
+    )
+  }
+
+  acts <- pp_build$scheduled_activations %||% list()
+  tip <- real %>% arrange(effective_date) %>% slice_tail(n = 1)
+  sched_rows <- vector('list', length(acts))
+  for (k in seq_along(acts)) {
+    act <- acts[[k]]
+    sid <- act$id %||% stop('scheduled_activations[', k, ']: missing `id`')
+    if (!startsWith(sid, 'sched_')) {
+      stop("scheduled_activations id '", sid, "' must start with 'sched_'.")
+    }
+    D <- as.Date(act$effective_date)
+    if (length(D) != 1 || is.na(D)) {
+      stop("scheduled_activations '", sid, "': invalid effective_date '",
+           act$effective_date, "'")
+    }
+    ops <- act$operations %||% list()
+    if (length(ops) == 0) {
+      stop("scheduled_activations '", sid, "': no `operations`.")
+    }
+    sched_rows[[k]] <- tibble(
+      revision = sid,
+      effective_date = D,
+      tpc_date = as.Date(NA),
+      archive_rev_id = tip$revision,
+      source = 'scheduled',
+      operations = list(ops)
+    )
+  }
+  sched <- dplyr::bind_rows(sched_rows)
+
+  out <- bind_rows(
+    real %>% select(any_of(c('revision', 'effective_date', 'tpc_date')),
+                    archive_rev_id, source, operations),
+    bnd,
+    sched
+  ) %>%
+    mutate(effective_date = as.Date(effective_date),
+           tpc_date = as.Date(tpc_date)) %>%
+    arrange(effective_date, revision)
+
+  dup <- out$revision[duplicated(out$revision)]
+  if (length(dup) > 0) {
+    stop('Duplicate revision id(s) in build timeline: ',
+         paste(unique(dup), collapse = ', '))
+  }
+  out
+}
+
 
 #' Assemble per-revision snapshots into the combined timeseries.
 #'
@@ -500,6 +604,12 @@ assemble_timeseries <- function(output_dir, rev_dates, pp_build,
     n_rows = nrow(timeseries),
     scenario = scenario
   )
+  synth <- save_synthetic_revision_dates(rev_dates, output_dir)
+  if (nrow(synth) > 0) {
+    metadata$synthetic_revisions <- synth %>%
+      select(revision, effective_date) %>%
+      mutate(effective_date = as.character(effective_date))
+  }
   # Record the completeness reconciliation only when the caller declared an
   # expected set — keeps the metadata shape unchanged in the normal path that
   # doesn't pass expected_revisions.

@@ -37,14 +37,16 @@ df <- tibble(
 
 cat('--- build_resolved_programs: shape + metadata ---\n')
 res <- build_resolved_programs(df, default_stacking_policy(CHINA))
-# 8 authorities now: rate_301_cs (content-split 301 flavor, all-zero in baseline) joined
-# default_stacking_policy() in Phase 3a / Plank 1. build_resolved_programs now injects any
-# missing policy rate_col as 0 (Plank 5c guard), so a frame without rate_301_cs still yields
-# the full 8-authority long table — its zero rate contributes nothing.
-check(nrow(res) == 4 * 8, '8 authority rows per pair (4 pairs -> 32 rows)')
+# 9 authorities now: rate_301_cs (content-split 301 flavor) + rate_s301fl (the
+# forced-labor §301 scenario authority) are both all-zero in baseline. They join
+# default_stacking_policy() in Phase 3a / Plank 1. build_resolved_programs injects any
+# missing policy rate_col as 0 (Plank 5c guard), so a frame without those columns still
+# yields the full long table — their zero rate contributes nothing.
+check(nrow(res) == 4 * 9, '9 authority rows per pair (4 pairs -> 36 rows)')
 check(setequal(unique(res$authority),
                c('section_232','ieepa_reciprocal','ieepa_fentanyl','section_301','section_301_cs',
-                 'section_122','section_201','other')), 'all 8 authorities present (incl. section_301_cs)')
+                 'section_301_forced_labor','section_122','section_201','other')),
+      'all 9 authorities present (incl. section_301_cs + section_301_forced_labor)')
 check(all(c('program_id','precedence','stacking_class','metal_type','contrib') %in% names(res)),
       'carries program_id / precedence / stacking_class / metal_type / contrib')
 check(res$stacking_class[res$authority == 'ieepa_fentanyl'][1] == 'content_split',

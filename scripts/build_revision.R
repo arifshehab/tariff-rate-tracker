@@ -47,6 +47,12 @@ ts_dir_env <- Sys.getenv('TARIFF_TS_DIR')
 output_dir <- if (nzchar(ts_dir_env)) ts_dir_env else here('data', 'timeseries')
 ensure_dir(output_dir)
 
+timeline_path <- Sys.getenv('REV_TIMELINE', 'output/build_array_timeline.rds')
+if (!file.exists(timeline_path)) {
+  stop('revision timeline not found: ', timeline_path,
+       ' — run scripts/list_revisions.R before build_revision.R', call. = FALSE)
+}
+
 init_logging(
   log_file = file.path(ensure_dir(here('output', 'logs')),
                        paste0('build_rev_', rev_id, '.log')),
@@ -54,7 +60,10 @@ init_logging(
 )
 
 rev_dates <- load_revision_dates(use_policy_dates = use_policy_dates)
-ri <- rev_dates %>% filter(revision == rev_id)
+timeline <- readRDS(timeline_path) %>%
+  mutate(effective_date = as.Date(effective_date),
+         tpc_date = as.Date(tpc_date))
+ri <- timeline %>% filter(revision == rev_id)
 if (nrow(ri) == 0) stop('unknown revision id: ', rev_id, call. = FALSE)
 
 pp_build       <- load_policy_params(use_policy_dates = use_policy_dates)
@@ -64,19 +73,12 @@ countries      <- census_codes$Code
 country_lookup <- build_country_lookup(here('resources', 'census_codes.csv'))
 tpc_path       <- load_local_paths()$tpc_benchmark
 
-# Phase 2e: optional scenario operations — TARIFF_SCENARIO_OPS points at an RDS
-# holding a list of ops (see src/scenario_ops.R). Unset => baseline (empty scenario).
-ops <- NULL
-ops_path <- Sys.getenv('TARIFF_SCENARIO_OPS')
-if (nzchar(ops_path)) {
-  if (!file.exists(ops_path)) stop('TARIFF_SCENARIO_OPS not found: ', ops_path, call. = FALSE)
-  ops <- readRDS(ops_path)
-  message('Loaded ', length(ops), ' scenario operation(s) from ', ops_path)
-}
+ops <- ri$operations[[1]] %||% list()
 
 message('Building revision ', rev_id, ' (effective ', ri$effective_date, ') on ', Sys.info()[['nodename']])
 res <- build_revision_snapshot(
   rev_id = rev_id, eff_date = ri$effective_date, tpc_date = ri$tpc_date,
+  archive_rev_id = ri$archive_rev_id,
   archive_dir = archive_dir, output_dir = output_dir,
   country_lookup = country_lookup, countries = countries,
   census_codes = census_codes, pp_build = pp_build,
@@ -86,18 +88,14 @@ res <- build_revision_snapshot(
 message('OK: ', rev_id, ' -> ', res$snapshot_path, ' (', res$n_rates, ' rows)')
 
 # Precompute the per-revision daily aggregate part while the snapshot is still
-# live in memory. Gather validates the part's mode + interval before using it,
-# and falls back to streaming snapshots when parts are missing or stale.
+# live in memory. Gather validates the part's mode + interval before using it.
 if (!nzchar(Sys.getenv('TARIFF_SKIP_DAILY_PARTS'))) {
-  available <- get_available_revisions_all_years(rev_dates$revision, archive_dir)
-  available_dates <- rev_dates %>%
-    filter(revision %in% available) %>%
-    arrange(effective_date)
-  idx <- match(rev_id, available_dates$revision)
+  timeline_ordered <- timeline %>% arrange(effective_date, revision)
+  idx <- match(rev_id, timeline_ordered$revision)
   horizon_end <- as.Date(pp_build$SERIES_HORIZON_END %||% Sys.Date())
   valid_from <- as.Date(ri$effective_date)
-  valid_until <- if (!is.na(idx) && idx < nrow(available_dates)) {
-    as.Date(available_dates$effective_date[idx + 1L]) - 1
+  valid_until <- if (!is.na(idx) && idx < nrow(timeline_ordered)) {
+    as.Date(timeline_ordered$effective_date[idx + 1L]) - 1
   } else {
     horizon_end
   }
