@@ -2,7 +2,7 @@
 # Tests: timeline statute invariants (unified timeline / P2-1)
 # =============================================================================
 # ABSOLUTE assertions on the rate state at specific dates — the kind parity vs the
-# OLD golden cannot make, because the unified-timeline mints CHANGE the intervals
+# OLD reference cannot make, because the unified-timeline mints CHANGE the intervals
 # they touch. Mirrors the style of tests/test_rate_calculation.R: reads the built
 # snapshot_*.rds (real + bnd_) in data/timeseries and reconstructs which snapshot
 # is in force on a query date from rev_dates + the bnd_ ids. SKIPS cleanly when the

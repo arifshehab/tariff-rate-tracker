@@ -59,7 +59,7 @@ source(here('src', 'policy_params.R'))  # load_policy_params -> SERIES_HORIZON_E
 
 # Model-data interface root — read from config (config/local_paths.yaml:
 # model_data_root), NOT hardcoded. Single external location the build publishes
-# hour-stamped output vintages to and where parity goldens live; never the repo.
+# hour-stamped output vintages to and where parity references live; never the repo.
 SHARED_ROOT_DEFAULT <- tryCatch(load_local_paths()$model_data_root, error = function(e) NULL)
 
 

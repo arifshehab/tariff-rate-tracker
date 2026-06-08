@@ -5,8 +5,9 @@
 # The AuthoritySpec migration (docs/authority_spec.md) re-plumbs the calculator
 # and parallelizes the build. None of it is allowed to change the NUMBERS the
 # pipeline produces (until scenarios are deliberately applied). This module is
-# the safety net: it compares a candidate build's outputs against a frozen
-# "golden" reference and reports any number that drifted beyond tolerance.
+# the safety net: it compares a candidate build's outputs against a reference
+# build — the latest published vintage (<model_data_root>/latest) — and reports
+# any number that drifted beyond tolerance.
 #
 # Why tolerance, not byte-identity: refactors and parallelism reorder
 # floating-point operations, which perturbs the last few bits even when the
@@ -22,10 +23,10 @@
 #     dropping to NA, e.g. a pivot losing an authority column).
 #
 # Public API:
-#   compare_parity(actual, golden, key_cols, label)   -> result list
+#   compare_parity(actual, reference, key_cols, label)   -> result list
 #   assert_parity(result)                             -> invisible / stop()
 #   format_parity_report(result, max_show)            -> character
-#   compare_parity_files(actual_path, golden_path, kind)
+#   compare_parity_files(actual_path, reference_path, kind)
 #   PARITY_ARTIFACTS                                  -> per-artifact key/glob registry
 #
 # Dependencies: dplyr + tibble (tidyverse). No model data required — unit
@@ -95,9 +96,9 @@ classify_parity_column <- function(col) {
 # ETR / weight aggregates (weighted_etr*, the per-authority etr_* columns,
 # *_imports_b). The harness gates the rate panel + the UNWEIGHTED daily
 # means/counts; the weighted-ETR engine is intentionally un-gated (see the
-# PARITY_ARTIFACTS NOTE). So a golden (built weighted) carrying these columns while
+# PARITY_ARTIFACTS NOTE). So a reference (built weighted) carrying these columns while
 # the candidate (--unweighted) omits them is EXPECTED, not drift — such a
-# golden-only column is skipped, not a schema violation. (Any other golden-only
+# reference-only column is skipped, not a schema violation. (Any other reference-only
 # column is still real drift; and a weighted column PRESENT in both is still
 # value-compared, with the etr tolerance.)
 .parity_is_ungated_weighted_col <- function(col) {
@@ -106,53 +107,53 @@ classify_parity_column <- function(col) {
 
 # ---- core comparator --------------------------------------------------------
 
-#' Compare a candidate table against a golden reference, keyed by `key_cols`.
+#' Compare a candidate table against a reference table, keyed by `key_cols`.
 #'
 #' @param actual  data.frame/tibble — candidate output
-#' @param golden  data.frame/tibble — frozen reference
+#' @param reference  data.frame/tibble — frozen reference
 #' @param key_cols character — the natural key (must be present in both)
 #' @param label   character — artifact name for the report
-#' @return list(label, pass, n_rows_actual, n_rows_golden, n_rows_common,
+#' @return list(label, pass, n_rows_actual, n_rows_reference, n_rows_common,
 #'              n_violations, violations = tibble)
-compare_parity <- function(actual, golden, key_cols, label = 'artifact') {
-  stopifnot(is.data.frame(actual), is.data.frame(golden))
+compare_parity <- function(actual, reference, key_cols, label = 'artifact') {
+  stopifnot(is.data.frame(actual), is.data.frame(reference))
   missing_a <- setdiff(key_cols, names(actual))
-  missing_g <- setdiff(key_cols, names(golden))
+  missing_g <- setdiff(key_cols, names(reference))
   if (length(missing_a) || length(missing_g)) {
-    stop(sprintf("[%s] key column(s) missing — actual: {%s}, golden: {%s}",
+    stop(sprintf("[%s] key column(s) missing — actual: {%s}, reference: {%s}",
                  label, paste(missing_a, collapse = ', '),
                  paste(missing_g, collapse = ', ')))
   }
 
   violations <- list()
-  add_v <- function(kind, column, key, actual_val, golden_val, abs_err = NA_real_, rel_err = NA_real_) {
+  add_v <- function(kind, column, key, actual_val, reference_val, abs_err = NA_real_, rel_err = NA_real_) {
     violations[[length(violations) + 1]] <<- tibble(
       label = label, kind = kind, column = column, key = key,
-      actual = as.character(actual_val), golden = as.character(golden_val),
+      actual = as.character(actual_val), reference = as.character(reference_val),
       abs_err = abs_err, rel_err = rel_err
     )
   }
 
   # ---- schema diff (value columns present in only one side) ----
   val_cols_a <- setdiff(names(actual), key_cols)
-  val_cols_g <- setdiff(names(golden), key_cols)
+  val_cols_g <- setdiff(names(reference), key_cols)
   only_actual <- setdiff(val_cols_a, val_cols_g)
-  only_golden <- setdiff(val_cols_g, val_cols_a)
+  only_reference <- setdiff(val_cols_g, val_cols_a)
   # Skip the un-gated import-weighted ETR/weight columns the --unweighted candidate
   # legitimately omits (see .parity_is_ungated_weighted_col); flag every OTHER
-  # golden-only column as a real schema violation.
-  skipped_ungated <- only_golden[.parity_is_ungated_weighted_col(only_golden)]
-  only_golden     <- setdiff(only_golden, skipped_ungated)
-  for (col in only_golden) add_v('schema_missing_column', col, NA_character_, NA, NA)
+  # reference-only column as a real schema violation.
+  skipped_ungated <- only_reference[.parity_is_ungated_weighted_col(only_reference)]
+  only_reference     <- setdiff(only_reference, skipped_ungated)
+  for (col in only_reference) add_v('schema_missing_column', col, NA_character_, NA, NA)
   for (col in only_actual) add_v('schema_extra_column', col, NA_character_, NA, NA)
   shared_cols <- intersect(val_cols_a, val_cols_g)
 
   # ---- row presence (keyed full join) ----
   a <- actual;  a$`.in_actual` <- TRUE
-  g <- golden;  g$`.in_golden` <- TRUE
-  joined <- dplyr::full_join(a, g, by = key_cols, suffix = c('.actual', '.golden'))
+  g <- reference;  g$`.in_reference` <- TRUE
+  joined <- dplyr::full_join(a, g, by = key_cols, suffix = c('.actual', '.reference'))
   in_a <- !is.na(joined$`.in_actual`)
-  in_g <- !is.na(joined$`.in_golden`)
+  in_g <- !is.na(joined$`.in_reference`)
   common <- in_a & in_g
 
   key_str <- function(rows) {
@@ -173,7 +174,7 @@ compare_parity <- function(actual, golden, key_cols, label = 'artifact') {
     ck <- key_str(common)  # one key string per common row, aligned to common_idx
     for (col in shared_cols) {
       ca <- joined[[paste0(col, '.actual')]]
-      cg <- joined[[paste0(col, '.golden')]]
+      cg <- joined[[paste0(col, '.reference')]]
       if (is.null(ca) || is.null(cg)) {            # column was a key on one side / absent post-join
         next
       }
@@ -202,14 +203,14 @@ compare_parity <- function(actual, golden, key_cols, label = 'artifact') {
 
   viol_tbl <- if (length(violations)) dplyr::bind_rows(violations) else
     tibble(label = character(), kind = character(), column = character(),
-           key = character(), actual = character(), golden = character(),
+           key = character(), actual = character(), reference = character(),
            abs_err = double(), rel_err = double())
 
   list(
     label = label,
     pass = nrow(viol_tbl) == 0,
     n_rows_actual = nrow(actual),
-    n_rows_golden = nrow(golden),
+    n_rows_reference = nrow(reference),
     n_rows_common = length(common_idx),
     n_violations = nrow(viol_tbl),
     skipped_ungated_columns = skipped_ungated,
@@ -231,16 +232,16 @@ assert_parity <- function(result, max_show = 40) {
 format_parity_report <- function(result, max_show = 40) {
   v <- result$violations
   hdr <- sprintf(
-    '[parity FAIL] %s — %d violation(s) | rows: actual=%d golden=%d common=%d',
+    '[parity FAIL] %s — %d violation(s) | rows: actual=%d reference=%d common=%d',
     result$label, result$n_violations,
-    result$n_rows_actual, result$n_rows_golden, result$n_rows_common)
+    result$n_rows_actual, result$n_rows_reference, result$n_rows_common)
   if (nrow(v) == 0) return(hdr)
   by_kind <- v %>% count(kind, name = 'n') %>% arrange(desc(n))
   summary <- paste(sprintf('  %-22s %d', by_kind$kind, by_kind$n), collapse = '\n')
   shown <- utils::head(v, max_show)
   detail <- apply(shown, 1, function(r) {
-    sprintf('  [%s] col=%s key={%s} actual=%s golden=%s%s',
-            r[['kind']], r[['column']], r[['key']], r[['actual']], r[['golden']],
+    sprintf('  [%s] col=%s key={%s} actual=%s reference=%s%s',
+            r[['kind']], r[['column']], r[['key']], r[['actual']], r[['reference']],
             if (!is.na(r[['abs_err']]) && nzchar(r[['abs_err']]))
               sprintf(' (abs_err=%s rel_err=%s)', r[['abs_err']], r[['rel_err']]) else '')
   })
@@ -278,17 +279,17 @@ read_parity_artifact <- function(path) {
 
 #' Compare two artifact files of a known kind. Keys are taken from
 #' PARITY_ARTIFACTS[[kind]] and intersected with present columns.
-compare_parity_files <- function(actual_path, golden_path, kind, label = NULL) {
+compare_parity_files <- function(actual_path, reference_path, kind, label = NULL) {
   spec <- PARITY_ARTIFACTS[[kind]]
   if (is.null(spec)) stop('Unknown parity artifact kind: ', kind)
   actual <- read_parity_artifact(actual_path)
-  golden <- read_parity_artifact(golden_path)
-  key_cols <- intersect(spec$key_cols, intersect(names(actual), names(golden)))
+  reference <- read_parity_artifact(reference_path)
+  key_cols <- intersect(spec$key_cols, intersect(names(actual), names(reference)))
   if (length(key_cols) == 0) {
     stop(sprintf('[%s] no usable key columns from {%s} present in both files',
                  kind, paste(spec$key_cols, collapse = ', ')))
   }
-  compare_parity(actual, golden, key_cols,
+  compare_parity(actual, reference, key_cols,
                  label = label %||% paste0(kind, ':', basename(actual_path)))
 }
 

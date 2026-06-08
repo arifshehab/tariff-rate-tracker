@@ -5,7 +5,7 @@
 # is config/scenarios/<name>/overlay.yaml, a DIFF that is deep-merged onto
 # config/policy_params.yaml at load time (src/policy_params.R). The loader treats
 # scenario 'actual' (and 'baseline'/unset) as the baseline and skips merging, so
-# `--scenario actual` reproduces the golden byte-for-byte.
+# `--scenario actual` reproduces the baseline byte-for-byte.
 #
 # To add a counterfactual, create config/scenarios/<name>/overlay.yaml with only
 # the keys that differ, then run:  --scenario <name>  (output -> data/timeseries/<name>/)

@@ -9,12 +9,12 @@
 #   3. reduce the task outputs to one gate result
 #
 # Usage:
-#   GOLDEN=tests/golden/9f9837d sbatch scripts/submit_plank3_parity.sh
+#   REFERENCE=tests/golden/9f9837d sbatch scripts/submit_plank3_parity.sh
 
 set -euo pipefail
 cd /nfs/roberts/project/pi_nrs36/jar335/Repositories/tariff-rate-tracker
 
-GOLDEN="${GOLDEN:-tests/golden/9f9837d}"
+REFERENCE="${REFERENCE:-tests/golden/9f9837d}"
 ARTIFACTS="${ARTIFACTS:-snapshot,daily_overall,daily_by_authority,daily_by_country,daily_by_category}"
 RUN_ID="${RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
 MANIFEST="output/parity_manifest_${RUN_ID}.tsv"
@@ -25,7 +25,7 @@ echo "--- Building parity manifest ---"
 source /etc/profile.d/z01_lmodinit.sh 2>/dev/null || true
 module load R/4.4.2-gfbf-2024a
 Rscript scripts/build_parity_manifest.R \
-  --golden "$GOLDEN" \
+  --reference "$REFERENCE" \
   --artifacts "$ARTIFACTS" \
   --manifest "$MANIFEST"
 
@@ -48,7 +48,7 @@ echo "Array job: $ARRAY_JOB"
 echo "--- Submitting parity summary (afterany:$ARRAY_JOB) ---"
 SUMMARY_JOB=$(sbatch --parsable \
   --dependency=afterany:"$ARRAY_JOB" \
-  --export=ALL,PARITY_MANIFEST="$MANIFEST",PARITY_RESULTS_DIR="$RESULTS_DIR",PARITY_GOLDEN="$GOLDEN" \
+  --export=ALL,PARITY_MANIFEST="$MANIFEST",PARITY_RESULTS_DIR="$RESULTS_DIR",PARITY_REFERENCE="$REFERENCE" \
   scripts/submit_parity_summary.sh)
 echo "Summary job: $SUMMARY_JOB"
 

@@ -201,9 +201,9 @@ build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
 #'     tip — a boundary can sit anywhere in the timeline.
 #'   - the change is the as-of date itself; the recompute applies no mutation.
 #'   - `bnd_` prefix — and BASELINE-eligible: boundary mints belong in the baseline
-#'     panel/golden, so the re-freeze capture must EXPECT exactly the discovered set.
+#'     panel/reference, so the re-freeze capture must EXPECT exactly the discovered set.
 #'     (R5 safety net: scripts/summarize_parity_results.R fails the parity run on
-#'     ANY golden-only OR candidate-only artifact, so a stale golden missing the
+#'     ANY reference-only OR candidate-only artifact, so a stale reference missing the
 #'     `bnd_` snapshots — or an unexpected synthetic snapshot — turns parity RED.)
 #'   - re-mints by default (DETERMINISTIC, not skip-if-exists): discover_boundaries
 #'     re-derives the set every build and we always recompute, so a code/config

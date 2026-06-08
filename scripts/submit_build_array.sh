@@ -15,8 +15,9 @@
 #   GATHER_ARGS="--unweighted" bash scripts/submit_build_array.sh
 #
 # WARNING: array tasks write snapshots into data/timeseries/. Do NOT run while a
-# serial build is writing there, and freeze any golden you care about first
-# (scripts/capture_parity_golden.R).
+# serial build is writing there. The reference for comparisons is the latest
+# published vintage (<model_data_root>/latest); preserve a copy first if a run
+# is about to republish over it.
 
 set -euo pipefail
 cd /nfs/roberts/project/pi_nrs36/jar335/Repositories/tariff-rate-tracker
@@ -86,4 +87,4 @@ GATHER_JOB=$(GATHER_ARGS="${GATHER_ARGS:-}" \
 echo "Gather job: $GATHER_JOB (runs after the array fully succeeds)"
 echo
 echo "Watch:    squeue -j $ARRAY_JOB,$GATHER_JOB"
-echo "Validate: Rscript scripts/run_parity_check.R --golden <golden-dir>"
+echo "Validate: Rscript scripts/run_parity_check.R   # candidate=cwd vs <model_data_root>/latest"

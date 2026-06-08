@@ -296,7 +296,7 @@ load_local_paths <- function(yaml_path = here('config', 'local_paths.yaml')) {
     tpc_benchmark = 'data/tpc/tariff_by_flow_day.csv',
     tariff_etrs_repo = NULL,
     # External model-data interface root: where the build publishes hour-stamped
-    # output vintages and where parity goldens live. Never the repo working tree.
+    # output vintages and where parity references live. Never the repo working tree.
     model_data_root = '/nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker',
     # weight_mode controls behavior when import_weights is missing or unset.
     #   'required'   (default) — pipeline errors out loudly
