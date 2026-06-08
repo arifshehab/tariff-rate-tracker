@@ -8,6 +8,23 @@ Verified timeline of Chapter 99 policy changes across all 39 HTS revision points
 
 These are the main policy items that still matter operationally when interpreting the later revisions and the forward extension through the end of 2026.
 
+### Revision re-dating (2026-06-05) — RESOLVED, with three known retro windows
+
+The original `effective_date` column (from the releaseList API, partially hand-curated) drifted up to a month from the official change records in `data/hts_change_record/`. As of 2026-06-05, `policy_effective_date` (the `load_revision_dates()` override column) is populated for 35 revisions from a systematic audit (`scripts/audit_revision_dates.R` → `output/revision_date_audit.csv`) cross-checked against the cited proclamations/EOs. Headline corrections: CA/MX fentanyl Mar 4 not Feb 4 (the February pause was being ignored); 232 autos Apr 3 not Mar 12; auto parts May 3 not Apr 11; Geneva (China 125%→30%) May 14 not Apr 14; 232 50% Jun 4 at rev_14 (the old rev_16 override mis-assigned it); copper + CA 35% Aug 1 not Jul 1; wood Oct 14; MHD Nov 1; ag Annex II Nov 13. **2026_rev_8 is excluded from the series** (editorial-only vs rev_7; keeping it would invert ordering against the retro-dated 2026_rev_9 = May 1 Taiwan framework). The *summary table and per-revision dates below this section still show the pre-correction dates* until `src/revision_changelog.R` is re-run.
+
+Three legally-retroactive windows remain unmodeled (each would need a date-bounded config override like `swiss_framework` if it matters downstream): EU framework exemptions retro to Sep 1, 2025 (text arrived Sep 25); Korea floor retro to Nov 14, 2025 (text arrived Dec 5); Taiwan framework retro May 1 is handled by dating rev_9 at May 1.
+
+### 2026-06-04 methodology fix pass (extreme-eta review)
+
+Six fixes landed from the Census-collections-vs-statutory review (`docs/tracker_review_extreme_etas.md`); they change how snapshots from this date forward compare to earlier builds:
+
+1. **8-digit leaf tariff lines retained.** Lines with no statistical suffix (378 ch98 + 95 ch91, including the Swiss watch complex) were silently dropped from the product universe; now kept, padded to 10 digits with "00" (matching Census reporting).
+2. **232 auto-parts applicability shares.** Note 33(g) lists bare heading `8471`, but the duty's operative scope is parts of passenger vehicles/light trucks; general-purpose computers were swept in at ~23.8%. New `applicability_shares_file` on the heading config; interim calibration excludes 8471 (Census-supported). *Restructured 2026-06-05:* the exclusion applies to effective rates only — `statutory_rate_232` preserves the literal-enumeration rate (heading rate minus auto rebate, step 7d) so the statutory-vs-collected wedge on these lines remains measurable downstream rather than being baked into the model.
+3. **Country-EO Annex II inheritance + ch98.** India's 9903.01.84 inherits the full note 2(v)(iii) list per note 2(z)(ii)/heading 9903.01.86 (`country_eo_annex_ii_inherit` config); chapter 98 claims are exempt from every country EO per the standard paragraph in each EO's note. Brazil keeps its own enumerated list.
+4. **Berman ch97/ch49 exemptions materialized** (exempt-list regeneration; the script fix had never been re-run).
+5. **Annex II exemption windows.** `resources/ieepa_exempt_products.csv` now carries `effective_date_start`/`effective_date_end`, stamped by `scripts/build_annex_ii_dates.R` from the per-revision chapter-99 PDFs using change-record legal dates: electronics added 2025-04-05 (retroactive memo); EO 14346 metals/gold added 2025-09-08 (its removals end 2025-09-07); agricultural expansion 2025-11-13; copper exempt only through 2025-07-31 (PP 10962) and wood through 2025-10-13 (PP 10976) — both windows previously missing entirely. Chapter 6 (flowers) was removed from the universal list: it appears only on the Swiss framework annex, never in the universal enumeration. Note: no Swiss product exemptions exist in the 2025 HTS text at all — they first appear in 2026_basic (captured in `data/us_notes/floor_exempt_2026_*.csv`).
+6. **USMCA eligibility and shares.** `special`-field S/S+ extraction now inherits from parent legal lines (statistical suffixes were uniformly false-negative; eligible coverage 24.9% → 62.9%), and missing/zero-trade HTS10 shares fall back to the HS8-level value-weighted share instead of defaulting to the full CA/MX rate.
+
 ### Swiss and Liechtenstein framework
 
 The Swiss and Liechtenstein floor framework is represented both by native HTS entries in later revisions and by a date-bounded override for earlier revisions inside the framework window. The governing parameters live in `config/policy_params.yaml` under `swiss_framework`.

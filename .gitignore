@@ -12,6 +12,9 @@ config/.chapter99_pending
 .env
 
 # Data files (large)
+# HTS archives: raw .json are ignored, but the gzipped .json.gz versions ARE
+# committed (~30 MB total). The static download host is blocked for retrospective
+# revisions (see src/02_download_hts.R), so the repo must carry them itself.
 data/hts_archives/*.json
 data/hts_archives/*.json.gz
 data/hts_archives/_archive/

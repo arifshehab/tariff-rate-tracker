@@ -522,10 +522,12 @@ find_floor_exempt_anchors <- function(pages) {
   anchors <- tibble(ch99_code = character(), page = integer(), char_pos = integer())
 
   for (i in seq_along(pages)) {
-    # Pattern: "As provided in heading(s) 9903.XX.XX [and 9903.XX.XX]"
-    # Handles both singular "heading" and plural "headings" with optional second code
+    # Pattern: "As provided [for] in heading(s) 9903.XX.XX [and 9903.XX.XX]"
+    # Handles singular/plural "heading(s)", an optional second code, and the
+    # "provided for in" variant used by the Nov 2025 restructured notes
+    # (e.g. the combined Swiss (iii)(b) list under headings 9903.02.84/.89).
     matches <- gregexpr(
-      '[Aa]s\\s+provided\\s+in\\s+headings?\\s+9903\\.[0-9]{2}\\.[0-9]{2}(?:\\s+and\\s+9903\\.[0-9]{2}\\.[0-9]{2})?',
+      '[Aa]s\\s+provided\\s+(?:for\\s+)?in\\s+headings?\\s+9903\\.[0-9]{2}\\.[0-9]{2}(?:\\s+and\\s+9903\\.[0-9]{2}\\.[0-9]{2})?',
       pages[i]
     )
     if (matches[[1]][1] != -1) {
@@ -592,7 +594,8 @@ extract_inline_hts_codes <- function(text) {
 parse_floor_exempt_products <- function(
   pdf_path = NULL,
   output_csv = 'resources/floor_exempt_products.csv',
-  dry_run = FALSE
+  dry_run = FALSE,
+  targets = FLOOR_EXEMPTIONS
 ) {
   message('\n', strrep('=', 70))
   message('FLOOR COUNTRY PRODUCT EXEMPTION PARSER')
@@ -627,7 +630,7 @@ parse_floor_exempt_products <- function(
     arrange(page, char_pos)
 
   # ---- Filter to target ch99 codes ----
-  target_codes <- FLOOR_EXEMPTIONS$ch99_code
+  target_codes <- targets$ch99_code
   matched_anchors <- floor_anchors %>%
     filter(ch99_code %in% target_codes) %>%
     # Take first occurrence of each code (avoid duplicates from repeated mentions)
@@ -703,7 +706,7 @@ parse_floor_exempt_products <- function(
     }
 
     # Look up category
-    exemption_info <- FLOOR_EXEMPTIONS %>%
+    exemption_info <- targets %>%
       filter(ch99_code == row$ch99_code)
 
     if (length(codes) > 0) {
@@ -732,7 +735,7 @@ parse_floor_exempt_products <- function(
   # ---- Normalize to 8-digit format and add metadata ----
   result <- all_parsed %>%
     left_join(
-      FLOOR_EXEMPTIONS %>% select(ch99_code, category, country_group),
+      targets %>% select(ch99_code, category, country_group),
       by = 'ch99_code'
     ) %>%
     mutate(hts8 = normalize_to_hts8(hts_code)) %>%

@@ -15,6 +15,16 @@
 library(tidyverse)
 library(jsonlite)
 
+# get_country_constants() (used just below at file scope) lives in
+# policy_params.R, which is pulled in via helpers.R. When this file is sourced
+# by the build, helpers.R is already loaded. Guard-source it so that running 05
+# standalone (Rscript src/05_parse_policy_params.R) also resolves it instead of
+# erroring at load with "could not find function get_country_constants".
+if (!exists('get_country_constants', mode = 'function')) {
+  library(here)
+  source(here('src', 'helpers.R'))
+}
+
 # =============================================================================
 # Constants (loaded from YAML)
 # =============================================================================
@@ -1299,6 +1309,58 @@ extract_usmca_eligibility <- function(hts_raw) {
 }
 
 
+#' Write weighted-ETR inputs from one HTS archive
+#'
+#' Generates the three files that src/08_weighted_etr.R loads from
+#' data/processed/:
+#'   - ieepa_country_rates.csv  (country/phase IEEPA surcharge & floor rates)
+#'   - usmca_products.csv       (hts10 x USMCA eligibility)
+#'   - products_raw.csv         (base rate + Ch99 footnote refs per HTS10)
+#'
+#' Shared by the build (00_build_timeseries.R, so a --full build is
+#' self-contained for weighted ETR) and the standalone block below.
+#' extract_ieepa_rates() is called WITHOUT an effective_date so the table
+#' carries all phases plus the `terminated` flag that load_data() filters on.
+#'
+#' @param json_path Path to an HTS archive (.json or .json.gz; fromJSON reads both)
+#' @param country_lookup Named vector from build_country_lookup()
+#' @param out_dir Output directory (default data/processed)
+#' @return Invisibly, a list with the $ieepa, $usmca, and $products tibbles
+write_policy_inputs <- function(json_path, country_lookup,
+                                out_dir = here('data', 'processed')) {
+  if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+
+  # parse_products() lives in 04_parse_products.R. Guard-source it so this works
+  # both in the build (04 already loaded) and when 05 runs standalone.
+  if (!exists('parse_products', mode = 'function')) {
+    source(here('src', '04_parse_products.R'))
+  }
+
+  hts_raw <- fromJSON(json_path, simplifyDataFrame = FALSE)
+  ieepa_rates <- extract_ieepa_rates(hts_raw, country_lookup)
+  usmca <- extract_usmca_eligibility(hts_raw)
+
+  # products_raw.csv: the list-column ch99_refs is collapsed to a ';'-joined
+  # string (the form load_data() str_split()s on), and columns are written in
+  # the order the consumer expects.
+  products <- parse_products(json_path) %>%
+    mutate(ch99_refs = map_chr(ch99_refs, ~ paste(.x, collapse = ';'))) %>%
+    select(hts10, base_rate, base_rate_raw, ch99_refs, n_ch99_refs, description)
+
+  ieepa_path    <- file.path(out_dir, 'ieepa_country_rates.csv')
+  usmca_path    <- file.path(out_dir, 'usmca_products.csv')
+  products_path <- file.path(out_dir, 'products_raw.csv')
+  write_csv(ieepa_rates, ieepa_path)
+  write_csv(usmca %>% select(hts10, usmca_eligible), usmca_path)
+  write_csv(products, products_path)
+  message('  Wrote ', ieepa_path)
+  message('  Wrote ', usmca_path)
+  message('  Wrote ', products_path)
+
+  invisible(list(ieepa = ieepa_rates, usmca = usmca, products = products))
+}
+
+
 # =============================================================================
 # Main Execution
 # =============================================================================
@@ -1307,41 +1369,28 @@ if (sys.nframe() == 0) {
   library(here)
   source(here('src', 'helpers.R'))
 
-  # Load country lookup
+  # Resolve the latest available HTS revision (gzip-aware) so the policy inputs
+  # track the newest data rather than a hard-coded revision. Mirrors the build's
+  # revision discovery (get_available_revisions_all_years + resolve_json_path).
   country_lookup <- build_country_lookup('resources/census_codes.csv')
+  rev_dates <- load_revision_dates('config/revision_dates.csv')
+  available <- get_available_revisions_all_years(rev_dates$revision, 'data/hts_archives')
+  latest_rev <- tail(rev_dates$revision[rev_dates$revision %in% available], 1)
+  json_path <- resolve_json_path(latest_rev, 'data/hts_archives')
+  message('Generating policy inputs from latest revision: ', latest_rev,
+          ' (', json_path, ')')
 
-  # Read HTS JSON (latest revision)
-  message('Reading HTS JSON...')
-  hts_raw <- fromJSON('data/hts_archives/hts_2025_rev_32.json', simplifyDataFrame = FALSE)
-  message('  Total items: ', length(hts_raw))
-
-  # Extract IEEPA country-specific rates
-  ieepa_rates <- extract_ieepa_rates(hts_raw, country_lookup)
-
-  # Extract USMCA eligibility
-  usmca <- extract_usmca_eligibility(hts_raw)
-
-  # Save results
-  if (!dir.exists('data/processed')) dir.create('data/processed', recursive = TRUE)
-
-  write_csv(ieepa_rates, 'data/processed/ieepa_country_rates.csv')
-  message('\nSaved IEEPA rates to data/processed/ieepa_country_rates.csv')
-
-  write_csv(
-    usmca %>% select(hts10, usmca_eligible),
-    'data/processed/usmca_products.csv'
-  )
-  message('Saved USMCA eligibility to data/processed/usmca_products.csv')
+  out <- write_policy_inputs(json_path, country_lookup)
 
   # Summary
   message('\n=== IEEPA Rate Summary (Phase 2 - Active) ===')
-  ieepa_rates %>%
+  out$ieepa %>%
     filter(phase == 'phase2_aug7', !is.na(census_code)) %>%
     distinct(census_code, rate, rate_type, country_name) %>%
     arrange(rate_type, rate, country_name) %>%
     print(n = 150)
 
   message('\n=== USMCA Summary ===')
-  message('Eligible: ', sum(usmca$usmca_eligible))
-  message('Not eligible: ', sum(!usmca$usmca_eligible))
+  message('Eligible: ', sum(out$usmca$usmca_eligible))
+  message('Not eligible: ', sum(!out$usmca$usmca_eligible))
 }

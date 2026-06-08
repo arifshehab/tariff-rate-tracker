@@ -863,17 +863,18 @@ run_test('Russia aluminum derivative surcharge applies in Annex I-B', {
 run_test('Russia annex_2 products are NOT surcharged (annex II out of scope)', {
   if (!file.exists(rev5_snapshot_path)) skip_test('snapshot_2026_rev_5.rds missing')
   s <- readRDS(rev5_snapshot_path)
+  if (!'heading_program' %in% names(s)) {
+    skip_test('snapshot predates heading_program column — rebuild snapshot_2026_rev_5.rds')
+  }
   ru_a2 <- s %>% filter(country == '4621', s232_annex == 'annex_2')
   if (nrow(ru_a2) == 0) skip_test('no Russia × annex_2 rows')
-  # Annex II removes products from S232 entirely; surcharge does not apply.
-  # The only non-zero rate_232 allowed here is the semi override (25%).
-  semi <- if (file.exists(here('resources', 's232_semi_products.csv'))) {
-    read_csv(here('resources', 's232_semi_products.csv'),
-             col_types = cols(hts10 = col_character()),
-             show_col_types = FALSE)$hts10
-  } else character(0)
-  non_semi_a2 <- ru_a2 %>% filter(!(hts10 %in% semi))
-  stopifnot(all(non_semi_a2$rate_232 == 0))
+  # Annex II removes products from the steel/aluminum/copper 232 tariff only.
+  # The separate heading-program authorities (auto 9903.94, MHD 9903.74, wood
+  # 9903.76, semi 9903.79) are unaffected, so heading-program products keep
+  # their non-zero rate_232 on annex_2 by design (06_calculate_rates.R override).
+  # Everything that is NOT a heading-program product must be surcharge-free.
+  non_hp_a2 <- ru_a2 %>% filter(!heading_program)
+  stopifnot(all(non_hp_a2$rate_232 == 0))
 })
 
 run_test('Russia steel (ch 72/73) does NOT get the aluminum-only surcharge', {
@@ -912,17 +913,17 @@ run_test('Non-Russia countries in ch 76 do NOT get the Russia surcharge', {
   stopifnot(!any(other_alum$rate_232 >= 2.0 - 1e-10))
 })
 
-run_test('Annex II × rate_232>0 is semi-products-only (Note 39a invariant)', {
+run_test('Annex II × rate_232>0 is heading-program-only (Note 39a invariant)', {
   if (!file.exists(rev5_snapshot_path)) skip_test('snapshot_2026_rev_5.rds missing')
-  semi_path <- here('resources', 's232_semi_products.csv')
-  if (!file.exists(semi_path)) skip_test('s232_semi_products.csv missing')
   s <- readRDS(rev5_snapshot_path)
-  semi <- read_csv(semi_path,
-                   col_types = cols(hts10 = col_character()),
-                   show_col_types = FALSE)$hts10
+  if (!'heading_program' %in% names(s)) {
+    skip_test('snapshot predates heading_program column — rebuild snapshot_2026_rev_5.rds')
+  }
+  # Annex II strips only the steel/aluminum/copper 232 tariff. Auto/MHD/wood/semi
+  # heading-program rates are separate authorities and survive on annex_2 by
+  # design; any NON-heading-program product with a non-zero rate_232 is a leak.
   leak <- s %>%
-    filter(s232_annex == 'annex_2', rate_232 > 0) %>%
-    filter(!(hts10 %in% semi))
+    filter(s232_annex == 'annex_2', rate_232 > 0, !heading_program)
   stopifnot(nrow(leak) == 0)
 })
 
@@ -1359,6 +1360,65 @@ run_test('pharma 232 target-total and share scaling matches Tariff-ETRs treatmen
   stopifnot(abs(got['4120'] - (0.10 * 0.80 * 0.25)) < 1e-12)
   # China/default target: 100% total-duty floor, high generic share.
   stopifnot(abs(got['5700'] - ((1.00 - 0.02) * 0.05 * 0.60)) < 1e-12)
+})
+
+
+# =============================================================================
+# Test 14: Applicability-excluded statutory shadow (snapshot-based)
+# =============================================================================
+#
+# Note 33(g) lists bare heading 8471; applicability_share = 0 excludes
+# general-purpose computers from the EFFECTIVE auto-parts rates while step 7d
+# of 06_calculate_rates.R preserves the literal-enumeration rate in
+# statutory_rate_232 (heading rate minus auto rebate) so the
+# statutory-vs-collected wedge stays measurable. Skips without built snapshots.
+
+message('\n--- Test 14: Applicability-excluded statutory shadow ---')
+
+run_test('excluded 8471 lines: rate_232 = 0, statutory_rate_232 = literal post-rebate', {
+  snap_path <- here('data', 'timeseries', 'snapshot_2026_rev_1.rds')
+  if (!file.exists(snap_path)) skip_test('snapshot_2026_rev_1.rds missing')
+  ap_path <- here('resources', 's232_auto_parts_applicability.csv')
+  if (!file.exists(ap_path)) skip_test('applicability CSV missing')
+  ap <- read_csv(ap_path, comment = '#',
+                 col_types = cols(hts_prefix = col_character(),
+                                  applicability_share = col_double(),
+                                  .default = col_character()),
+                 show_col_types = FALSE)
+  if (!any(ap$applicability_share == 0)) skip_test('no share-0 prefixes configured')
+
+  pp <- load_policy_params()
+  rebate <- pp$auto_rebate$rebate_rate * pp$auto_rebate$us_assembly_share
+  literal <- pp$section_232_headings$auto_parts$default_rate - rebate
+
+  semi <- read_csv(here('resources', 's232_semi_products.csv'),
+                   col_types = cols(hts10 = col_character()),
+                   show_col_types = FALSE)$hts10
+
+  s <- readRDS(snap_path)
+  zero_prefixes <- ap$hts_prefix[ap$applicability_share == 0]
+  pat <- paste0('^(', paste(zero_prefixes, collapse = '|'), ')')
+  excluded <- s %>%
+    filter(grepl(pat, hts10), !hts10 %in% semi, country == '5830')
+  if (nrow(excluded) == 0) skip_test('no excluded-product rows in snapshot')
+
+  # Effective: no auto-parts 232 on the excluded lines
+  stopifnot(all(excluded$rate_232 == 0))
+  # Statutory: the literal post-rebate heading rate is preserved
+  stopifnot(all(abs(excluded$statutory_rate_232 - literal) < 1e-9))
+})
+
+run_test('semi-listed 8471 codes keep their true semi statutory (no shadow clobber)', {
+  snap_path <- here('data', 'timeseries', 'snapshot_2026_rev_1.rds')
+  if (!file.exists(snap_path)) skip_test('snapshot_2026_rev_1.rds missing')
+  active <- semi_active_hts10s()
+  if (length(active) == 0) skip_test('no semi HTS10s with qualifying_share = 1')
+  s <- readRDS(snap_path)
+  rows <- s %>% filter(hts10 %in% active, country == '5830')
+  if (nrow(rows) == 0) skip_test('no active-semi rows')
+  # The semiconductors heading governs these: 0.25, not the auto-parts shadow
+  stopifnot(all(abs(rows$rate_232 - 0.25) < 1e-10))
+  stopifnot(all(abs(rows$statutory_rate_232 - 0.25) < 1e-10))
 })
 
 
