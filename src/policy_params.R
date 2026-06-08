@@ -150,7 +150,10 @@ load_policy_params <- function(yaml_path = NULL,
   params$USMCA_SHARES <- list(
     mode = params$usmca_shares$mode %||% 'annual',
     year = params$usmca_shares$year %||% NULL,
-    month = params$usmca_shares$month %||% NULL
+    month = params$usmca_shares$month %||% NULL,
+    # 'since' mode: fixed left edge of the averaging window (open right edge).
+    start_year = params$usmca_shares$start_year %||% NULL,
+    start_month = params$usmca_shares$start_month %||% NULL
   )
 
   # MFN exemption shares (FTA/GSP preference utilization)

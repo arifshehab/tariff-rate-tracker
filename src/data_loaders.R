@@ -245,6 +245,88 @@ load_usmca_product_shares <- function(policy_params = NULL, path = NULL, effecti
         path <- here('resources', paste0('usmca_product_shares_', year, '.csv'))
       }
 
+    } else if (mode == 'since') {
+      # Average every monthly file from a FIXED START (start_year/start_month)
+      # through the most recent month present on disk, value-weighted. Like
+      # h2_average (time-invariant across revisions, value-weighted, with the
+      # HS8 fallback) but the window has a fixed left edge and an OPEN right edge
+      # that auto-extends as new months land. Baseline: start 2025-07 (same July
+      # left edge as h2_average) through the latest available (2025-07 .. 2026-02
+      # as of this writing; 2026-03+ fold in automatically with no config change).
+      # Spans the year boundary, so it keeps the 2025 sample size while folding in
+      # the freshest 2026 claiming behavior. Falls back to the start year's annual
+      # file if no monthly files are present in the window.
+      start_year  <- policy_params$USMCA_SHARES$start_year  %||% 2025L
+      start_month <- policy_params$USMCA_SHARES$start_month %||% 7L
+      # Enumerate candidate months from the start through a generous horizon and
+      # keep only those with a file — the newest present file is the de-facto end.
+      end_year <- as.integer(start_year) + 5L
+      monthly_shares <- list()
+      used_labels <- character(0)
+      for (yy in as.integer(start_year):end_year) {
+        for (mm in 1L:12L) {
+          if (yy == as.integer(start_year) && mm < as.integer(start_month)) next
+          m_path <- here('resources', sprintf('usmca_product_shares_%d_%02d.csv', yy, mm))
+          if (file.exists(m_path)) {
+            monthly_shares[[length(monthly_shares) + 1L]] <- read_csv(
+              m_path, col_types = cols(.default = col_guess(),
+                                       hts10 = col_character(), cty_code = col_character(),
+                                       usmca_share = col_double()), show_col_types = FALSE
+            )
+            used_labels <- c(used_labels, sprintf('%d-%02d', yy, mm))
+          }
+        }
+      }
+      if (length(monthly_shares) > 0) {
+        combined <- bind_rows(monthly_shares)
+        has_values <- all(c('total_value', 'usmca_value') %in% names(combined))
+        win_label <- paste0(used_labels[1], '..', used_labels[length(used_labels)])
+        if (has_values) {
+          # Value-weighted aggregation, identical to h2_average: sum over the
+          # window so a thin month doesn't get equal weight to a heavy-trade
+          # month. Zero-trade pairs -> NA (no claim signal), so the
+          # 06_calculate_rates.R application falls back to the HS8 share then 0.
+          combined <- combined %>%
+            group_by(hts10, cty_code) %>%
+            summarise(
+              total_value = sum(total_value, na.rm = TRUE),
+              usmca_value = sum(usmca_value, na.rm = TRUE),
+              .groups = 'drop'
+            ) %>%
+            mutate(
+              usmca_share = if_else(total_value > 0,
+                                    usmca_value / total_value,
+                                    NA_real_)
+            )
+          hs8_shares <- combined %>%
+            group_by(hts8 = substr(hts10, 1, 8), cty_code) %>%
+            summarise(
+              usmca_share_hs8 = if_else(sum(total_value) > 0,
+                                        sum(usmca_value) / sum(total_value),
+                                        NA_real_),
+              .groups = 'drop'
+            ) %>%
+            filter(!is.na(usmca_share_hs8))
+          combined <- combined %>% select(hts10, cty_code, usmca_share)
+          attr(combined, 'hs8_shares') <- hs8_shares
+          message('  Loaded USMCA since-window (value-weighted): ', nrow(combined),
+                  ' product-country pairs (', length(monthly_shares), ' months, ',
+                  win_label, '); HS8 fallback table: ', nrow(hs8_shares), ' pairs')
+        } else {
+          # Legacy monthly CSVs without value columns: simple ratio average.
+          combined <- combined %>%
+            group_by(hts10, cty_code) %>%
+            summarise(usmca_share = mean(usmca_share, na.rm = TRUE), .groups = 'drop')
+          message('  Loaded USMCA since-window (ratio-averaged, no value cols): ', nrow(combined),
+                  ' product-country pairs (', length(monthly_shares), ' months, ', win_label, ')')
+        }
+        return(combined)
+      } else {
+        message('  No monthly USMCA files found since ', start_year, '-',
+                sprintf('%02d', as.integer(start_month)), ' (since) — falling back to annual')
+        path <- here('resources', paste0('usmca_product_shares_', start_year, '.csv'))
+      }
+
     } else if (mode == 'fixed_month') {
       fixed_month <- policy_params$USMCA_SHARES$month %||% 12L
       year <- year %||% 2025L
