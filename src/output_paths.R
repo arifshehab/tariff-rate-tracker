@@ -40,6 +40,30 @@ scenarios_root <- function(root = output_root()) file.path(root, 'scenarios')
 #' Directory for a single named scenario (e.g. scenario_dir('no_ieepa')).
 scenario_dir <- function(name, root = output_root()) file.path(scenarios_root(root), name)
 
+# ---- series-aware section routing (the downstream writers) ------------------
+# A build run produces ONE series at a time: the real "actual" series, or a named
+# scenario. TARIFF_SERIES names it ('actual' or a scenario name). The downstream
+# writers (daily / quality / etr) route their section dir through here so a
+# scenario's outputs land under scenarios/<name>/<section> — exactly where the
+# publish layer (write_output.R) sweeps from — without each writer knowing about
+# scenarios. NOTE: the publish layer itself uses actual_root()/scenarios_root()
+# LITERALLY to walk both trees, so those stay series-agnostic; only the writer-
+# facing section dirs are series-aware.
+current_series <- function() {
+  s <- Sys.getenv('TARIFF_SERIES', unset = '')
+  if (nzchar(s)) s else 'actual'
+}
+
+#' Root of the CURRENT series' result tree: actual/ for 'actual', else scenarios/<name>/.
+series_root <- function(series = current_series(), root = output_root()) {
+  if (identical(series, 'actual')) actual_root(root) else scenario_dir(series, root)
+}
+
+#' Section dir (daily/quality/etr/...) under the current series' tree.
+series_section_dir <- function(section, series = current_series(), root = output_root()) {
+  file.path(series_root(series, root), section)
+}
+
 # ---- unchanged-by-Phase-5 locations (kept here for one-stop reference) -------
 logs_dir <- function(root = output_root()) file.path(root, 'logs')
 

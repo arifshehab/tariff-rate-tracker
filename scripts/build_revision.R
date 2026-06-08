@@ -54,7 +54,9 @@ if (!file.exists(timeline_path)) {
 }
 
 init_logging(
-  log_file = file.path(ensure_dir(here('output', 'logs')),
+  # Logs follow output_root() (TARIFF_OUTPUT_DIR) so a config-driven run keeps them
+  # in external staging, never the repo working tree.
+  log_file = file.path(ensure_dir(file.path(Sys.getenv('TARIFF_OUTPUT_DIR', unset = here('output')), 'logs')),
                        paste0('build_rev_', rev_id, '.log')),
   level = 'info'
 )

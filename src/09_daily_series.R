@@ -792,7 +792,7 @@ build_daily_workbook_readme <- function() {
 #'
 #' @param daily List from build_daily_aggregates()
 #' @param out_dir Output directory
-save_daily_outputs <- function(daily, out_dir = actual_daily_dir()) {
+save_daily_outputs <- function(daily, out_dir = series_section_dir('daily')) {
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
 
   write_csv(daily$daily_overall, file.path(out_dir, 'daily_overall.csv'))

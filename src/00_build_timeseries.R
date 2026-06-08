@@ -541,7 +541,7 @@ build_full_timeseries <- function(
   message(strrep('=', 70), '\n')
 
   # ---- Initialize logging ----
-  log_dir <- here('output', 'logs')
+  log_dir <- file.path(Sys.getenv('TARIFF_OUTPUT_DIR', unset = here('output')), 'logs')
   init_logging(
     log_file = file.path(ensure_dir(log_dir),
                          paste0('build_', format(start_time, '%Y%m%d_%H%M%S'), '.log')),
@@ -938,7 +938,7 @@ if (sys.nframe() == 0) {
     }
 
     # Initialize log for alternatives-only runs
-    log_dir <- here('output', 'logs')
+    log_dir <- file.path(Sys.getenv('TARIFF_OUTPUT_DIR', unset = here('output')), 'logs')
     init_logging(
       log_file = file.path(ensure_dir(log_dir),
                            paste0('alternatives_', format(Sys.time(), '%Y%m%d_%H%M%S'), '.log')),
