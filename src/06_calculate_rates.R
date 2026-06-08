@@ -1362,6 +1362,13 @@ calculate_rates_for_revision <- function(
     wood_products <- character(0)
     mhd_products <- character(0)
     semi_products <- character(0)
+    # Parts (auto_parts + mhd_parts) tracked separately from whole vehicles.
+    # USMCA-qualifying PARTS are fully exempt from 232 (HTS 9903.94.06 for auto
+    # parts; Proclamation 10984 for MHD parts) until Commerce stands up a
+    # non-US-content process for parts — which did not exist in the data window.
+    # Whole VEHICLES are dutied on non-US content only (us_auto_content_share).
+    # So parts must NOT be content-scaled; see the USMCA application step below.
+    parts_products <- character(0)
     heading_product_lists <- list()
     # Fractional applicability shares accumulated in the heading loop; applied
     # to heading_232_rate after heading_product_rate is built (see below).
@@ -1486,6 +1493,14 @@ calculate_rates_for_revision <- function(
         } else if (grepl('semi', tariff_name, ignore.case = TRUE)) {
           semi_products <- c(semi_products, matched)
         }
+
+        # Parts accumulator (non-exclusive): auto_parts also lands in
+        # auto_products and mhd_parts in mhd_products above; we additionally
+        # tag them as parts so the USMCA step can exempt them fully rather than
+        # content-scale them like whole vehicles.
+        if (grepl('parts', tariff_name, ignore.case = TRUE)) {
+          parts_products <- c(parts_products, matched)
+        }
       }
     }
     auto_products <- unique(auto_products)
@@ -1493,6 +1508,7 @@ calculate_rates_for_revision <- function(
     wood_products <- unique(wood_products)
     mhd_products <- unique(mhd_products)
     semi_products <- unique(semi_products)
+    parts_products <- unique(parts_products)
 
     # Note 39(a)(1)-(9) excludes semi articles from stacking with 232 autos,
     # auto parts, MHD, MHD parts, copper, aluminum, and steel. The auto_parts
@@ -1523,6 +1539,15 @@ calculate_rates_for_revision <- function(
       message('  Excluded ', n_auto_pre - length(auto_products),
               ' blanket chapter products from auto_products')
     }
+
+    # Keep parts_products a clean subset of the surviving auto/MHD lines (after
+    # the semi-strip and blanket-chapter exclusions above), then split whole
+    # vehicles from parts. Only whole vehicles are content-scaled by
+    # us_auto_content_share in the USMCA step; parts get the full exemption.
+    # NB: distinct from the loop-local `vehicle_products` in the auto-deal block
+    # below (passenger/light-truck only) — this set also includes MHD vehicles.
+    parts_products <- intersect(parts_products, c(auto_products, mhd_products))
+    usmca_vehicle_products <- setdiff(c(auto_products, mhd_products), parts_products)
 
     n_steel <- length(steel_products)
     n_alum <- length(aluminum_products)
@@ -2757,12 +2782,16 @@ calculate_rates_for_revision <- function(
           rate_s122 = rate_s122 * (1 - usmca_share),
           # Apply USMCA shares to 232 auto/MHD (heading products with usmca_exempt flag)
           # Steel/aluminum 232 are NOT USMCA-eligible — only heading-level tariffs
-          # Auto/MHD products use adjusted USMCA share: usmca_share * us_auto_content_share
-          # (only ~40% of USMCA-eligible vehicle value is US/USMCA-origin content)
+          # Whole VEHICLES use adjusted USMCA share: usmca_share * us_auto_content_share
+          # (only ~40% of USMCA-eligible vehicle value is US/USMCA-origin content).
+          # PARTS (auto_parts 9903.94.06, MHD parts per Proc. 10984) are fully
+          # exempt when USMCA-qualifying — Commerce had no non-US-content process
+          # for parts in the data window — so they fall through to the full
+          # (1 - usmca_share) branch alongside other eligible annex products.
           rate_232 = if_else(
             coalesce(s232_usmca_eligible, FALSE) & country %in% c(CTY_CANADA, CTY_MEXICO),
             if_else(
-              hts10 %in% c(auto_products, mhd_products),
+              hts10 %in% usmca_vehicle_products,
               rate_232 * (1 - usmca_share * us_auto_content_share),
               rate_232 * (1 - usmca_share)
             ),
@@ -2787,12 +2816,13 @@ calculate_rates_for_revision <- function(
             0, rate_s122
           ),
           # Binary fallback: 232 for USMCA-eligible CA/MX auto/MHD
-          # Auto/MHD: scale by (1 - us_auto_content_share); others: zero
+          # Whole vehicles: scale by (1 - us_auto_content_share). Parts and other
+          # eligible products: fully exempt (zero) — parts are not content-scaled.
           rate_232 = if_else(
             coalesce(s232_usmca_eligible, FALSE) &
               country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
             if_else(
-              hts10 %in% c(auto_products, mhd_products),
+              hts10 %in% usmca_vehicle_products,
               rate_232 * (1 - us_auto_content_share),
               0
             ),
