@@ -225,3 +225,24 @@ if (nrow(synth) > 0) {
 saveRDS(metadata, file.path(output_dir, 'metadata.rds'))
 message('Wrote metadata: ', file.path(output_dir, 'metadata.rds'))
 message('Gather complete (streaming; combined panel skipped).')
+
+# ---- 5. Publish the hour-stamped vintage to the model-data interface ----
+# No separate publish step: a normal baseline build drops its hour-stamped
+# vintage onto the configured interface (config: model_data_root) and repoints
+# `latest` (what tariff-model reads). Opt OUT with TARIFF_NO_PUBLISH=1 for
+# verification / parity / scratch rebuilds (they must NOT clobber the live
+# interface). Scenario builds don't auto-publish here — publish from a baseline.
+publish_off <- nzchar(Sys.getenv('TARIFF_NO_PUBLISH', ''))
+if (!is_baseline) {
+  message('Publish skipped: scenario build "', scenario, '" (publish from a baseline build).')
+} else if (publish_off) {
+  message('Publish skipped: TARIFF_NO_PUBLISH set (verification/scratch build).')
+} else {
+  tryCatch({
+    source(here('src', 'publish_internal.R'))
+    # build_started_at = NULL: the gather just finalized metadata.rds, so skip the
+    # stale-snapshot guard (it would false-trip on the file we just wrote).
+    res <- publish_internal(build_started_at = NULL)
+    if (!is.null(res)) message('Published vintage to interface: ', res$vintage_dir, ' (latest -> ', res$vintage, ')')
+  }, error = function(e) message('WARNING: auto-publish failed: ', conditionMessage(e)))
+}
