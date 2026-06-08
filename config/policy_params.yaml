@@ -718,8 +718,9 @@ ieepa_duty_free_treatment: 'all'
 # US Note 2(v)(iii), ITA prefixes, Berman ch49/ch97, Ch98) zeros out.
 #
 # Country-specific EO surcharges (Brazil 9903.01.77, India 9903.01.84, etc.)
-# always use the SEPARATE per-EO list (resources/country_eo_exempt_products.csv),
-# regardless of this setting.
+# use the SEPARATE per-EO list (resources/country_eo_exempt_products.csv),
+# plus Annex II inheritance for EOs in country_eo_annex_ii_inherit (below)
+# and the standard ch98 claim exemption — regardless of this setting.
 #
 #   'all' — applies to universal baseline (9903.01.25, +10%), Phase 1
 #           surcharges (9903.01.43-.75, when active), Phase 2 surcharges

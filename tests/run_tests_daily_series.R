@@ -596,10 +596,14 @@ run_test('all policy_params heading names have matching gates', {
     return(invisible())
   }
 
-  # Reproduce the heading_gates keys from 06_calculate_rates.R
+  # Reproduce the heading_gates keys from 06_calculate_rates.R /
+  # compute_heading_gates (authority_adapter.R). pharmaceuticals is a
+  # register-then-activate dormant heading program (Plank 4a) — it has a gate
+  # and must be listed here so this mirror stays in sync with the spec adapter.
   heading_gates <- c('autos_passenger', 'autos_light_trucks', 'auto_parts',
                      'copper', 'softwood', 'wood_furniture', 'kitchen_cabinets',
-                     'mhd_vehicles', 'mhd_parts', 'buses', 'semiconductors')
+                     'mhd_vehicles', 'mhd_parts', 'buses', 'semiconductors',
+                     'pharmaceuticals')
 
   config_names <- names(s232_headings)
   missing_gates <- config_names[!config_names %in% heading_gates]
@@ -1011,7 +1015,7 @@ run_test('calculator zeroes IEEPA on 2026-02-20 while Section 122 remains HTS-da
   stopifnot(all(rates_hts$rate_s122 == 0))
 })
 
-run_test('policy-date mode only shifts IEEPA invalidation for 2026_rev_4', {
+run_test('policy-date mode applies the change-record re-dating (2026-06-05)', {
   pp_policy <- load_policy_params(use_policy_dates = TRUE)
   pp_hts <- load_policy_params(use_policy_dates = FALSE)
   rev_policy <- load_revision_dates(use_policy_dates = TRUE)
@@ -1029,14 +1033,43 @@ run_test('policy-date mode only shifts IEEPA invalidation for 2026_rev_4', {
     rev_hts$effective_date[rev_hts$revision == '2026_rev_4'] ==
       as.Date('2026-02-24')
   )
+
+  # Spot-check headline corrections from the 2026-06-05 re-dating
+  # (policy dates from data/hts_change_record/ + cited proclamations):
+  # 232 50% entered at rev_14 (Jun 4); rev_16 is the Jul-1 staged update
+  # (the pre-redating override mis-assigned Jun 4 to rev_16); Geneva at
+  # rev_12 (May 14); CA/MX fentanyl at rev_3 (Mar 4, after the Feb pause).
+  stopifnot(
+    rev_policy$effective_date[rev_policy$revision == 'rev_14'] ==
+      as.Date('2025-06-04')
+  )
   stopifnot(
     rev_policy$effective_date[rev_policy$revision == 'rev_16'] ==
-      as.Date('2025-06-04')
+      as.Date('2025-07-01')
+  )
+  stopifnot(
+    rev_policy$effective_date[rev_policy$revision == 'rev_12'] ==
+      as.Date('2025-05-14')
+  )
+  stopifnot(
+    rev_policy$effective_date[rev_policy$revision == 'rev_3'] ==
+      as.Date('2025-03-04')
   )
   stopifnot(
     rev_hts$effective_date[rev_hts$revision == 'rev_16'] ==
       as.Date('2025-06-06')
   )
+
+  # 2026_rev_8 is excluded from the series (editorial-only; would invert
+  # ordering against the retro-dated 2026_rev_9 = May 1)
+  stopifnot(!'2026_rev_8' %in% rev_policy$revision)
+  stopifnot(
+    rev_policy$effective_date[rev_policy$revision == '2026_rev_9'] ==
+      as.Date('2026-05-01')
+  )
+
+  # Policy dates must remain strictly monotonic across the series
+  stopifnot(!is.unsorted(rev_policy$effective_date, strictly = TRUE))
 })
 
 
@@ -1068,7 +1101,9 @@ if (run_artifact_tests) run_test('snapshot_rev_16 matches point query on effecti
   ts <- readRDS(ts_path)
   snap <- readRDS(snap_path)
   pp <- load_policy_params()
-  point <- get_rates_at_date(ts, as.Date('2025-06-04'), policy_params = pp)
+  # rev_16's policy effective date is 2025-07-01 (Jul-1 staged update)
+  # after the 2026-06-05 re-dating; Jun 4 now falls in rev_14's window.
+  point <- get_rates_at_date(ts, as.Date('2025-07-01'), policy_params = pp)
 
   stopifnot(unique(point$revision) == 'rev_16')
   stopifnot(identical(snapshot_signature(point), snapshot_signature(snap)))

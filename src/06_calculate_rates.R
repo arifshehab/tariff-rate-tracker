@@ -854,7 +854,7 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
   # Columns `new_pairs` sets explicitly (must match the mutate() below).
   # `statutory_rate_232` is set to 0 here so MFN-only rows carry a valid
   # statutory rate, not NA, into the remaining statutory_rate_* save in 6b2.
-  EXPLICIT_SET_COLUMNS <- c(REQUIRED_RATE_COLS, 'base_rate', 'statutory_rate_232')
+  EXPLICIT_SET_COLUMNS <- c(REQUIRED_RATE_COLS, 'base_rate', 'statutory_rate_232', 'heading_program')
 
   set_cols <- c(EXPLICIT_SET_COLUMNS, SAFE_NA_COLUMNS)
   unaccounted <- setdiff(names(rates), set_cols)
@@ -881,7 +881,8 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
       rate_232 = 0, rate_301 = 0, rate_301_cs = 0, rate_ieepa_recip = 0,
       rate_ieepa_fent = 0, rate_s122 = 0,
       rate_section_201 = 0, rate_other = 0,
-      statutory_rate_232 = 0
+      statutory_rate_232 = 0,
+      heading_program = FALSE
     )
 
   # At the post-IEEPA call site `rates` does not yet have statutory_rate_232
@@ -889,6 +890,14 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
   # bind_rows doesn't introduce it prematurely.
   if (!'statutory_rate_232' %in% names(rates)) {
     new_pairs <- new_pairs %>% select(-statutory_rate_232)
+  }
+
+  # heading_program is only present once the post-annex 232 block (step 6e)
+  # has run; the post-IEEPA call site precedes it. Drop the default there so
+  # bind_rows doesn't introduce the column early. A new MFN-only pair is by
+  # definition not a heading-program product, so FALSE (not NA) is correct.
+  if (!'heading_program' %in% names(rates)) {
+    new_pairs <- new_pairs %>% select(-heading_program)
   }
 
   if (nrow(new_pairs) > 0) {
@@ -1040,7 +1049,10 @@ calculate_rates_for_revision <- function(
   #     by effective_date_start/_end (Annex II amended repeatedly: electronics
   #     Apr 5 2025, EO 14346 metals Sept 8, ag Nov 13; copper/wood REMOVED when
   #     their 232 programs began). Without the window, amendments applied
-  #     retroactively (extreme-eta review item 3).
+  #     retroactively (extreme-eta review item 3). The date-windowing that master
+  #     did inline (scripts/build_annex_ii_dates.R stamps effective_date_start/_end;
+  #     filter at the revision date) is now performed in the adapter's .resolve_*
+  #     helpers, so the calc just reads the resolved set.
   #   country_eo — per-EO exempt (ch99_code, hts8_prefix) pairs (Brazil 9903.01.77,
   #     India 9903.01.84, ...), date-windowed; separate from the universal Annex A
   #     so the country-EO surcharge is not wrongly suppressed.
@@ -1115,9 +1127,12 @@ calculate_rates_for_revision <- function(
           tibble(country = c(pp$country_codes$CTY_SWITZERLAND,
                              pp$country_codes$CTY_LIECHTENSTEIN), country_group = 'swiss')
           # Taiwan civil aircraft (9903.96.03) is intentionally not added here:
-          # it exempts the Section 232 metals annex only. The parallel civil-aircraft
-          # lists already parsed for floor countries are also applied to the metals
-          # annex later in the dedicated 232 aircraft carve-out block.
+          # it exempts the Section 232 metals annex only (U.S. note 35(c)), NOT the
+          # reciprocal tariff — this floor path only zeroes rate_ieepa_recip. The
+          # parallel civil-aircraft lists already parsed for floor countries are
+          # applied to the metals annex later in the dedicated 232 aircraft
+          # carve-out block. (The EU/UK/JP/KR + all-country annex cases remain
+          # unmodeled — see todo.)
         )
         message('  Floor country group map: ', nrow(floor_country_group_map), ' countries across ',
                 n_distinct(floor_country_group_map$country_group), ' groups')
@@ -1494,6 +1509,13 @@ calculate_rates_for_revision <- function(
     mhd_products <- character(0)
     semi_products <- character(0)
     pharma_products <- character(0)
+    # Parts (auto_parts + mhd_parts) tracked separately from whole vehicles.
+    # USMCA-qualifying PARTS are fully exempt from 232 (HTS 9903.94.06 for auto
+    # parts; Proclamation 10984 for MHD parts) until Commerce stands up a
+    # non-US-content process for parts — which did not exist in the data window.
+    # Whole VEHICLES are dutied on non-US content only (us_auto_content_share).
+    # So parts must NOT be content-scaled; see the USMCA application step below.
+    parts_products <- character(0)
     heading_product_lists <- list()
     # Fractional applicability shares accumulated in the heading loop; applied
     # to heading_232_rate after heading_product_rate is built (see below).
@@ -1612,6 +1634,14 @@ calculate_rates_for_revision <- function(
         } else if (grepl('pharma', tariff_name, ignore.case = TRUE)) {
           pharma_products <- c(pharma_products, matched)
         }
+
+        # Parts accumulator (non-exclusive): auto_parts also lands in
+        # auto_products and mhd_parts in mhd_products above; we additionally
+        # tag them as parts so the USMCA step can exempt them fully rather than
+        # content-scale them like whole vehicles.
+        if (grepl('parts', tariff_name, ignore.case = TRUE)) {
+          parts_products <- c(parts_products, matched)
+        }
       }
     }
     auto_products <- unique(auto_products)
@@ -1620,6 +1650,7 @@ calculate_rates_for_revision <- function(
     mhd_products <- unique(mhd_products)
     semi_products <- unique(semi_products)
     pharma_products <- unique(pharma_products)
+    parts_products <- unique(parts_products)
 
     # Note 39(a)(1)-(9) excludes semi articles from stacking with 232 autos,
     # auto parts, MHD, MHD parts, copper, aluminum, and steel. The auto_parts
@@ -1650,6 +1681,27 @@ calculate_rates_for_revision <- function(
       message('  Excluded ', n_auto_pre - length(auto_products),
               ' blanket chapter products from auto_products')
     }
+    # Same exclusion for MHD parts: a Ch72/73/76 steel/aluminum line that matches
+    # an MHD-parts prefix (e.g. 7320.x automotive springs) is still a metal
+    # product and must take the standard steel/aluminum annex rate, not the MHD
+    # heading rate. Without this strip such lines survive in
+    # heading_program_products and the annex override (below) preserves their
+    # prior 232 rate instead of applying the annex_1a/1b rate.
+    n_mhd_pre <- length(mhd_products)
+    mhd_products <- mhd_products[!substr(mhd_products, 1, 2) %in% blanket_chapters]
+    if (length(mhd_products) < n_mhd_pre) {
+      message('  Excluded ', n_mhd_pre - length(mhd_products),
+              ' blanket chapter products from mhd_products')
+    }
+
+    # Keep parts_products a clean subset of the surviving auto/MHD lines (after
+    # the semi-strip and blanket-chapter exclusions above), then split whole
+    # vehicles from parts. Only whole vehicles are content-scaled by
+    # us_auto_content_share in the USMCA step; parts get the full exemption.
+    # NB: distinct from the loop-local `vehicle_products` in the auto-deal block
+    # below (passenger/light-truck only) — this set also includes MHD vehicles.
+    parts_products <- intersect(parts_products, c(auto_products, mhd_products))
+    usmca_vehicle_products <- setdiff(c(auto_products, mhd_products), parts_products)
 
     n_steel <- length(steel_products)
     n_alum <- length(aluminum_products)
@@ -2212,6 +2264,13 @@ calculate_rates_for_revision <- function(
           ) %>%
           select(-.ann1c_framework_rate, -.ann1c_usmetal_rate)
       }
+
+      # Record heading-program membership (the exact set the override above keys
+      # on) so downstream consumers and tests can distinguish a legitimately
+      # preserved heading-program rate on annex_2 from an actual leak, without
+      # re-deriving the auto/MHD/copper/wood/semi product lists. (The annex_1c
+      # block above only adjusts rate_232; it does not change set membership.)
+      rates$heading_program <- rates$hts10 %in% heading_program_products
 
       # 9903.82.01 zero-metal-content carve-out (Note 16(a)):
       # Articles classified in subdivision (c) lists that do not contain any
@@ -2980,14 +3039,19 @@ calculate_rates_for_revision <- function(
           # floored at 15%. So it's max(rate_232 * non-US-content, 0.15) — NOT a
           # convex blend. importer-level U.S.-content above/below the 40% exempt cap
           # is not observed; (1 - usmca_share) proxies the non-U.S. content fraction.
-          # Auto/MHD products use adjusted USMCA share: usmca_share * us_auto_content_share
-          # (only ~40% of USMCA-eligible vehicle value is US/USMCA-origin content)
+          # Whole VEHICLES (usmca_vehicle_products) use the adjusted USMCA share:
+          # usmca_share * us_auto_content_share (only ~40% of USMCA-eligible vehicle
+          # value is US/USMCA-origin content). PARTS (auto_parts 9903.94.06, MHD
+          # parts per Proc. 10984) are fully exempt when USMCA-qualifying — Commerce
+          # had no non-US-content process for parts in the data window — so they are
+          # NOT content-scaled; they fall through to the s232_usmca_eligible arm and
+          # get the full (1 - usmca_share) exemption.
           rate_232 = if_else(
             country %in% c(CTY_CANADA, CTY_MEXICO),
             case_when(
               coalesce(s232_annex == 'annex_1c', FALSE) ~
                 pmax(rate_232 * (1 - usmca_share), ann1c_usmca_target),
-              coalesce(s232_usmca_eligible, FALSE) & hts10 %in% c(auto_products, mhd_products) ~
+              coalesce(s232_usmca_eligible, FALSE) & hts10 %in% usmca_vehicle_products ~
                 rate_232 * (1 - usmca_share * us_auto_content_share),
               coalesce(s232_usmca_eligible, FALSE) ~
                 rate_232 * (1 - usmca_share),
@@ -3028,15 +3092,17 @@ calculate_rates_for_revision <- function(
             country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
             0, rate_s301fl
           ),
-          # Binary fallback: 232 for USMCA-eligible CA/MX auto/MHD and Annex I-C
-          # steel. Auto/MHD: scale by (1 - us_auto_content_share); other generic
-          # s232_usmca_eligible rows zero; Annex I-C gets the 15% minimum.
+          # Binary fallback: 232 for USMCA-eligible CA/MX. Whole VEHICLES
+          # (usmca_vehicle_products): scale by (1 - us_auto_content_share). PARTS
+          # (auto_parts 9903.94.06, MHD parts per Proc. 10984) and other generic
+          # s232_usmca_eligible rows are fully exempt (zero) — parts are not
+          # content-scaled. Annex I-C steel gets the 15% minimum.
           rate_232 = if_else(
             country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
             case_when(
               coalesce(s232_annex == 'annex_1c', FALSE) ~
                 pmin(rate_232, ann1c_usmca_target),
-              coalesce(s232_usmca_eligible, FALSE) & hts10 %in% c(auto_products, mhd_products) ~
+              coalesce(s232_usmca_eligible, FALSE) & hts10 %in% usmca_vehicle_products ~
                 rate_232 * (1 - us_auto_content_share),
               coalesce(s232_usmca_eligible, FALSE) ~ 0,
               TRUE ~ rate_232
@@ -3081,8 +3147,12 @@ calculate_rates_for_revision <- function(
   #     Note 35 civil-aircraft headings remove the metals-annex duties
   #     (9903.82.02 and 9903.82.04-9903.82.19). Zeroing rate_232 here drops these
   #     rows into the "without 232" branch of apply_stacking_rules() below, so only
-  #     the 232 metals duty is removed. Taiwan is gated on 9903.96.03; floor-country
-  #     aircraft lists are gated on their parsed ch99 codes being present.
+  #     the 232 metals duty is removed. Taiwan is gated on 9903.96.03 (note 35(c),
+  #     self-dating to rev_9+); floor-country aircraft lists (note 35(a)/(b),
+  #     9903.96.01/.02 + 9903.02.x) are gated on their parsed ch99 codes being
+  #     present. The annex_232_mask gate ensures the exemption only removes a
+  #     rate_232 that came from the metals annex (9903.82.xx) — never one written
+  #     by a non-metals 232 program (wood 9903.76, auto parts 9903.94, MHD 9903.74).
   aircraft_cfg <- pp$section_232_aircraft_exemption
   if (!is.null(aircraft_cfg) && isTRUE(aircraft_cfg$enabled)) {
     annex_232_mask <- if ('s232_annex' %in% names(rates)) !is.na(rates$s232_annex) else FALSE

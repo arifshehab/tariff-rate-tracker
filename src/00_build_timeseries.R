@@ -21,6 +21,15 @@
 #   (output is written to the model-data interface automatically by the gather —
 #    config: model_data_root; no --publish step. See scripts/build_gather.R.)
 #   Rscript src/00_build_timeseries.R --publish-git      # After build, write dated public outputs to release/ in the repo
+#   Rscript src/00_build_timeseries.R --skip-release-check # Bypass the HTS release-currency gate
+#
+# HTS release-currency gate (Step A2): before building, the run compares local
+# archives against USITC's release list. Up to date or exactly one release behind
+# (the current release missing) -> proceed (Step B auto-fetches the current release
+# via the reststop export endpoint). More than one release behind -> STOP, because
+# the older missing revision(s) cannot be auto-downloaded (the static archive host
+# is blocked) and must be fetched manually into data/hts_archives/. Bypass with
+# --skip-release-check (e.g., offline runs).
 #
 # Available rebuild-alts names (passed comma-separated): usmca_annual,
 #   usmca_monthly, usmca_2024, usmca_dec2025, metal_flat, dutyfree_nonzero,
@@ -388,27 +397,60 @@ assemble_timeseries <- function(output_dir, rev_dates, pp_build,
     }
   }
 
-  # Use data.table::rbindlist instead of purrr::map_dfr — at full scale
-  # (~195M rows) map_dfr peaks at ~2x memory and OOMs around 10 GB. rbindlist
-  # binds in place and handles schema mismatches with fill = TRUE.
-  timeseries <- tibble::as_tibble(
-    data.table::rbindlist(
-      lapply(all_snapshot_files, function(f) {
-        tryCatch(readRDS(f), error = function(e) {
-          warning('Failed to read snapshot: ', f, ' -- ', e$message)
-          NULL
-        })
-      }),
-      fill = TRUE
-    )
-  )
+  # Streaming fill instead of rbindlist. The full panel is ~210M rows x 33
+  # cols (~50 GB in memory) after the 2026-06-04 universe expansion; rbindlist
+  # requires the list of all snapshots AND the bound result to coexist
+  # (~2x panel), which OOMs even at high memory. Instead: pass 1 collects row
+  # counts and a typed column template (union across snapshots, each enforced to
+  # the canonical schema on read); pass 2 pre-allocates the full table ONCE and
+  # copies each snapshot into its row block by reference, freeing it
+  # immediately. Peak memory = one panel + one snapshot. Columns absent from
+  # older snapshots stay NA, matching the previous rbindlist(fill = TRUE)
+  # semantics. All subsequent steps (ordering, interval join) are in place / by
+  # reference; the handoff back to tibble at the end is zero-copy.
+  read_snapshot <- function(f) {
+    tryCatch(enforce_rate_schema(readRDS(f)), error = function(e) {
+      warning('Failed to read snapshot: ', f, ' -- ', e$message)
+      NULL
+    })
+  }
 
-  # Enforce schema consistency (old snapshots may lack newer columns)
-  timeseries <- enforce_rate_schema(timeseries)
+  # Pass 1: row counts + typed column template
+  n_rows <- integer(length(all_snapshot_files))
+  col_proto <- list()
+  for (i in seq_along(all_snapshot_files)) {
+    snap <- read_snapshot(all_snapshot_files[i])
+    if (is.null(snap)) next
+    n_rows[i] <- nrow(snap)
+    for (cn in names(snap)) {
+      if (is.null(col_proto[[cn]])) col_proto[[cn]] <- snap[[cn]][0]
+    }
+    rm(snap); gc(verbose = FALSE)
+  }
+  total_n <- sum(n_rows)
+  message('  Streaming combine: ', length(all_snapshot_files), ' snapshots, ',
+          format(total_n, big.mark = ','), ' rows, ',
+          length(col_proto), ' columns')
 
-  # Sort by effective_date, then revision
-  timeseries <- timeseries %>%
-    arrange(effective_date, revision, country, hts10)
+  # Pass 2: pre-allocate and fill by reference
+  timeseries <- data.table::setDT(lapply(col_proto, function(p) rep(p[1], total_n)))
+  offset <- 0L
+  for (i in seq_along(all_snapshot_files)) {
+    if (n_rows[i] == 0L) next
+    snap <- read_snapshot(all_snapshot_files[i])
+    if (is.null(snap)) next
+    idx <- (offset + 1L):(offset + n_rows[i])
+    for (cn in names(col_proto)) {
+      if (cn %in% names(snap)) {
+        data.table::set(timeseries, i = idx, j = cn, value = snap[[cn]])
+      }
+    }
+    offset <- offset + n_rows[i]
+    rm(snap); gc(verbose = FALSE)
+  }
+
+  # Sort by effective_date, then revision (in place)
+  data.table::setorder(timeseries, effective_date, revision, country, hts10)
 
   # Add temporal intervals (valid_from / valid_until) from revision ordering
   # Final revision extends to configurable horizon (default: 2026-12-31), not Sys.Date()
@@ -431,9 +473,18 @@ assemble_timeseries <- function(output_dir, rev_dates, pp_build,
     mutate(valid_until = if_else(is.na(valid_until), horizon_end, valid_until)) %>%
     select(revision, valid_from, valid_until)
 
-  timeseries <- timeseries %>%
-    select(-any_of(c('valid_from', 'valid_until'))) %>%
-    left_join(rev_intervals, by = 'revision')
+  # Attach intervals by reference (an update join — replaces the previous
+  # select(-...) %>% left_join(), which copied the full panel twice)
+  for (iv_col in c('valid_from', 'valid_until')) {
+    if (iv_col %in% names(timeseries)) timeseries[, (iv_col) := NULL]
+  }
+  ri <- data.table::as.data.table(rev_intervals)
+  timeseries[ri, on = 'revision',
+             `:=`(valid_from = i.valid_from, valid_until = i.valid_until)]
+
+  # Hand downstream a tibble without copying the column vectors
+  data.table::setDF(timeseries)
+  timeseries <- tibble::as_tibble(timeseries)
 
   message('  Added interval columns: valid_from / valid_until')
 
@@ -741,11 +792,32 @@ build_full_timeseries <- function(
   # that errored mid-loop fails the assembly loud rather than silently
   # publishing a panel with a stretched-over gap (Finding 3). Synthetic
   # snapshots are *extra* on disk — the gate only flags MISSING expected revs.
+  # NB: assemble_timeseries() performs the memory-streaming snapshot combine
+  # (pass-1 row counts + pass-2 fill-by-reference) ported from master — see its
+  # definition above. rbindlist OOMs on the ~210M-row post-expansion panel.
   result <- assemble_timeseries(output_dir, rev_dates, pp_build,
                                 last_successful_rev = last_successful_rev,
                                 scenario = scenario,
                                 expected_revisions = revisions_to_process,
                                 allow_partial = allow_partial)
+
+  # ---- Write weighted-ETR policy inputs (self-contained build) ----
+  # 08_weighted_etr.R loads ieepa_country_rates.csv + usmca_products.csv from
+  # data/processed/. These were historically produced only by running 05
+  # standalone, so a build without them silently skipped weighted ETR (the
+  # downstream call is wrapped in tryCatch). Regenerate them here from the
+  # latest processed revision so a --full build is self-contained.
+  if (length(revisions_to_process) > 0) {
+    latest_rev <- tail(revisions_to_process, 1)
+    tryCatch({
+      json_path <- resolve_json_path(latest_rev, archive_dir)
+      message('\nWriting weighted-ETR policy inputs from ', latest_rev, '...')
+      write_policy_inputs(json_path, country_lookup)
+    }, error = function(e) {
+      message('WARNING: failed to write policy inputs from ', latest_rev, ': ',
+              conditionMessage(e))
+    })
+  }
 
   # ---- Summary ----
   end_time <- Sys.time()
@@ -893,6 +965,7 @@ if (sys.nframe() == 0) {
   allow_partial    <- '--allow-partial' %in% args     # opt out of the completeness gate
   use_policy_dates <- !('--use-hts-dates' %in% args)  # default: policy dates
   unweighted <- '--unweighted' %in% args
+  skip_release_check <- '--skip-release-check' %in% args
   start_from <- NULL
   rebuild_alts <- NULL
   for (i in seq_along(args)) {
@@ -996,6 +1069,23 @@ if (sys.nframe() == 0) {
     message('Mode: Incremental from ', start_from)
   } else {
     start_from <- detect_incremental_start(use_policy_dates = use_policy_dates)
+  }
+
+  # --- Step A2: HTS release-currency gate ---
+  # Stop early if the repo is more than one release behind USITC: only the current
+  # release can be auto-downloaded (the static archive host is blocked for older
+  # revisions — see check_release_currency() in 02_download_hts.R). One release
+  # behind (the current one missing) is fine — Step B fetches it via the export
+  # endpoint. Bypass with --skip-release-check (e.g., offline runs).
+  if (!skip_release_check) {
+    rc <- check_release_currency()
+    if (identical(rc$status, 'behind_manual')) {
+      log_error(rc$message)
+      stop(rc$message, call. = FALSE)
+    }
+    message(rc$message)
+  } else {
+    message('  HTS release check: skipped (--skip-release-check)')
   }
 
   # --- Step B: Download missing JSON ---

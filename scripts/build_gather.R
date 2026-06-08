@@ -227,14 +227,26 @@ message('Wrote metadata: ', file.path(output_dir, 'metadata.rds'))
 message('Gather complete (streaming; combined panel skipped).')
 
 # ---- 5. Write the build output to the model-data interface ----
-# The build's output IS the hour-aligned vintage on the configured interface
-# (config/local_paths.yaml: model_data_root). There is no in-repo output mode and
-# no opt-out — a baseline build always writes its vintage and repoints `latest`
-# (what tariff-model reads). A failed write fails the build. Scenario builds reach
-# the interface via the next baseline build's sweep, not here.
+# A baseline build's output IS the hour-aligned vintage on the configured
+# interface (config/local_paths.yaml: model_data_root) — it writes the vintage
+# and repoints `latest` (what tariff-model reads). A failed write fails the
+# build. Scenario builds reach the interface via the next baseline build's sweep,
+# not here.
+#
+# LOCAL / OFF-SERVER OPT-OUT: set TARIFF_NO_PUBLISH=1 to skip the interface
+# write entirely. The build's snapshots + outputs still land in-repo
+# (data/timeseries/, output/actual/), so a machine with no model-data interface
+# (laptop, CI, scratch/verification/parity rebuilds that must NOT clobber the
+# live interface) can run the gather without configuring model_data_root.
+#   TARIFF_NO_PUBLISH=1 Rscript scripts/build_gather.R ...
+publish_off <- nzchar(Sys.getenv('TARIFF_NO_PUBLISH', ''))
 if (!is_baseline) {
   message('Interface write deferred: scenario build "', scenario,
           '" (written by the next baseline build\'s sweep).')
+} else if (publish_off) {
+  message('Interface write skipped: TARIFF_NO_PUBLISH set ',
+          '(off-server / verification / scratch build). ',
+          'Output stays in-repo (data/timeseries/, output/).')
 } else {
   source(here('src', 'write_output.R'))
   # build_started_at = NULL: the gather just finalized metadata.rds, so skip the
