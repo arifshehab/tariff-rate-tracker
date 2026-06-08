@@ -24,11 +24,10 @@ library(tidyverse)
 #'     applies to the non-metal portion of customs value
 #'   - Post-annex (>= 2026-04-06): proclamation applies 232 to full customs value;
 #'     nonmetal_share is forced to 0 for all annex-classified products (s232_annex != NA),
-#'     so IEEPA/S122/fentanyl contribute zero on post-annex 232 products.
-#'   - Fentanyl on 232 products: for China, passes through at full rate (separate
-#'     IEEPA authority, no mutual exclusion). For CA/MX (the only other fentanyl
-#'     countries), fent is scaled by nonmetal_share — same content-based split as
-#'     IEEPA reciprocal. Matches Tariff-ETRs calculations.R:1571-1575.
+#'     so content-split IEEPA reciprocal/S122/fentanyl do not leak through on
+#'     post-annex 232 products.
+#'   - Fentanyl on 232 products: for China, passes through at full rate. For
+#'     CA/MX, fentanyl is scaled by nonmetal_share, matching Tariff-ETRs.
 #'   - Section 301 only applies to China
 #'   - Section 122 is scaled by nonmetal_share on 232 products for ALL countries.
 #'     Pre-annex: for pure-metal products (metal_share = 1.0), nonmetal_share = 0;
@@ -60,7 +59,7 @@ has_informative_per_type_shares <- function(df) {
 #'
 #' Shared by apply_stacking_rules() and compute_net_authority_contributions().
 #' Adds a `nonmetal_share` column: for 232 products, the fraction of customs
-#' value NOT covered by the active 232 metal program. IEEPA/S122/fentanyl
+#' value NOT covered by the active 232 metal program. Content-split authorities
 #' apply to this fraction. For non-232 products, nonmetal_share = 0.
 #'
 #' Uses per-metal-type shares (BEA) when available; falls back to aggregate
@@ -101,7 +100,7 @@ compute_nonmetal_share <- function(df) {
   # Post-annex override: the April 2026 proclamation applies Section 232 to the
   # full customs value, eliminating metal-content-based mutual exclusion. Products
   # with an annex classification (s232_annex != NA) get nonmetal_share = 0 so that
-  # IEEPA/S122/fentanyl do not leak through on a phantom non-metal fraction.
+  # content-split authorities do not leak through on a phantom non-metal fraction.
   # Annex II products (rate_232 = 0, removed from scope) are excluded by the
   # rate_232 > 0 guard — they receive full IEEPA/S122 as non-232 products.
   if ('s232_annex' %in% names(df)) {
@@ -127,13 +126,13 @@ compute_nonmetal_share <- function(df) {
 #                             content-split authorities apply to.
 #           'content_split' : applies only to the non-metal fraction when a 232
 #                             metal rate is present (IEEPA reciprocal, S122, and
-#                             fentanyl for CA/MX); full rate when no 232.
+#                             fentanyl for CA/MX, and scenario content-split
+#                             authorities); full rate when no 232.
 #           'additive'      : stacks at full rate regardless (301, 201, other,
 #                             and fentanyl for China).
 #   additive_countries — per-country overrides flipping a content_split authority
-#           to additive. This is the ONLY former country hardcode in the stacking
-#           math (China fentanyl passes through at full rate), now DATA so a
-#           scenario can re-scope it.
+#           to additive. Used for the China fentanyl pass-through and retained
+#           for scenarios that need country-specific re-scoping.
 #
 # Authority ORDER is load-bearing: it reproduces the historical case_when term
 # order (301 fourth). 301 is zero off-China and IEEE 0-additions don't change
@@ -179,8 +178,8 @@ default_stacking_policy <- function(cty_china = '5700') {
 #'     the collapse is a no-op numerically; we emit the literal 'primary' so the policy
 #'     OBJECT stays identical to default_stacking_policy()).
 #'   - `exceptions` is a named list census_code -> label; additive_countries = the codes
-#'     flagged 'additive' (fentanyl China). Emitted only when non-empty, so the list
-#'     SHAPE matches default (which sets additive_countries only on rate_ieepa_fent).
+#'     flagged 'additive'. Emitted only when non-empty, so the list SHAPE matches
+#'     default.
 #'   - rate_301_cs has NO spec authority (policy/resolved-only, all-zero in baseline) ->
 #'     skeleton-injected with the fixed default class.
 #'   - mfn IS a spec authority but has NO rate_col (base layer) -> excluded by the skeleton.

@@ -110,8 +110,9 @@ for (E in exemption_expiries) {
 }
 
 if (have_ch99) {
-  check(setequal(as.character(b$date), c('2025-03-12', '2026-02-20', '2026-11-10')),
-        'discovered mint set == {2025-03-12, 2026-02-20, 2026-11-10} on the real grid')
+  expected <- c('2025-03-12', '2025-11-14', '2026-02-20', '2026-09-29', '2026-11-10')
+  check(setequal(as.character(b$date), expected),
+        paste0('discovered mint set == {', paste(expected, collapse = ', '), '} on the real grid'))
 } else {
   cat('  SKIP: full mint-set assertion (no ch99 caches present)\n')
 }

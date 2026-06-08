@@ -60,6 +60,41 @@ load_232_aircraft_exempt_taiwan <- function(
 }
 
 
+#' Load civil-aircraft product lists that also exempt the Section 232 metals annex
+#'
+#' Some note-35 aircraft carve-outs were parsed into the floor-exemption resource.
+#' Reuse those lists to remove only the metals-annex 232 rate; the reciprocal/floor
+#' exemption path continues to handle the IEEPA side.
+#'
+#' @return Tibble with country and hts8 columns.
+load_232_aircraft_exempt_floor_groups <- function(
+  path = here('resources', 'floor_exempt_products.csv'),
+  policy_params = NULL
+) {
+  if (!file.exists(path)) {
+    warning('Aircraft floor-exemption source file not found: ', path)
+    return(tibble(country = character(), hts8 = character()))
+  }
+  pp <- policy_params %||% load_policy_params()
+  floor <- read_csv(path, col_types = cols(.default = col_character())) %>%
+    filter(category == 'civil_aircraft')
+  if (nrow(floor) == 0) return(tibble(country = character(), hts8 = character()))
+
+  group_map <- bind_rows(
+    tibble(country_group = 'eu', country = pp$EU27_CODES),
+    tibble(country_group = 'korea', country = pp$country_codes$CTY_SKOREA),
+    tibble(country_group = 'swiss', country = c(pp$country_codes$CTY_SWITZERLAND,
+                                                pp$country_codes$CTY_LIECHTENSTEIN)),
+    tibble(country_group = 'japan', country = pp$country_codes$CTY_JAPAN)
+  )
+
+  floor %>%
+    inner_join(group_map, by = 'country_group', relationship = 'many-to-many') %>%
+    transmute(country = as.character(country), hts8 = as.character(hts8)) %>%
+    distinct()
+}
+
+
 #' Load floor country product exemptions
 #'
 #' Products exempt from the 15% tariff floor for EU, Japan, S. Korea,

@@ -222,7 +222,7 @@ section_232_headings:
 # for steel and "all except [6]" for aluminum, but trade agreements separately
 # exempted major partners. Revoked by Proclamation 10896, effective 2025-03-12.
 # Modeled as rate = 0 for these countries (binary, matching Tariff-ETRs approach).
-# Russia gets 200% per 2023 Proclamation 10522 (not date-bounded — still active).
+# Russia gets 200% on aluminum per 2023 Proclamation 10522 (not date-bounded — still active).
 #
 # applies_to: which 232 programs this exemption covers
 # expiry_date: when the exemption was revoked (null = still active)
@@ -272,10 +272,10 @@ section_232_country_exemptions:
     rate: 0
     applies_to: ['steel', 'aluminum']
     expiry_date: '2025-03-12'
-  # Russia: 200% per 2023 Proclamation 10522 (permanent override)
+  # Russia: 200% on aluminum per 2023 Proclamation 10522 (permanent override)
   - countries: ['4621']
     rate: 2.0
-    applies_to: ['steel', 'aluminum']
+    applies_to: ['aluminum']
     expiry_date: null
 
 # --- Section 232 annex restructuring (April 2026 proclamation) ---
@@ -577,8 +577,9 @@ auto_rebate:
 # for the listed products of Taiwan, dropping them into the "without 232" stacking branch so
 # the IEEPA reciprocal applies on full value (only the 232 metals duty is removed). Gated on
 # heading 9903.96.03 being present in the revision's Ch99 data, so it self-dates to rev_9+.
-# TODO: the parallel carve-outs for the all-country general case + EU/UK/JP/KR (note 35(a)/(b),
-# headings 9903.96.01/.02) are NOT yet modeled — see todo.md.
+# Parallel civil-aircraft product lists that were already parsed as floor exemptions
+# are also applied as Section 232 metals-annex carve-outs in 06_calculate_rates.R.
+# UK 9903.96.01 still needs a parsed resource/list before it can be safely modeled.
 section_232_aircraft_exemption:
   enabled: true
   country: 'TW'

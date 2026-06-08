@@ -10,11 +10,13 @@
 # Verified mintable set on the production policy grid (2026-06-06):
 #   2025-03-12  owner rev_4        §232 metal country-exemption expiry  [IN-WINDOW]
 #   2026-02-20  owner 2026_rev_3   IEEPA invalidation (SCOTUS)          [out-of-window]
+#   2025-11-14  owner rev_29       Swiss/Liechtenstein floor starts     [out-of-window]
+#   2026-09-29  owner 2026_rev_9   pharma §232 turn-on override         [out-of-window]
 #   2026-11-10  owner 2026_rev_9   §301 cranes/chassis turn-on          [out-of-window]
 # Edge-coincident boundaries that must NOT mint: 2025-05-03 (auto parts = rev_11
 # edge), 2025-04-09 (Phase-1 country rates = rev_8 edge), 2026-04-06 (§232 annex =
 # 2026_rev_5 edge). Expiry boundaries that must NOT mint (downstream zeroing owns
-# them): 2026-07-24 (S122), 2026-04-01 (Swiss).
+# them): 2026-07-24 (S122), 2026-04-01 (Swiss expiry).
 #
 # Usage: Rscript tests/test_boundary_discovery.R
 # =============================================================================
@@ -67,6 +69,11 @@ check('2026-02-20' %in% emitted, '2026-02-20 (IEEPA invalidation) is discovered'
 check(identical(owner_of('2026-02-20'), '2026_rev_3'),
       '2026-02-20 owner resolves to 2026_rev_3 (interval [02-07..02-23])')
 
+# --- Swiss framework effective date (2025-11-14) ------------------------------
+check('2025-11-14' %in% emitted, '2025-11-14 (Swiss/Liechtenstein floor start) is discovered')
+check(identical(owner_of('2025-11-14'), 'rev_29'),
+      '2025-11-14 owner resolves to rev_29')
+
 # --- Expiry boundaries must NOT mint (mutual-exclusion rule) -------------------
 check(!('2026-07-24' %in% emitted),
       'S122 expiry boundary (2026-07-24) is NOT minted (downstream zeroing owns it)')
@@ -88,11 +95,12 @@ if (have_ch99) {
   check(grepl('ch99', src_of('2026-11-10')), '2026-11-10 sourced from a Ch99 offset')
   check(!('2025-05-03' %in% emitted),
         '2025-05-03 (auto parts = rev_11 edge) is NOT minted')
-  # On the production grid exactly these three boundaries are mintable.
-  check(setequal(emitted, c('2025-03-12', '2026-02-20', '2026-11-10')),
-        'exactly {2025-03-12, 2026-02-20, 2026-11-10} discovered on the live grid')
-  check(length(unique(b$owner_rev)) == nrow(b),
-        'each discovered boundary maps to a distinct owner (no silent missing-mint)')
+  # On the production grid exactly these five boundaries are mintable.
+  expected <- c('2025-03-12', '2025-11-14', '2026-02-20', '2026-09-29', '2026-11-10')
+  check(setequal(emitted, expected),
+        paste0('exactly {', paste(expected, collapse = ', '), '} discovered on the live grid'))
+  check(all(!is.na(b$owner_rev)),
+        'each discovered boundary maps to an owner (no silent missing-mint)')
 } else {
   note_skip('Ch99 scan assertions (no ch99_<rev>.rds in data/timeseries)')
 }

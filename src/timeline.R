@@ -68,6 +68,9 @@ collect_schedule_boundaries <- function(policy_params = NULL, specs = NULL,
     }
     if (!is.null(pp$SWISS_FRAMEWORK) && isFALSE(pp$SWISS_FRAMEWORK$finalized) &&
         !is.null(pp$SWISS_FRAMEWORK$expiry_date)) {
+      if (!is.null(pp$SWISS_FRAMEWORK$effective_date)) {
+        b <- c(b, as.Date(pp$SWISS_FRAMEWORK$effective_date))
+      }
       b <- c(b, boundary_from_expiry(pp$SWISS_FRAMEWORK$expiry_date))
     }
   }

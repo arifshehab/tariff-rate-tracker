@@ -1114,12 +1114,10 @@ calculate_rates_for_revision <- function(
           tibble(country = pp$country_codes$CTY_SKOREA, country_group = 'korea'),
           tibble(country = c(pp$country_codes$CTY_SWITZERLAND,
                              pp$country_codes$CTY_LIECHTENSTEIN), country_group = 'swiss')
-          # NOTE: Taiwan civil aircraft (9903.96.03) is intentionally NOT added here.
-          # Per U.S. note 35(c) that heading exempts Taiwan civil-aircraft components
-          # from the SECTION 232 METALS ANNEX (9903.82.xx), NOT the reciprocal tariff.
-          # This floor-exemption path only zeroes rate_ieepa_recip, so it is the wrong
-          # mechanism. A proper 232-annex civil-aircraft carve-out is not yet modeled
-          # (also missing for the EU/UK/JP/KR + all-country cases). See todo.
+          # Taiwan civil aircraft (9903.96.03) is intentionally not added here:
+          # it exempts the Section 232 metals annex only. The parallel civil-aircraft
+          # lists already parsed for floor countries are also applied to the metals
+          # annex later in the dedicated 232 aircraft carve-out block.
         )
         message('  Floor country group map: ', nrow(floor_country_group_map), ' countries across ',
                 n_distinct(floor_country_group_map$country_group), ' groups')
@@ -2996,35 +2994,42 @@ calculate_rates_for_revision <- function(
     }
   }
 
-  # 7c. Section 232 civil-aircraft exemption — Taiwan (U.S. note 35(c) / 9903.96.03)
-  #     The additional duties of 9903.82.02 and 9903.82.04-9903.82.19 (metals annex)
-  #     do NOT apply to Taiwan civil-aircraft components. Zeroing rate_232 here drops
-  #     these rows into the "without 232" branch of apply_stacking_rules() below, so
-  #     the IEEPA reciprocal applies on full customs value (only the 232 metals duty is
-  #     removed — the correct effect). Gated on heading 9903.96.03 being present in this
-  #     revision's Ch99 data, so it self-dates to rev_9+ (2026-05-28).
-  #     TODO: the all-country general carve-out + EU/UK/JP/KR (note 35(a)/(b),
-  #     9903.96.01/.02) are not yet modeled. See todo.md.
+  # 7c. Section 232 civil-aircraft exemptions.
+  #     Note 35 civil-aircraft headings remove the metals-annex duties
+  #     (9903.82.02 and 9903.82.04-9903.82.19). Zeroing rate_232 here drops these
+  #     rows into the "without 232" branch of apply_stacking_rules() below, so only
+  #     the 232 metals duty is removed. Taiwan is gated on 9903.96.03; floor-country
+  #     aircraft lists are gated on their parsed ch99 codes being present.
   aircraft_cfg <- pp$section_232_aircraft_exemption
-  if (!is.null(aircraft_cfg) && isTRUE(aircraft_cfg$enabled) &&
-      '9903.96.03' %in% ch99_data$ch99_code) {
-    tw_aircraft <- load_232_aircraft_exempt_taiwan()
-    cty_tw <- pp$country_codes$CTY_TAIWAN
-    # Note 35(c) exempts ONLY the Section 232 metals annex (9903.82.xx). Gate on
-    # s232_annex being set so the exemption can only remove a rate_232 that came
-    # from the metals annex — never one written by a non-metals 232 program (wood
-    # 9903.76, auto parts 9903.94, MHD 9903.74), which note 35(c) does not touch.
-    # This also fails safe if a non-metals hts8 ever slips into the product list.
+  if (!is.null(aircraft_cfg) && isTRUE(aircraft_cfg$enabled)) {
     annex_232_mask <- if ('s232_annex' %in% names(rates)) !is.na(rates$s232_annex) else FALSE
-    air_mask <- rates$country == cty_tw &
-      substr(rates$hts10, 1, 8) %in% tw_aircraft &
-      rates$rate_232 > 0 &
-      annex_232_mask
+    aircraft_exemptions <- tibble(country = character(), hts8 = character())
+    if ('9903.96.03' %in% ch99_data$ch99_code) {
+      aircraft_exemptions <- bind_rows(
+        aircraft_exemptions,
+        tibble(country = pp$country_codes$CTY_TAIWAN,
+               hts8 = load_232_aircraft_exempt_taiwan())
+      )
+    }
+    if (any(ch99_data$ch99_code %in% c('9903.02.76', '9903.02.81', '9903.02.85', '9903.96.02'))) {
+      aircraft_exemptions <- bind_rows(
+        aircraft_exemptions,
+        load_232_aircraft_exempt_floor_groups(policy_params = pp)
+      )
+    }
+    aircraft_exemptions <- aircraft_exemptions %>%
+      distinct(country, hts8) %>%
+      mutate(.air_key = paste(country, hts8, sep = '|'))
+    # Gate on s232_annex so the exemption can only remove a rate_232 that came
+    # from the metals annex, never one written by a non-metals 232 program.
+    air_key <- paste(rates$country, substr(rates$hts10, 1, 8), sep = '|')
+    air_mask <- air_key %in% aircraft_exemptions$.air_key &
+      rates$rate_232 > 0 & annex_232_mask
     n_air <- sum(air_mask)
     if (n_air > 0) {
       rates$rate_232[air_mask] <- 0
       if ('s232_annex' %in% names(rates)) rates$s232_annex[air_mask] <- NA_character_
-      message('  Taiwan civil-aircraft 232 exemption (note 35(c)): zeroed Section 232 on ',
+      message('  Civil-aircraft 232 exemption (note 35): zeroed Section 232 on ',
               n_air, ' product-country rows')
     }
   }

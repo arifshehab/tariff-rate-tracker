@@ -89,7 +89,7 @@ build_resolved_programs <- function(df, policy = default_stacking_policy()) {
                 precedence = seq_along(rate_cols)) %>%
     left_join(RESOLVED_AUTHORITIES, by = 'rate_col')
 
-  # Per-country class overrides (content_split -> additive, e.g. China fentanyl).
+  # Per-country class overrides (content_split -> additive) for scenario re-scoping.
   add_rows <- lapply(rate_cols, function(col) {
     ac <- policy[[col]]$additive_countries %||% character(0)
     if (length(ac)) tibble(rate_col = col, country = ac, .additive_override = TRUE) else NULL
