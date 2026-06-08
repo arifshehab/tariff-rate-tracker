@@ -473,11 +473,18 @@ run_test('232/IEEPA mutual exclusion: non-China with 232 has scaled IEEPA', {
   stopifnot(all(net$net_ieepa == 0))
 })
 
-run_test('rate_301 only contributes for China in decomposition', {
+run_test('net_301 faithfully passes through rate_301 (China-only is upstream)', {
   rates <- make_test_rates()
   net <- compute_net_authority_contributions(rates, cty_china = '5700')
+  # net_301 is a straight passthrough of rate_301 — the China-only restriction is an
+  # UPSTREAM property (06 only ever populates rate_301 for China), NOT enforced by the
+  # decomposition. The old assertion (`all(non_china$net_301 == 0)`) was vacuous: it
+  # passed only because the fixture sets no non-China 301. Assert the passthrough
+  # exactly, with a positive control so it can't pass on all-zeros.
+  stopifnot(all(abs(net$net_301 - rates$rate_301) < 1e-10))
+  stopifnot(any(net$net_301[net$country == '5700'] > 0))   # positive control
   non_china <- net %>% filter(country != '5700')
-  stopifnot(all(non_china$net_301 == 0))
+  stopifnot(all(non_china$net_301 == 0))                   # holds: fixture has no non-China 301
 })
 
 

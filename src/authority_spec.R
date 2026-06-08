@@ -189,6 +189,13 @@ RATE_SENTINELS <- c('from_raw', 'from_list', 'from_products_base_rate')
 #' @return list(value, rate_type, floor_base, matched). `value` is NA when no
 #'   layer matches (nothing in scope here → additional duty 0). `matched` names
 #'   the winning layer (or 'none').
+#'
+#' COVERAGE NOTE: every live caller in the pipeline passes `product = NULL`, so the
+#' product-keyed precedence half (overrides scalar-form + by_country_tier, steps 1-2)
+#' is exercised ONLY by tests/test_resolve_rate.R, never by a parity build. The live
+#' 301 tier is read directly at 06_calculate_rates.R, and 232 deals via
+#' s232_deal_records(). Treat test_resolve_rate.R as the gate for that half — the
+#' parity harness does not cover it.
 resolve_rate <- function(rate, product = NULL, country = NULL) {
   rate <- rate %||% list()
   rt <- .rate_get(rate, 'rate_type') %||% 'surcharge'
@@ -263,7 +270,12 @@ apply_rate_semantics <- function(value, rate_type = 'surcharge', base = NA_real_
   if (!rate_type %in% RATE_TYPES) stop('apply_rate_semantics: unknown rate_type: ', rate_type)
   v <- as.numeric(value)
   if (rate_type %in% c('floor_static', 'floor_post_mfn')) {
-    if (length(base) == 1L && is.na(base) && any(!is.na(v)))
+    # A missing base where the value is in-scope means the floor delta is
+    # uncomputable — fail loud rather than letting pmax(NA) coalesce to 0 (a silent
+    # "no extra duty"). Shape-aware: a scalar base recycles over v; a vectorized
+    # base must be non-NA at every position where v is non-NA.
+    base_missing <- if (length(base) == 1L) rep(is.na(base), length(v)) else is.na(base)
+    if (any(base_missing & !is.na(v)))
       stop('apply_rate_semantics: rate_type=', rate_type, ' requires a numeric base')
     out <- pmax(0, v - base)
   } else if (rate_type == 'passthrough') {
@@ -318,6 +330,10 @@ validate_rate <- function(rate, ctx) {
     if (is.character(x)) stop(sprintf('[%s] rate$%s is a non-sentinel string', ctx, nm))
     if (is.null(names(x)) || any(!nzchar(names(x))))
       stop(sprintf('[%s] rate$%s must be a NAMED numeric (names = lookup keys)', ctx, nm))
+    dups <- unique(names(x)[duplicated(names(x))])
+    if (length(dups))
+      stop(sprintf('[%s] rate$%s has duplicate key(s): %s (resolve_rate would silently first-win)',
+                   ctx, nm, paste(dups, collapse = ', ')))
     vals <- suppressWarnings(as.numeric(unlist(x)))
     if (!length(vals) || any(is.na(vals)) || any(!is.finite(vals)) || any(vals < 0))
       stop(sprintf('[%s] rate$%s values must be finite non-negative numbers', ctx, nm))

@@ -283,11 +283,18 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
   # carve-out for full-rate fentanyl. CA/MX fentanyl on pure-copper heading
   # products ends up at roughly fent * (1 - copper_share).
   if (stacking_method == 'tpc_additive') {
+    # Sum EVERY rate authority the policy skeleton carries (stacking_policy_from_specs),
+    # not a hand-listed subset — rate_301_cs and rate_s301fl were previously omitted,
+    # making the additive total asymmetric with the mutual_exclusion branch. Coalesce
+    # any absent column to 0 (matching compute_stacking_contributions' guard).
+    rate_cols <- c('rate_232', 'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_301',
+                   'rate_301_cs', 'rate_s301fl', 'rate_s122', 'rate_section_201', 'rate_other')
+    for (rc in rate_cols) if (!rc %in% names(df)) df[[rc]] <- 0
     return(
       df %>%
         mutate(
           total_additional = rate_232 + rate_ieepa_recip + rate_ieepa_fent +
-            rate_301 + rate_s122 + rate_section_201 + rate_other,
+            rate_301 + rate_301_cs + rate_s301fl + rate_s122 + rate_section_201 + rate_other,
           total_rate = base_rate + total_additional
         )
     )
