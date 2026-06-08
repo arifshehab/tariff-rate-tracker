@@ -18,7 +18,8 @@
 #   Rscript src/00_build_timeseries.R --alternatives-only  # Run only alternatives (requires existing timeseries)
 #   Rscript src/00_build_timeseries.R --rebuild-alts metal_flat,usmca_2024  # Subset rebuild alternatives (used with --with-alternatives or --alternatives-only)
 #   Rscript src/00_build_timeseries.R --refresh-usmca     # Re-download USMCA shares from DataWeb API
-#   Rscript src/00_build_timeseries.R --publish-internal # After build, mirror outputs to shared model_data tree (internal NFS)
+#   (output is written to the model-data interface automatically by the gather —
+#    config: model_data_root; no --publish step. See scripts/build_gather.R.)
 #   Rscript src/00_build_timeseries.R --publish-git      # After build, write dated public outputs to release/ in the repo
 #
 # Available rebuild-alts names (passed comma-separated): usmca_annual,
@@ -888,7 +889,6 @@ if (sys.nframe() == 0) {
   with_alternatives <- '--with-alternatives' %in% args
   alternatives_only <- '--alternatives-only' %in% args
   refresh_usmca <- '--refresh-usmca' %in% args
-  do_publish_internal <- '--publish-internal' %in% args
   do_publish_git      <- '--publish-git' %in% args
   allow_partial    <- '--allow-partial' %in% args     # opt out of the completeness gate
   use_policy_dates <- !('--use-hts-dates' %in% args)  # default: policy dates
@@ -973,17 +973,6 @@ if (sys.nframe() == 0) {
                               rebuild_alts = rebuild_alts,
                               alt_workers = parallel_cfg$alt_workers)
     })
-
-    if (do_publish_internal) {
-      tryCatch({
-        source(here('src', 'publish_internal.R'))
-        publish_internal(build_flags = build_flags,
-                         build_started_at = build_started_at)
-      }, error = function(e) {
-        log_warn('publish-internal failed: ', conditionMessage(e))
-        message('WARNING: --publish-internal failed: ', conditionMessage(e))
-      })
-    }
 
     if (do_publish_git) {
       tryCatch({
@@ -1149,19 +1138,6 @@ if (sys.nframe() == 0) {
     }
 
     }) # end capture_messages
-  }
-
-  if (do_publish_internal && !is.null(result)) {
-    tryCatch({
-      source(here('src', 'publish_internal.R'))
-      publish_internal(build_flags = build_flags,
-                       build_started_at = build_started_at)
-    }, error = function(e) {
-      log_warn('publish-internal failed: ', conditionMessage(e))
-      message('WARNING: --publish-internal failed: ', conditionMessage(e))
-    })
-  } else if (do_publish_internal && is.null(result)) {
-    message('WARNING: --publish-internal skipped (build did not produce a result).')
   }
 
   if (do_publish_git && !is.null(result)) {

@@ -2,7 +2,7 @@
 # Publish (Git): Build Outputs to release/ in the Repo
 # =============================================================================
 #
-# Public counterpart to src/publish_internal.R. This module writes a curated
+# Public-release counterpart to src/write_output.R. This module writes a curated
 # subset of build outputs into release/ within the repo, with publication-date
 # suffixes on every filename, so that each --publish-git run produces a new
 # commit-ready set of artifacts.
@@ -24,7 +24,7 @@
 #
 # CSV vs parquet: explicit per-output (see RELEASE_OUTPUTS below). The public
 # git release currently publishes the daily aggregate views; the full rate panel
-# is published by publish_internal as per-interval snapshot parquets.
+# is written by write_build_output as per-interval snapshot parquets.
 #
 # Usage (programmatic):
 #
@@ -229,7 +229,7 @@ read_data_as_of <- function(repo_root) {
 
 
 #' Best-effort capture of git commit, branch, dirty bit. NA if not a repo.
-#' Duplicated lightly from publish_internal.R to avoid cross-source coupling.
+#' Duplicated lightly from write_output.R to avoid cross-source coupling.
 #'
 #' @keywords internal
 capture_git_info_release <- function(repo_root) {

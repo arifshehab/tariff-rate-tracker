@@ -239,10 +239,10 @@ if (!is_baseline) {
   message('Publish skipped: TARIFF_NO_PUBLISH set (verification/scratch build).')
 } else {
   tryCatch({
-    source(here('src', 'publish_internal.R'))
+    source(here('src', 'write_output.R'))
     # build_started_at = NULL: the gather just finalized metadata.rds, so skip the
     # stale-snapshot guard (it would false-trip on the file we just wrote).
-    res <- publish_internal(build_started_at = NULL)
+    res <- write_build_output(build_started_at = NULL)
     if (!is.null(res)) message('Published vintage to interface: ', res$vintage_dir, ' (latest -> ', res$vintage, ')')
   }, error = function(e) message('WARNING: auto-publish failed: ', conditionMessage(e)))
 }

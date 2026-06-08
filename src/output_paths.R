@@ -44,7 +44,7 @@ scenario_dir <- function(name, root = output_root()) file.path(scenarios_root(ro
 logs_dir <- function(root = output_root()) file.path(root, 'logs')
 
 # ---- published-vintage snapshot layout (per-interval rate panel) ------------
-# The publish layer (src/publish_internal.R) splits the rate panel by policy
+# The output writer (src/write_output.R) splits the rate panel by policy
 # interval start into Hive-style partitions, so a consumer reads only the dates
 # it needs instead of one monolithic rate_timeseries.parquet:
 #   <vintage>/actual/snapshots/valid_from=YYYY-MM-DD/rates.parquet

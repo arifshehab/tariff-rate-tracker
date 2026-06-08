@@ -1,12 +1,13 @@
 # =============================================================================
-# Publish (Internal): Build Outputs to Shared Model-Data Tree
+# Write Build Output to the Model-Data Interface
 # =============================================================================
 #
-# Internal counterpart to src/publish_git.R. This module mirrors a curated
-# subset of build outputs from the local repo into the Budget Lab shared
-# model-data tree as an immutable, dated vintage. A `latest` symlink in the
-# shared root points at the most recent vintage. Audience: other Budget Lab
-# models on the same NFS share — not public.
+# Writes the build's output — the per-interval rate panel (Parquet, the format
+# tariff-model reads) plus daily/quality/etr — to the configured model-data
+# interface folder (config: model_data_root) as an hour-stamped immutable
+# vintage, and repoints `latest`. This is simply WHERE the build's output goes,
+# not a separate "publish" step — the gather calls write_build_output() at the
+# end of every baseline build.
 #
 # Layout (under <shared_root>):
 #
@@ -33,14 +34,14 @@
 #       ...
 #     latest -> 2026-05-09
 #
-# Vintages are immutable. Re-running on the same calendar day appends `_2`,
-# `_3`, ... . `--alternatives-only --publish-internal` produces a new vintage
-# with the panel re-copied (cheap immutability over hardlink dedup).
+# Vintages are immutable. Re-running within the same hour appends `_2`,
+# `_3`, ... . An alternatives-only build produces a new vintage with the panel
+# re-copied (cheap immutability over hardlink dedup).
 #
 # Usage (programmatic):
 #
-#   source(here('src', 'publish_internal.R'))
-#   publish_internal(
+#   source(here('src', 'write_output.R'))
+#   write_build_output(
 #     build_flags = list(full = TRUE, core_only = TRUE, with_alternatives = FALSE),
 #     build_started_at = Sys.time()
 #   )
@@ -83,7 +84,7 @@ SHARED_ROOT_DEFAULT <- local({
 #'   tree — e.g. when scenario outputs are stale or intentionally withheld.
 #' @return Invisibly, a list with `vintage`, `vintage_dir`, `manifest`, and
 #'   `n_files` on success; NULL on dry-run.
-publish_internal <- function(shared_root = SHARED_ROOT_DEFAULT,
+write_build_output <- function(shared_root = SHARED_ROOT_DEFAULT,
                              vintage = NULL,
                              repo_root = here(),
                              build_flags = list(),
@@ -93,11 +94,11 @@ publish_internal <- function(shared_root = SHARED_ROOT_DEFAULT,
                              include_scenarios = TRUE) {
 
   if (!requireNamespace('arrow', quietly = TRUE)) {
-    stop('publish_internal requires the arrow package (parquet conversion). ',
+    stop('write_build_output requires the arrow package (parquet conversion). ',
          'Install with: Rscript src/install_dependencies.R --all')
   }
   if (!requireNamespace('digest', quietly = TRUE)) {
-    stop('publish_internal requires the digest package (manifest sha256). ',
+    stop('write_build_output requires the digest package (manifest sha256). ',
          'Install with: Rscript src/install_dependencies.R --all')
   }
 
@@ -414,8 +415,7 @@ publish_timeseries <- function(repo_root, vintage_dir, rev_dates, horizon_end,
 #'
 #' When `min_mtime` is non-NULL, files older than that timestamp are skipped.
 #' This prevents stale outputs from a previous build leaking into a new vintage
-#' (e.g. `--build-only --publish-internal` should not bundle daily/ from an
-#' earlier run).
+#' (e.g. a --build-only run should not bundle daily/ from an earlier run).
 #'
 #' @keywords internal
 publish_dir <- function(src_dir, dest_dir, min_mtime = NULL, dry_run = FALSE) {
@@ -582,14 +582,14 @@ update_latest_symlink <- function(shared_root, vintage) {
 # CLI Entry Point
 # =============================================================================
 #
-# Standalone publish (after a build has already been run):
-#   Rscript src/publish_internal.R
-#   Rscript src/publish_internal.R --dry-run
-#   Rscript src/publish_internal.R --vintage 2026-05-08_manual
+# Standalone re-write of the output for an existing build (rarely needed — a
+# normal build writes its output automatically via the gather):
+#   Rscript src/write_output.R
+#   Rscript src/write_output.R --dry-run
+#   Rscript src/write_output.R --vintage 2026-05-08_manual
 #
 # This mode does NOT know which build flags produced the outputs; it records
-# `manual = TRUE` in the manifest. For full provenance, prefer publishing
-# via `--publish-internal` on src/00_build_timeseries.R.
+# `manual = TRUE` in the manifest.
 
 if (sys.nframe() == 0) {
   args <- commandArgs(trailingOnly = TRUE)
@@ -599,7 +599,7 @@ if (sys.nframe() == 0) {
     if (args[i] == '--vintage' && i < length(args)) vintage <- args[i + 1]
   }
 
-  publish_internal(
+  write_build_output(
     vintage = vintage,
     build_flags = list(manual = TRUE),
     build_started_at = NULL,  # skip staleness guard for standalone runs
