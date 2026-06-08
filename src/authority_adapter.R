@@ -435,6 +435,47 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
   spec
 }
 
+# Build the section_301_brazil authority_spec, or NULL if the config block is
+# absent (baseline). USTR FR Doc 2026-11158: a 25% additional duty on ALL goods of
+# Brazil (census 3510) EXCEPT an Annex exclusion list (hts8). Built ONLY when the
+# merged config carries a `section_301_brazil` block (config/scenarios/new_301/).
+# content_split + usmca 'none' (Brazil isn't USMCA): stacks ADDITIVELY with the
+# forced-labor §301 (both §301 actions apply — §301 is statutorily "in addition to";
+# neither FR notice carves out the other). The content_split class implements the
+# notice's hard §232 carve-out via nonmetal_share (see src/stacking.R): §232 goods
+# — metals AND autos/MHD (nonmetal_share=0 fallback) — receive zero Brazil §301.
+# DATE-GATED to >= effective_date exactly like the forced-labor builder, so it is
+# hollow in baseline / pre-turn-on revisions and every synthetic pre-date mint.
+.build_section_301_brazil <- function(pp, countries, effective_date) {
+  cfg <- pp$section_301_brazil
+  if (is.null(cfg)) return(NULL)
+  eff <- if (!is.null(cfg$effective_date)) as.Date(cfg$effective_date) else as.Date(NA)
+  active_now <- is.na(eff) || as.Date(effective_date) >= eff
+  rate_layer <- list()
+  if (active_now) {
+    rate <- as.numeric(cfg$rate %||% 0.25)
+    ctry <- as.character(cfg$country %||% '3510')          # Brazil census code
+    bc <- stats::setNames(rep(rate, length(ctry)), ctry)
+    bc <- bc[intersect(names(bc), as.character(countries))]  # only economies the model knows
+    if (length(bc) > 0) rate_layer$by_country <- bc
+  }
+  scope <- if (length(rate_layer$by_country)) names(rate_layer$by_country) else character(0)
+  spec <- authority_spec(
+    authority = 'section_301_brazil',
+    stacking  = list(class = 'content_split', exceptions = list()),
+    usmca_treatment = 'none',
+    active = list(from = eff, until = NA),
+    programs = list(authority_program(
+      id = 's301br',
+      product_scope = list(include = 'all'),
+      country_scope = list(include = scope),
+      rate = rate_layer))
+  )
+  # exempt-list loader is generic (reads cfg$exempt_products); reused from the FL builder.
+  spec$programs[[1]]$exempt_products <- list(hts8 = .resolve_s301fl_exempt(cfg, effective_date))
+  spec
+}
+
 # ---- the adapter ------------------------------------------------------------
 
 #' Re-package the bespoke per-authority parser outputs into an authority_spec_set.
@@ -799,10 +840,20 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   # Date-gated, content_split + USMCA-eligible. See .build_section_301_forced_labor.
   section_301_forced_labor <- .build_section_301_forced_labor(pp, countries, effective_date)
 
+  # --- section_301_brazil — Brazil-only 25% §301 (SCENARIO) ------------------
+  # NULL in baseline (the config block ships only in config/scenarios/new_301/),
+  # so the authority — and its rate_s301br column — never materialize there.
+  # Date-gated, content_split + usmca 'none'; stacks additively with the FL §301.
+  # See .build_section_301_brazil.
+  section_301_brazil <- .build_section_301_brazil(pp, countries, effective_date)
+
   spec_list <- list(section_232, section_301, ieepa_reciprocal, ieepa_fentanyl,
                     section_122, section_201, mfn, other)
   if (!is.null(section_301_forced_labor)) {
     spec_list <- c(spec_list, list(section_301_forced_labor))
+  }
+  if (!is.null(section_301_brazil)) {
+    spec_list <- c(spec_list, list(section_301_brazil))
   }
   specs <- do.call(authority_spec_set, spec_list)
 

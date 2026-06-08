@@ -849,7 +849,8 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
                        # calculate_rates_for_revision coalesces it to 0 before stacking
                        # and DROPS the column entirely when all-zero, so the NA is safe
                        # and baseline panels never carry it.
-                       'rate_s301fl')
+                       'rate_s301fl',
+                       'rate_s301br')   # Brazil §301 scenario column — same lifecycle as rate_s301fl
 
   # Columns `new_pairs` sets explicitly (must match the mutate() below).
   # `statutory_rate_232` is set to 0 here so MFN-only rows carry a valid
@@ -2727,6 +2728,46 @@ calculate_rates_for_revision <- function(
             length(fl_exempt_hts8), ' Annex A HTS8 exempt)')
   }
 
+  # 6b-br. Apply Section 301 Brazil duties (SCENARIO authority). 25% on ALL goods
+  #     of Brazil (census 3510) EXCEPT the Annex exclusion list (hts8). Stacks
+  #     ADDITIVELY with the forced-labor §301 (both are distinct §301 authorities;
+  #     §301 is statutorily "in addition to" — neither FR notice carves out the
+  #     other). content_split (displaced by §232 via nonmetal_share in stacking —
+  #     this implements the notice's hard §232 carve-out, incl. autos/MHD which
+  #     get nonmetal_share=0). usmca 'none' (Brazil isn't USMCA), so NO USMCA-share
+  #     reduction is applied below (Brazil rows are never CA/MX anyway). Built only
+  #     when the merged config carries `section_301_brazil` (config/scenarios/new_301/)
+  #     AND date-gated to >= effective_date; rate_s301br stays all-zero otherwise and
+  #     the column is DROPPED before return — baseline byte-identical, no schema change.
+  br_spec <- specs[['section_301_brazil']]
+  br_by_country <- if (is.null(br_spec)) numeric(0) else {
+    bc <- .rate_get(br_spec$programs[[1]]$rate, 'by_country')
+    if (.rate_is_hollow(bc)) numeric(0) else bc
+  }
+  rates$rate_s301br <- 0   # present for stacking; dropped at end if all-zero
+  if (length(br_by_country) > 0) {
+    br_exempt_hts8 <- br_spec$programs[[1]]$exempt_products$hts8 %||% character(0)
+    br_scope <- intersect(names(br_by_country), countries)
+    br_tbl <- tibble(country = names(br_by_country),
+                     .br_rate = unname(as.numeric(br_by_country)))
+    rates <- rates %>%
+      left_join(br_tbl, by = 'country', relationship = 'many-to-one') %>%
+      mutate(rate_s301br = if_else(
+        !is.na(.br_rate) & !(substr(hts10, 1, 8) %in% br_exempt_hts8),
+        .br_rate, 0)) %>%
+      select(-.br_rate)
+    # Seed all-products pairs for in-scope economies (blanket), excluding the Annex.
+    br_country_rates <- tibble(country = br_scope,
+                               blanket_rate = unname(as.numeric(br_by_country[br_scope])))
+    br_non_exempt_hts10 <- products %>%
+      filter(!substr(hts10, 1, 8) %in% br_exempt_hts8) %>% pull(hts10)
+    rates <- add_blanket_pairs(rates, products, br_non_exempt_hts10, br_country_rates,
+                               'rate_s301br', 'Section 301 Brazil')
+    message('  Section 301 Brazil: 25% on ', sum(rates$rate_s301br > 0),
+            ' product-country pairs across ', length(br_scope), ' economies (',
+            length(br_exempt_hts8), ' Annex HTS8 exempt)')
+  }
+
   # 6b1. Apply Section 201 (Trade Act §201 safeguard) tariffs.
   #      Currently models Solar 201 (Proc 9693 + Proc 10454, 9903.45.21–.25)
   #      on CSPV cells/modules. The 201 rate stacks on top of MFN, separate
@@ -2790,6 +2831,7 @@ calculate_rates_for_revision <- function(
       statutory_rate_301         = rate_301,
       statutory_rate_301_cs      = rate_301_cs,
       statutory_rate_s301fl      = rate_s301fl,
+      statutory_rate_s301br      = rate_s301br,
       statutory_rate_s122        = rate_s122,
       statutory_rate_section_201 = rate_section_201,
       statutory_rate_other       = rate_other
@@ -3211,6 +3253,12 @@ calculate_rates_for_revision <- function(
   if ('statutory_rate_s301fl' %in% names(rates)) {
     rates$statutory_rate_s301fl <- coalesce(rates$statutory_rate_s301fl, 0)
   }
+  if ('rate_s301br' %in% names(rates)) {
+    rates$rate_s301br <- coalesce(rates$rate_s301br, 0)
+  }
+  if ('statutory_rate_s301br' %in% names(rates)) {
+    rates$statutory_rate_s301br <- coalesce(rates$statutory_rate_s301br, 0)
+  }
 
   # 8. Re-apply stacking rules with updated IEEPA and 232 rates. Phase 3b: when
   # enabled (TARIFF_RESOLVED_STACKING), route through the resolved-program long
@@ -3250,6 +3298,12 @@ calculate_rates_for_revision <- function(
   if ('rate_s301fl' %in% names(rates) && all(rates$rate_s301fl == 0)) {
     rates$rate_s301fl <- NULL
     if ('statutory_rate_s301fl' %in% names(rates)) rates$statutory_rate_s301fl <- NULL
+  }
+  # Brazil §301: same scenario-scoped lifecycle — drop when it carries no duty so
+  # baseline / pre-turn-on panels stay byte-identical to the pre-scenario schema.
+  if ('rate_s301br' %in% names(rates) && all(rates$rate_s301br == 0)) {
+    rates$rate_s301br <- NULL
+    if ('statutory_rate_s301br' %in% names(rates)) rates$statutory_rate_s301br <- NULL
   }
 
   # Summary
