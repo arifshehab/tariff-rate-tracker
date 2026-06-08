@@ -30,9 +30,10 @@ check <- function(cond, msg) {
 annex_map <- tibble(
   hts_prefix = c('8503',        # short catch-all
                  '85030045',    # longer, more specific -> must override 8503
+                 '84271040',    # Annex I-C mobile industrial equipment
                  '7301',        # chapter-73 product explicitly CSV-listed as 1b
                  '7616109090'), # sibling of the arm-order case, CSV-matched 1a
-  s232_annex = c('annex_1b', 'annex_2', 'annex_1b', 'annex_1a')
+  s232_annex = c('annex_1b', 'annex_2', 'annex_1c', 'annex_1b', 'annex_1a')
 )
 # Derivative products drive the annex_1b inference fallback.
 deriv <- tibble(hts_prefix = c('76161090',  # 7616109030 is ALSO a derivative...
@@ -45,6 +46,8 @@ check(identical(cls('8503004500'), 'annex_2'),
       '8503004500 matches the longer 85030045 (annex_2), not 8503 (annex_1b)')
 check(identical(cls('8503009000'), 'annex_1b'),
       '8503009000 matches only the short 8503 -> annex_1b')
+check(identical(cls('8427104000'), 'annex_1c'),
+      '8427104000 matches Annex I-C mobile equipment -> annex_1c')
 
 cat('--- CSV match beats inference (CSV before chapter) ---\n')
 check(identical(cls('7301000000'), 'annex_1b'),
@@ -75,5 +78,26 @@ check(identical(v, c('annex_1a', NA_character_, 'annex_1a', 'annex_2')),
 cat('--- empty annex_map -> inference only (fail-soft) ---\n')
 check(identical(classify_s232_annex('7208000000', annex_map[0, ], deriv), 'annex_1a'),
       'empty map: chapter inference still applies')
+
+cat('--- load_annex_products keeps newest effective row per prefix ---\n')
+tmp <- tempfile(fileext = '.csv')
+writeLines(c(
+  'hts_prefix,annex,metal_type,source,effective_date',
+  '84271040,1b,steel,old,2026-04-06',
+  '84271040,1c,steel,new,2026-06-08',
+  '87082921,1b,steel,old,2026-04-06',
+  '87082921,2,steel,new,2026-06-08',
+  '8708292120,3,steel,new_specific,2026-06-08'
+), tmp)
+pre <- load_annex_products(as.Date('2026-06-07'), tmp)
+post <- load_annex_products(as.Date('2026-06-08'), tmp)
+check(identical(pre$s232_annex[pre$hts_prefix == '84271040'], 'annex_1b'),
+      'before June 8, older 84271040 row remains active')
+check(identical(post$s232_annex[post$hts_prefix == '84271040'], 'annex_1c'),
+      'on June 8, latest 84271040 row supersedes old row')
+check(identical(
+  classify_s232_annex('8708292120', post, NULL),
+  'annex_3'
+), 'longer June 8 8708292120 row beats broader 87082921 annex_2 row')
 
 cat('\nALL', pass, 'classify_s232_annex checks passed\n')

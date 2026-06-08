@@ -54,6 +54,7 @@ So this file should be read as a modeling schedule, not as a verbatim copy of th
 | **Semiconductor tariffs (25%)** | ~Jan 2026 | Jan 16, 2026 | Jan 16, 2026 (2026_rev_1) | **None** | HTS aligned. |
 | **SCOTUS invalidation of IEEPA** | Feb 20, 2026 (*Learning Resources v. Trump*, 6-3) | Feb 20, 2026 (immediate) | Feb 24, 2026 (2026_rev_4) | **HTS 4 days late** | Court ruled Feb 20; IEEPA tariffs legally void immediately. CBP implemented termination at 12:00am ET Feb 24. Tracker shows IEEPA rates active Feb 20-23. |
 | **Section 122 (10% blanket)** | Feb 20, 2026 (EO signed same day as ruling) | Feb 24, 2026 (12:01am ET) | Feb 24, 2026 (2026_rev_4) | **None** | S122 HTS aligned with CBP implementation. |
+| **232 metals Annex I-C / Annex III update** | Jun 1, 2026 (Proclamation 11032) | Jun 8, 2026 (12:01am ET) | Not yet in checked-in HTS archive | **Synthetic boundary** | Modeled as `bnd_2026-06-08` via `boundary_overrides`, like pharma: official annex rows and config are date-gated, then the current owning HTS archive is recomputed as of Jun 8. |
 
 ## Summary of material timing gaps
 

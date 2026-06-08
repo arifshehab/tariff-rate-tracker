@@ -2180,6 +2180,39 @@ calculate_rates_for_revision <- function(
           TRUE ~ rate_232
         ))
 
+      # Proclamation 11032 Annex I-C (effective 2026-06-08 through 2027-12-31):
+      # mobile industrial equipment defaults to 25%, with lower 15% framework
+      # treatment and a dormant aggregate U.S.-metal 10% route. Canada/Mexico
+      # USMCA steel treatment is share-blended later in the USMCA step because it
+      # needs product-level USMCA utilization shares.
+      ann1c_cfg <- annex_cfg$annexes$annex_1c
+      if (!is.null(ann1c_cfg) && as.Date(effective_date) >= as.Date(ann1c_cfg$effective_date %||% '9999-12-31')) {
+        fw_countries <- as.character(unlist(ann1c_cfg$framework_countries %||% character(0)))
+        if ('eu' %in% fw_countries) {
+          fw_countries <- unique(c(setdiff(fw_countries, 'eu'), pp$EU27_CODES %||% character(0)))
+        }
+        fw_floor <- as.numeric(ann1c_cfg$framework_floor_rate %||% 0.15)
+        usm_cfg <- annex_cfg$exemptions$us_origin_metal
+        usm_share <- as.numeric(usm_cfg$aggregate_share %||% 0)
+        usm_floor <- as.numeric(usm_cfg$rate %||% 0.10)
+        rates <- rates %>%
+          mutate(
+            .ann1c_framework_rate = apply_rate_semantics(fw_floor, 'floor_post_mfn', base_rate),
+            rate_232 = if_else(
+              s232_annex == 'annex_1c' & country %in% fw_countries,
+              pmin(rate_232, .ann1c_framework_rate),
+              rate_232
+            ),
+            .ann1c_usmetal_rate = apply_rate_semantics(usm_floor, 'floor_post_mfn', base_rate),
+            rate_232 = if_else(
+              s232_annex == 'annex_1c' & !is.na(usm_share) & usm_share > 0,
+              usm_share * pmin(rate_232, .ann1c_usmetal_rate) + (1 - usm_share) * rate_232,
+              rate_232
+            )
+          ) %>%
+          select(-.ann1c_framework_rate, -.ann1c_usmetal_rate)
+      }
+
       # 9903.82.01 zero-metal-content carve-out (Note 16(a)):
       # Articles classified in subdivision (c) lists that do not contain any
       # aluminum, steel, or copper get "No change" — 0% additional 232 duty.
@@ -2215,7 +2248,7 @@ calculate_rates_for_revision <- function(
         rates$rate_232 <- if_else(hit, newr, rates$rate_232)
       }
 
-      # Annex III sunset: after sunset_date, products move to I-B rate
+      # Annex III / I-C sunset: after sunset_date, temporary products move to I-B rate
       sunset <- annex_cfg$annexes$annex_3$sunset_date
       if (!is.null(sunset) && as.Date(effective_date) > as.Date(sunset)) {
         rates <- rates %>%
@@ -2225,6 +2258,16 @@ calculate_rates_for_revision <- function(
             s232_annex = if_else(s232_annex == 'annex_3', 'annex_1b', s232_annex)
           )
         message('  Annex III sunset: reclassified to I-B')
+      }
+      sunset_1c <- annex_cfg$annexes$annex_1c$sunset_date
+      if (!is.null(sunset_1c) && as.Date(effective_date) > as.Date(sunset_1c)) {
+        rates <- rates %>%
+          mutate(
+            rate_232 = if_else(s232_annex == 'annex_1c',
+                                annex_cfg$annexes$annex_1b$rate, rate_232),
+            s232_annex = if_else(s232_annex == 'annex_1c', 'annex_1b', s232_annex)
+          )
+        message('  Annex I-C sunset: reclassified to I-B')
       }
 
       # Update statutory_rate_232 to reflect annex overrides
@@ -2782,6 +2825,27 @@ calculate_rates_for_revision <- function(
         message('  Annex III floor recomputation: updated ', sum(annex3_mask),
                 ' pairs (against post-MFN base_rate)')
       }
+      ann1c_cfg <- annex_cfg$annexes$annex_1c
+      if (!is.null(ann1c_cfg) &&
+          as.Date(effective_date) >= as.Date(ann1c_cfg$effective_date %||% '9999-12-31')) {
+        fw_countries <- as.character(unlist(ann1c_cfg$framework_countries %||% character(0)))
+        if ('eu' %in% fw_countries) {
+          fw_countries <- unique(c(setdiff(fw_countries, 'eu'), pp$EU27_CODES %||% character(0)))
+        }
+        ann1c_mask <- !is.na(rates$s232_annex) & rates$s232_annex == 'annex_1c' &
+                      rates$country %in% fw_countries &
+                      rates$base_rate < rates$statutory_base_rate
+        if (any(ann1c_mask)) {
+          floor_val <- ann1c_cfg$framework_floor_rate %||% 0.15
+          rates$rate_232[ann1c_mask] <- pmin(
+            rates$rate_232[ann1c_mask],
+            apply_rate_semantics(floor_val, 'floor_post_mfn', rates$base_rate[ann1c_mask])
+          )
+          rates$statutory_rate_232[ann1c_mask] <- rates$rate_232[ann1c_mask]
+          message('  Annex I-C framework floor recomputation: updated ', sum(ann1c_mask),
+                  ' pairs (against post-MFN base_rate)')
+        }
+      }
     }
 
     # Drop transient ieepa_type column — not part of production output
@@ -2803,6 +2867,13 @@ calculate_rates_for_revision <- function(
   # an empty tibble; the short-circuit here is what actually implements the
   # scenario semantics.
   usmca_mode <- pp$USMCA_SHARES$mode %||% 'h2_average'
+  ann1c_usmca_target <- if (!is.null(annex_cfg)) {
+    annex_cfg$annexes$annex_1c$usmca_steel$target_total %||% 0.15
+  } else {
+    0.15
+  }
+  ann1c_usmca_target <- as.numeric(ann1c_usmca_target)
+  if (length(ann1c_usmca_target) != 1L || is.na(ann1c_usmca_target)) ann1c_usmca_target <- 0.15
   if (identical(usmca_mode, 'none')) {
     # Skip rate application, but still populate usmca_eligible from the HTS
     # "special" field so the diagnostic flag retains its meaning in the
@@ -2903,15 +2974,24 @@ calculate_rates_for_revision <- function(
           # outright; the share path approximates that via (1 - usmca_share).
           rate_s301fl = rate_s301fl * (1 - usmca_share),
           # Apply USMCA shares to 232 auto/MHD (heading products with usmca_exempt flag)
-          # Steel/aluminum 232 are NOT USMCA-eligible — only heading-level tariffs
+          # and Annex I-C steel treatment (Proc. 11032 / U.S. note 16(j)).
+          # Annex I-C clause (2)(d): the 25% duty applies ONLY to non-U.S. content
+          # (the usmca_share is exempt, not taxed), and the total effective duty is
+          # floored at 15%. So it's max(rate_232 * non-US-content, 0.15) — NOT a
+          # convex blend. importer-level U.S.-content above/below the 40% exempt cap
+          # is not observed; (1 - usmca_share) proxies the non-U.S. content fraction.
           # Auto/MHD products use adjusted USMCA share: usmca_share * us_auto_content_share
           # (only ~40% of USMCA-eligible vehicle value is US/USMCA-origin content)
           rate_232 = if_else(
-            coalesce(s232_usmca_eligible, FALSE) & country %in% c(CTY_CANADA, CTY_MEXICO),
-            if_else(
-              hts10 %in% c(auto_products, mhd_products),
-              rate_232 * (1 - usmca_share * us_auto_content_share),
-              rate_232 * (1 - usmca_share)
+            country %in% c(CTY_CANADA, CTY_MEXICO),
+            case_when(
+              coalesce(s232_annex == 'annex_1c', FALSE) ~
+                pmax(rate_232 * (1 - usmca_share), ann1c_usmca_target),
+              coalesce(s232_usmca_eligible, FALSE) & hts10 %in% c(auto_products, mhd_products) ~
+                rate_232 * (1 - usmca_share * us_auto_content_share),
+              coalesce(s232_usmca_eligible, FALSE) ~
+                rate_232 * (1 - usmca_share),
+              TRUE ~ rate_232
             ),
             rate_232
           )
@@ -2948,15 +3028,18 @@ calculate_rates_for_revision <- function(
             country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
             0, rate_s301fl
           ),
-          # Binary fallback: 232 for USMCA-eligible CA/MX auto/MHD
-          # Auto/MHD: scale by (1 - us_auto_content_share); others: zero
+          # Binary fallback: 232 for USMCA-eligible CA/MX auto/MHD and Annex I-C
+          # steel. Auto/MHD: scale by (1 - us_auto_content_share); other generic
+          # s232_usmca_eligible rows zero; Annex I-C gets the 15% minimum.
           rate_232 = if_else(
-            coalesce(s232_usmca_eligible, FALSE) &
-              country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
-            if_else(
-              hts10 %in% c(auto_products, mhd_products),
-              rate_232 * (1 - us_auto_content_share),
-              0
+            country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
+            case_when(
+              coalesce(s232_annex == 'annex_1c', FALSE) ~
+                pmin(rate_232, ann1c_usmca_target),
+              coalesce(s232_usmca_eligible, FALSE) & hts10 %in% c(auto_products, mhd_products) ~
+                rate_232 * (1 - us_auto_content_share),
+              coalesce(s232_usmca_eligible, FALSE) ~ 0,
+              TRUE ~ rate_232
             ),
             rate_232
           )

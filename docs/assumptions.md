@@ -54,6 +54,10 @@ For Section 232 auto/MHD products, the USMCA share is further scaled by `us_auto
 
 **Implementation:** `src/download_usmca_dataweb.R` (optional, requires USITC DataWeb account and API token in `.env`). Year-specific files: `resources/usmca_product_shares_2024.csv` (40,088 pairs) and `resources/usmca_product_shares_2025.csv` (40,258 pairs). Year selected via `usmca_shares.year` in `config/policy_params.yaml` (default: 2025). Applied in `src/06_calculate_rates.R` steps 2 (fentanyl), 4 (232 auto/MHD), and 7 (IEEPA/S122). Auto content share configured in `config/policy_params.yaml` under `auto_rebate.us_auto_content_share`.
 
+### June 2026 Annex I-C USMCA steel treatment
+
+Proclamation 11032 / Annex IV (U.S. note 16(j), headings 9903.82.20/.21) creates a Canada/Mexico USMCA content rule for Annex I-C derivative steel articles: the 25% duty applies only to the *non-U.S.* content (U.S. content up to 40% of value is exempt; U.S. content above 40% is dutiable), and the total effective duty is floored at 15%. The tracker uses the product-level USMCA utilization share as a proxy for the exempt U.S.-content fraction and computes `effective_232 = max(0.25 * (1 - usmca_share), 0.15)`. This single expression is exact, not an approximation of the cap: because `0.25 * (1 - 0.40) = 0.15` equals the floor, the 40% exempt cap and the 15% minimum coincide at the breakpoint, so the floor alone reproduces the capped schedule for every share. It does not estimate importer-level U.S.-parts value directly. The 40% U.S.-content exempt cap is recorded under `section_232_annexes.annexes.annex_1c.usmca_steel.us_content_exempt_cap` as legal-text structure (not an economic content assumption). The U.S.-metal 10% route (clause 2(c)) is encoded with an 85% threshold but defaults to `aggregate_share: 0.0` because certification/content facts are not observed in HTS10 x origin data.
+
 ---
 
 ## 4. Section 232 Derivative Product List

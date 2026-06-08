@@ -586,6 +586,7 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       tier   <- classify_s232_annex(hts, annex_map, deriv, a1a_ch)
       flat   <- c(annex_1a = as.numeric(annex_cfg$annexes$annex_1a$rate),
                   annex_1b = as.numeric(annex_cfg$annexes$annex_1b$rate),
+                  annex_1c = as.numeric(annex_cfg$annexes$annex_1c$rate),
                   annex_2  = as.numeric(annex_cfg$annexes$annex_2$rate %||% 0))
       flat_rate <- unname(flat[tier])                       # NA for annex_3 / unclassified
       keept <- !is.na(tier)      & !duplicated(hts)

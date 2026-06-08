@@ -296,6 +296,29 @@ section_232_annexes:
       rate: 0.25
       uk_rate: 0.15
       uk_applies_to: ['steel', 'aluminum']
+    annex_1c:
+      label: 'Mobile industrial equipment and machinery (temporary)'
+      effective_date: '2026-06-08'
+      rate: 0.25
+      sunset_date: '2027-12-31'
+      post_sunset_annex: 'annex_1b'
+      framework_floor_rate: 0.15
+      framework_countries:
+        - '3570'   # Argentina
+        - '3310'   # Ecuador
+        - '2110'   # El Salvador
+        - '2050'   # Guatemala
+        - '5880'   # Japan
+        - '5800'   # South Korea
+        - '4411'   # Liechtenstein
+        - '4419'   # Switzerland
+        - '5830'   # Taiwan
+        - '4120'   # United Kingdom
+        - 'eu'     # EU-27, expanded in the calculator
+      usmca_steel:
+        countries: ['1220', '2010']  # Canada, Mexico
+        target_total: 0.15
+        us_content_exempt_cap: 0.40  # statutory cap in Annex IV / U.S. note 16(j)
     annex_2:
       label: 'Removed from scope'
       rate: 0.0
@@ -309,6 +332,7 @@ section_232_annexes:
   exemptions:
     us_origin_metal:
       rate: 0.10
+      threshold: 0.85
       aggregate_share: 0.0
     de_minimis_weight:
       threshold: 0.15
@@ -789,7 +813,7 @@ series_horizon:
 # 2026-09-29 is the pharma §232 turn-on: it has no Ch99 offset (config-driven), so the
 # scan can't see it, but the calc's pharma date-gate re-resolves it as-of that date —
 # exactly the "config date the scan can't see" case this backstop is for.
-boundary_overrides: ['2026-09-29']
+boundary_overrides: ['2026-06-08', '2026-09-29']
 
 # --- Validation thresholds ---
 validation_thresholds:

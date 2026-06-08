@@ -493,6 +493,11 @@ load_annex_products <- function(effective_date = NULL,
   }
 
   annex_map %>%
+    mutate(
+      .effective_date = suppressWarnings(as.Date(effective_date)),
+      .effective_date = coalesce(.effective_date, as.Date('1900-01-01'))
+    ) %>%
+    arrange(hts_prefix, desc(.effective_date)) %>%
     select(hts_prefix, s232_annex = annex) %>%
     mutate(s232_annex = paste0('annex_', s232_annex)) %>%
     distinct(hts_prefix, .keep_all = TRUE)
