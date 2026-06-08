@@ -8,11 +8,10 @@
 # Usage (standalone): sbatch scripts/submit_build_gather.sh
 #   GATHER_ARGS="--unweighted" sbatch scripts/submit_build_gather.sh
 #
-# AUTO-PUBLISH: a baseline gather now publishes its hour-stamped vintage to the
-# model-data interface (config: model_data_root) and repoints `latest` — no
-# separate publish step. For a VERIFICATION / parity / scratch rebuild that must
-# NOT touch the live interface, set TARIFF_NO_PUBLISH=1:
-#   TARIFF_NO_PUBLISH=1 sbatch scripts/submit_build_gather.sh
+# OUTPUT: a baseline gather always writes its hour-aligned vintage
+# (YYYY-MM-DD-HH) to the model-data interface (config/local_paths.yaml:
+# model_data_root) and repoints `latest` (what tariff-model reads). There is no
+# in-repo output mode and no opt-out; a failed write fails the build.
 
 #SBATCH --job-name=tariff-gather
 #SBATCH --time=01:30:00

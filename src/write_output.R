@@ -60,17 +60,14 @@ source(here('src', 'policy_params.R'))  # load_policy_params -> SERIES_HORIZON_E
 # Model-data interface root — read from config (config/local_paths.yaml:
 # model_data_root), NOT hardcoded. Single external location the build publishes
 # hour-stamped output vintages to and where parity goldens live; never the repo.
-SHARED_ROOT_DEFAULT <- local({
-  r <- tryCatch(load_local_paths()$model_data_root, error = function(e) NULL)
-  if (is.null(r) || !nzchar(r)) '/nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker' else r
-})
+SHARED_ROOT_DEFAULT <- tryCatch(load_local_paths()$model_data_root, error = function(e) NULL)
 
 
 #' Publish a curated subset of build outputs to the shared model-data tree
 #'
 #' @param shared_root Root directory under which dated vintages are written.
-#' @param vintage Vintage identifier; defaults to today's date with `_2`/`_3`
-#'   suffix on collision. Pass an explicit string to override.
+#' @param vintage Vintage identifier; defaults to the hour-aligned id
+#'   (YYYY-MM-DD-HH). Pass an explicit string to override.
 #' @param repo_root Repo root from which outputs are read.
 #' @param build_flags Named list of CLI flags actually used (recorded in manifest).
 #' @param build_started_at POSIXct; recorded in manifest. Defaults to now.
@@ -120,13 +117,21 @@ write_build_output <- function(shared_root = SHARED_ROOT_DEFAULT,
     }
   }
 
+  if (is.null(shared_root) || !nzchar(shared_root)) {
+    stop('model_data_root is not set in config/local_paths.yaml. The build writes ',
+         'its output there — there is no in-repo output mode and no hardcoded fallback.')
+  }
+
   if (!dir.exists(shared_root)) {
     if (!dry_run) dir.create(shared_root, recursive = TRUE)
     message('publish: created shared root ', shared_root)
   }
 
-  if (is.null(vintage)) vintage <- resolve_vintage(shared_root)
+  if (is.null(vintage)) vintage <- resolve_vintage()
   vintage_dir <- file.path(shared_root, vintage)
+  # Hour-aligned: the vintage IS this build's output for the hour. A rebuild in
+  # the same hour replaces it wholesale (no stale files linger from a prior run).
+  if (!dry_run && dir.exists(vintage_dir)) unlink(vintage_dir, recursive = TRUE)
 
   message('\n', strrep('=', 70))
   message('PUBLISHING TO SHARED MODEL DATA')
@@ -249,20 +254,15 @@ load_augmented_revision_dates <- function(snapshot_dir, rev_dates) {
 }
 
 
-#' Resolve an unused vintage identifier (today's date, with _2/_3 on collision).
+#' Resolve the hour-aligned vintage identifier (YYYY-MM-DD-HH).
+#'
+#' The interface is keyed to the hour: a rebuild within the same hour overwrites
+#' that hour's vintage (write_build_output clears the dir first). No collision
+#' suffix — the vintage IS the hour.
 #'
 #' @keywords internal
-resolve_vintage <- function(shared_root) {
-  # Hour-stamped vintage id (YYYY-MM-DD_HH). Multiple builds within the same hour
-  # get a _2/_3 collision suffix so a vintage is never silently overwritten.
-  base <- format(Sys.time(), '%Y-%m-%d_%H')
-  candidate <- base
-  i <- 2L
-  while (file.exists(file.path(shared_root, candidate))) {
-    candidate <- paste0(base, '_', i)
-    i <- i + 1L
-  }
-  candidate
+resolve_vintage <- function() {
+  format(Sys.time(), '%Y-%m-%d-%H')
 }
 
 
