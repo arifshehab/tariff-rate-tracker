@@ -1291,7 +1291,6 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
                                           census_codes_path = here('resources', 'census_codes.csv'),
                                           policy_params = NULL,
                                           snapshot_out_dir = NULL,
-                                          operations = NULL,
                                           allow_partial = FALSE) {
 
   message('\n  Building alternative timeseries: ', variant_name)
@@ -1310,11 +1309,6 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
   if (!exists('build_authority_specs', mode = 'function')) {
     source(here('src', 'authority_spec.R'))
     source(here('src', 'authority_adapter.R'))
-  }
-  # Phase 6e: the operations engine (apply_operations) so a scenario's ops reach
-  # this rebuild path too (00 already applies them; this site previously didn't).
-  if (!exists('apply_operations', mode = 'function')) {
-    source(here('src', 'scenario_ops.R'))
   }
 
   # Save original .pp and swap in override
@@ -1369,10 +1363,6 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
         s232_rates = s232_rates, fentanyl_rates = fentanyl_rates,
         policy_params = policy_params %||% pp_override
       )
-      # Phase 6e: apply the scenario's operations (no ops => baseline, unchanged).
-      if (!is.null(operations) && length(operations) > 0) {
-        specs <- apply_operations(specs, operations)
-      }
 
       rates <- calculate_rates_for_revision(
         products, ch99_data, usmca,
@@ -1521,13 +1511,11 @@ build_rebuild_alt_registry <- function(pp) {
 
 #' Run all alternative daily series
 #'
-#' Post-build alternatives (fast): apply scenarios to the per-revision
-#' snapshots produced by the build, then build daily aggregates. Always runs.
-#'
-#' TPC stacking alternative: re-applies stacking with 'tpc_additive' method.
-#'
-#' Rebuild alternatives (slow): re-run full calculation with modified policy
-#' params. Only runs when rebuild = TRUE.
+#' This now drives ONLY the rebuild alternatives (the USMCA-share pp_override
+#' variants) — re-run full calculation with modified policy params, gated on
+#' rebuild = TRUE. The former post-build / 'tpc_additive' stacking alternatives
+#' are no longer performed here (scenarios route through
+#' build_alternative_timeseries(operations=...) instead).
 #'
 #' When alt_workers > 1, rebuild alternatives are dispatched concurrently
 #' via alt_runner() in src/parallel.R. Default alt_workers = 1 preserves

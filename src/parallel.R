@@ -421,8 +421,7 @@ alt_runner <- function(alt_specs, alt_workers = 1L, log_dir = NULL,
       build_alternative_timeseries(
         spec$pp_override, variant,
         imports = imports,
-        policy_params = spec$pp_override,
-        operations = spec$operations
+        policy_params = spec$pp_override
       )
     })
     list(variant = variant, status = 'ok', error = NULL)

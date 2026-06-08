@@ -73,8 +73,6 @@ countries      <- census_codes$Code
 country_lookup <- build_country_lookup(here('resources', 'census_codes.csv'))
 tpc_path       <- load_local_paths()$tpc_benchmark
 
-ops <- ri$operations[[1]] %||% list()
-
 message('Building revision ', rev_id, ' (effective ', ri$effective_date, ') on ', Sys.info()[['nodename']])
 res <- build_revision_snapshot(
   rev_id = rev_id, eff_date = ri$effective_date, tpc_date = ri$tpc_date,
@@ -82,8 +80,7 @@ res <- build_revision_snapshot(
   archive_dir = archive_dir, output_dir = output_dir,
   country_lookup = country_lookup, countries = countries,
   census_codes = census_codes, pp_build = pp_build,
-  stacking_method = 'mutual_exclusion', tpc_path = tpc_path,
-  operations = ops
+  stacking_method = 'mutual_exclusion', tpc_path = tpc_path
 )
 message('OK: ', rev_id, ' -> ', res$snapshot_path, ' (', res$n_rates, ' rows)')
 

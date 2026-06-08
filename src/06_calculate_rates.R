@@ -2996,23 +2996,6 @@ calculate_rates_for_revision <- function(
     }
   }
 
-  # 7b. (Phase 8) No-Ch99 seeder: apply any NEW-COVERAGE programs added via the
-  # add_program op (flat rate + product/country scope, riding rate_other). Runs
-  # AFTER the Ch99-backed authorities and BEFORE stacking so the new rate folds in
-  # as the additive catch-all. DORMANT in baseline (no flat-rate `other` programs)
-  # => byte-identical. (Weight provisioning for pairs absent from the weight base
-  # is handled downstream in 08, not here.)
-  rates <- apply_new_coverage_programs(rates, specs, products, countries)
-
-  # F5: the statutory 'other' snapshot (step 6 above) was taken BEFORE new coverage,
-  # and add_blanket_pairs may have introduced pairs that snapshot never saw — leaving
-  # statutory_rate_other stale/zero for add_program coverage, which the pre-stacking
-  # statutory export (generate_etrs_config.R) then hands downstream under-counted.
-  # Re-sync it here: 'other' is additive (stacking never scales it down), so the
-  # pre-stacking statutory value equals the live rate_other. No-op in baseline
-  # (apply_new_coverage_programs is dormant => rate_other unchanged since the snapshot).
-  rates <- rates %>% mutate(statutory_rate_other = rate_other)
-
   # 7c. Section 232 civil-aircraft exemption — Taiwan (U.S. note 35(c) / 9903.96.03)
   #     The additional duties of 9903.82.02 and 9903.82.04-9903.82.19 (metals annex)
   #     do NOT apply to Taiwan civil-aircraft components. Zeroing rate_232 here drops

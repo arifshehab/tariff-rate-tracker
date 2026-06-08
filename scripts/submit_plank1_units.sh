@@ -39,7 +39,7 @@ echo "=========================================================="
 
 RC=0
 for t in test_resolve_rate.R test_authority_spec.R test_authority_adapter.R \
-         test_scenario_ops.R test_stacking.R test_rate_calculation.R; do
+         test_stacking.R test_rate_calculation.R; do
   echo; echo "================== tests/$t =================="
   if Rscript "tests/$t"; then echo ">>> PASS: tests/$t"; else echo ">>> FAIL: tests/$t"; RC=1; fi
 done

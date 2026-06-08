@@ -47,7 +47,7 @@ echo "Branch: $(git rev-parse --abbrev-ref HEAD)  Commit: $(git rev-parse --shor
 echo "=========================================================="
 
 RC=0
-for t in test_scenario_ops.R test_authority_spec.R test_authority_adapter.R; do
+for t in test_authority_spec.R test_authority_adapter.R; do
   echo
   echo "================== tests/$t =================="
   if Rscript "tests/$t"; then

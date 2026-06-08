@@ -61,7 +61,6 @@ source(here('src', '05_parse_policy_params.R'))
 source(here('src', '06_calculate_rates.R'))
 source(here('src', 'authority_spec.R'))      # AuthoritySpec datatype
 source(here('src', 'authority_adapter.R'))   # build_authority_specs() (Phase 1)
-source(here('src', 'scenario_ops.R'))        # apply_operations() (Phase 2e)
 source(here('src', '07_validate_tpc.R'))
 
 
@@ -88,7 +87,6 @@ build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
                                     pp_build,
                                     stacking_method = 'mutual_exclusion',
                                     tpc_path = NULL,
-                                    operations = NULL,
                                     archive_rev_id = rev_id) {
   # a. Resolve JSON path. `archive_rev_id` decouples *which archive to parse*
   #    from *what id/date to stamp*: for a real revision it equals `rev_id`
@@ -97,7 +95,7 @@ build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
   #    every `revision` label with `rev_id` and the future `eff_date`. The
   #    calculator's internal date gates fire as-of `eff_date`, so the synthetic
   #    revision automatically reflects every other scheduled change in force by D
-  #    (e.g. an s122 sunset). See build_scheduled_activations().
+  #    (e.g. an s122 sunset). See build_boundary_mints().
   json_path <- resolve_json_path(archive_rev_id, archive_dir)
 
   # b. Read raw JSON (needed for IEEPA/USMCA extraction)
@@ -120,20 +118,18 @@ build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
                                          policy_params = pp_build)
   usmca <- extract_usmca_eligibility(hts_raw)
 
-  # f. AuthoritySpec path (Phase 6f: ALWAYS ON — specs are the authoritative input;
-  #    "baseline = the empty scenario"). Re-package the parser outputs into a spec
-  #    set; the calculator reads rates/scope/gates off it. A scenario applies its
-  #    operations before the calc; no operations => baseline.
+  # f. AuthoritySpec path (Phase 6f: ALWAYS ON — specs are the authoritative input).
+  #    Re-package the parser outputs into a spec set; the calculator reads
+  #    rates/scope/gates off it. Counterfactuals are authored as config overlays
+  #    (config/scenarios/<name>/overlay.yaml, deep-merged into pp_build), so the
+  #    spec the calculator sees already reflects the scenario — no per-revision
+  #    mutation step here.
   specs <- build_authority_specs(
     products, ch99_data, ieepa_rates, usmca,
     countries, rev_id, eff_date,
     s232_rates = s232_rates, fentanyl_rates = fentanyl_rates,
     policy_params = pp_build
   )
-  if (!is.null(operations) && length(operations) > 0) {
-    message('  Applying ', length(operations), ' scenario operation(s) to specs')
-    specs <- apply_operations(specs, operations)
-  }
 
   # g. Calculate rates for this revision
   rates <- calculate_rates_for_revision(
@@ -187,117 +183,24 @@ build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
 }
 
 
-#' Build synthetic future-revision snapshots from the scheduled_activations config.
-#'
-#' A scheduled activation is a tariff that is announced/legally-effective on a
-#' FUTURE date D but does not yet appear in any HTS archive (e.g. a pharma 232
-#' effective 2026-09-01). For each entry this re-runs the TIP archive (the latest
-#' real revision by effective_date) through the calculator, STAMPED at D, with the
-#' entry's `operations` applied — producing one synthetic revision `snapshot_<id>.rds`
-#' in `output_dir` and appending a `{revision = id, effective_date = D}` row to
-#' `rev_dates`. assemble_timeseries() then globs the new snapshot and derives its
-#' `[D, horizon]` interval purely from rev_dates ordering, automatically shortening
-#' the prior tip's `valid_until` to D-1 (no interval-logic change).
-#'
-#' Empty/absent scheduled_activations => writes nothing and returns `rev_dates`
-#' unchanged: the baseline stays byte-identical to the golden.
-#'
-#' Provenance: ids MUST be `sched_`-prefixed (enforced) so synthetic projections
-#' are distinguishable from observed HTS revisions; `last_revision` continues to
-#' track the last REAL revision because callers pass it explicitly to
-#' assemble_timeseries (synthetic revisions are built after the real tip is known).
-#'
-#' SAFETY: only ever call this with a scenario-specific `output_dir`. A stray
-#' `snapshot_sched_*.rds` in data/timeseries/ (the golden) would be globbed into
-#' the baseline panel and the parity gate would read green on contaminated data.
-#'
-#' @return rev_dates with one row appended per activation (unchanged if none).
-build_scheduled_activations <- function(rev_dates, pp_build, output_dir,
-                                        country_lookup, countries, census_codes,
-                                        archive_dir = 'data/hts_archives',
-                                        stacking_method = 'mutual_exclusion',
-                                        tpc_path = NULL) {
-  acts <- pp_build$scheduled_activations
-  if (is.null(acts) || length(acts) == 0) return(rev_dates)
-
-  # Tip = latest REAL revision by effective_date — the archive the synthetic
-  # revisions parse, and the rev whose tail interval they split. Exclude synthetic
-  # rows (sched_/bnd_): boundary mints run before this and a `bnd_` row can hold
-  # the latest effective_date (e.g. a future turn-on), but only a real revision has
-  # a parseable HTS archive. Filtering is byte-identical to the original flow when
-  # no synthetic rows are present.
-  tip <- rev_dates %>%
-    filter(!grepl('^(sched_|bnd_)', revision)) %>%
-    arrange(effective_date) %>% slice_tail(n = 1)
-  tip_rev <- tip$revision
-
-  message('\n', strrep('=', 60))
-  message('Building ', length(acts), ' scheduled activation(s) on tip ', tip_rev,
-          ' (', tip$effective_date, ')')
-
-  new_rows <- vector('list', length(acts))
-  for (k in seq_along(acts)) {
-    act <- acts[[k]]
-    sid <- act$id %||% stop('scheduled_activations[', k, ']: missing `id`')
-    if (!startsWith(sid, 'sched_')) {
-      stop("scheduled_activations id '", sid, "' must start with 'sched_' ",
-           '(provenance: synthetic future revisions must be distinguishable from ',
-           'real HTS revisions).')
-    }
-    if (sid %in% rev_dates$revision) {
-      stop("scheduled_activations id '", sid, "' collides with an existing revision id.")
-    }
-    D <- as.Date(act$effective_date)
-    if (length(D) != 1 || is.na(D)) {
-      stop("scheduled_activations '", sid, "': invalid effective_date '",
-           act$effective_date, "'")
-    }
-    ops <- act$operations %||% list()
-    if (length(ops) == 0) {
-      stop("scheduled_activations '", sid, "': no `operations` — a synthetic ",
-           'revision with no change would just duplicate the tip.')
-    }
-
-    message('  [sched] ', sid, ' = tip ', tip_rev, ' stamped at ', D,
-            ' + ', length(ops), ' operation(s)')
-    build_revision_snapshot(
-      rev_id = sid, eff_date = D, tpc_date = NA,
-      archive_rev_id = tip_rev,
-      archive_dir = archive_dir, output_dir = output_dir,
-      country_lookup = country_lookup, countries = countries,
-      census_codes = census_codes, pp_build = pp_build,
-      stacking_method = stacking_method, tpc_path = tpc_path,
-      operations = ops
-    )
-    new_rows[[k]] <- tibble(revision = sid, effective_date = D)
-  }
-
-  # bind_rows fills the other rev_dates columns (tpc_date, policy_event, …) with
-  # NA for synthetic rows — correct, they have no HTS provenance.
-  dplyr::bind_rows(rev_dates, dplyr::bind_rows(new_rows))
-}
-
-
 #' Mint synthetic boundary snapshots from discovered schedule boundaries.
 #'
-#' The baseline-eligible generalisation of build_scheduled_activations(): given the
-#' boundary table from discover_boundaries() (src/timeline.R), recompute each
-#' boundary's OWNING revision archive STAMPED at the boundary date, with EMPTY
-#' operations (a pure as-of recompute), writing one synthetic `bnd_<date>` snapshot
-#' per boundary and appending a `{revision, effective_date}` row to rev_dates.
+#' Given the boundary table from discover_boundaries() (src/timeline.R), recompute
+#' each boundary's OWNING revision archive STAMPED at the boundary date — a pure
+#' as-of recompute — writing one synthetic `bnd_<date>` snapshot per boundary and
+#' appending a `{revision, effective_date}` row to rev_dates.
 #' assemble_timeseries() then derives the new [D, next] interval from rev_dates
 #' ordering and auto-shortens the owning interval to D-1 — so the rate switches on
 #' the legal effective date D rather than at the next real revision. The calculator
 #' needs no change: its own date gates (Ch99 offset / IEEPA invalidation / §232
 #' country-exemption expiry) re-resolve as-of D during the recompute.
 #'
-#' Differs from build_scheduled_activations():
+#' Notes:
 #'   - arbitrary `archive_rev_id` (the OWNER of the interval containing D), not the
 #'     tip — a boundary can sit anywhere in the timeline.
-#'   - EMPTY operations allowed (the change is the as-of date itself, not a verb).
-#'   - `bnd_` prefix (distinct from `sched_`) — and BASELINE-eligible: unlike
-#'     scheduled activations, boundary mints belong in the baseline panel/golden,
-#'     so the re-freeze capture must EXPECT exactly the discovered `bnd_` set.
+#'   - the change is the as-of date itself; the recompute applies no mutation.
+#'   - `bnd_` prefix — and BASELINE-eligible: boundary mints belong in the baseline
+#'     panel/golden, so the re-freeze capture must EXPECT exactly the discovered set.
 #'     (R5 safety net: scripts/summarize_parity_results.R fails the parity run on
 #'     ANY golden-only OR candidate-only artifact, so a stale golden missing the
 #'     `bnd_` snapshots — or an unexpected synthetic snapshot — turns parity RED.)
@@ -331,7 +234,7 @@ build_boundary_mints <- function(rev_dates, boundaries, pp_build, output_dir,
     if (!startsWith(bid, 'bnd_')) {
       stop("build_boundary_mints: id '", bid, "' must start with 'bnd_' ",
            '(provenance: synthetic boundary mints must be distinguishable from ',
-           'real HTS revisions and scheduled activations).')
+           'real HTS revisions).')
     }
     if (length(D) != 1 || is.na(D)) {
       stop("build_boundary_mints '", bid, "': invalid boundary date.")
@@ -356,8 +259,7 @@ build_boundary_mints <- function(rev_dates, boundaries, pp_build, output_dir,
       archive_dir = archive_dir, output_dir = output_dir,
       country_lookup = country_lookup, countries = countries,
       census_codes = census_codes, pp_build = pp_build,
-      stacking_method = stacking_method, tpc_path = tpc_path,
-      operations = list()
+      stacking_method = stacking_method, tpc_path = tpc_path
     )
     new_rows[[k]] <- tibble(revision = bid, effective_date = D)
   }
@@ -392,8 +294,7 @@ build_array_revision_timeline <- function(rev_dates, pp_build,
     arrange(effective_date) %>%
     mutate(
       archive_rev_id = revision,
-      source = 'real',
-      operations = rep(list(list()), n())
+      source = 'real'
     )
   if (nrow(real) == 0) stop('No available real revisions found in ', archive_dir)
 
@@ -412,51 +313,20 @@ build_array_revision_timeline <- function(rev_dates, pp_build,
         effective_date = as.Date(date),
         tpc_date = as.Date(NA),
         archive_rev_id = owner_rev,
-        source = 'boundary',
-        operations = rep(list(list()), n())
+        source = 'boundary'
       )
   } else {
     tibble(
       revision = character(), effective_date = as.Date(character()),
       tpc_date = as.Date(character()), archive_rev_id = character(),
-      source = character(), operations = list()
+      source = character()
     )
   }
-
-  acts <- pp_build$scheduled_activations %||% list()
-  tip <- real %>% arrange(effective_date) %>% slice_tail(n = 1)
-  sched_rows <- vector('list', length(acts))
-  for (k in seq_along(acts)) {
-    act <- acts[[k]]
-    sid <- act$id %||% stop('scheduled_activations[', k, ']: missing `id`')
-    if (!startsWith(sid, 'sched_')) {
-      stop("scheduled_activations id '", sid, "' must start with 'sched_'.")
-    }
-    D <- as.Date(act$effective_date)
-    if (length(D) != 1 || is.na(D)) {
-      stop("scheduled_activations '", sid, "': invalid effective_date '",
-           act$effective_date, "'")
-    }
-    ops <- act$operations %||% list()
-    if (length(ops) == 0) {
-      stop("scheduled_activations '", sid, "': no `operations`.")
-    }
-    sched_rows[[k]] <- tibble(
-      revision = sid,
-      effective_date = D,
-      tpc_date = as.Date(NA),
-      archive_rev_id = tip$revision,
-      source = 'scheduled',
-      operations = list(ops)
-    )
-  }
-  sched <- dplyr::bind_rows(sched_rows)
 
   out <- bind_rows(
     real %>% select(any_of(c('revision', 'effective_date', 'tpc_date')),
-                    archive_rev_id, source, operations),
-    bnd,
-    sched
+                    archive_rev_id, source),
+    bnd
   ) %>%
     mutate(effective_date = as.Date(effective_date),
            tpc_date = as.Date(tpc_date)) %>%
@@ -860,18 +730,6 @@ build_full_timeseries <- function(
                                     horizon = pp_build$SERIES_HORIZON_END)
   rev_dates <- build_boundary_mints(
     rev_dates, boundaries, pp_build, output_dir,
-    country_lookup = country_lookup, countries = countries,
-    census_codes = census_codes, archive_dir = archive_dir,
-    stacking_method = stacking_method, tpc_path = tpc_path)
-
-  # ---- Synthetic future revisions (scheduled activations) ----
-  # After the real-revision snapshots exist (tip now known), emit one synthetic
-  # revision per scheduled activation (tip archive stamped at the future date D +
-  # the activation's ops). Empty config => no-op, rev_dates unchanged, baseline
-  # byte-identical. `last_successful_rev` stays the last REAL revision (synthetic
-  # revisions are built after the loop and never reassign it).
-  rev_dates <- build_scheduled_activations(
-    rev_dates, pp_build, output_dir,
     country_lookup = country_lookup, countries = countries,
     census_codes = census_codes, archive_dir = archive_dir,
     stacking_method = stacking_method, tpc_path = tpc_path)

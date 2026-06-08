@@ -765,29 +765,14 @@ section_122:
 series_horizon:
   end_date: '2026-12-31'
 
-# --- Scheduled future tariff activations ("turn-ON" dates) ---
+# --- Future tariff activations ("turn-ON" dates) ---
 # Tariffs that are announced / legally effective on a FUTURE date but do not yet
 # appear in any HTS archive (the mirror of the section_122 sunset, which turns a
-# rate OFF on a future date). Each entry emits one SYNTHETIC future revision: the
-# tip HTS archive re-run through the calculator, stamped at `effective_date`, with
-# `operations` applied (the scenario_ops verbs — set_rate / set_exempt / ...).
-# assemble_timeseries then carries it as a new [effective_date, horizon] interval
-# and shortens the prior tip to effective_date-1.
-#
-# The baseline includes scheduled activations with a published legal effective
-# date. Emptying this list restores the pre-activation byte-identical baseline.
-# Rules: `id` MUST start with `sched_` (provenance — synthetic, not HTS-backed);
-# only bake in activations with a published legal effective date (speculative ones
-# stay what-if scenarios). Example (commented):
-#   - id: sched_pharma_2026_09_01
-#     effective_date: '2026-09-01'
-#     operations:
-#       - { op: set_rate, authority: section_232, program: pharmaceuticals, rate: 0.25 }
-# Pharma §232 (Sept 29) is no longer a scheduled_activation op — it is now DATE-GATED
-# in extract_section232_rates (section_232_headings.pharmaceuticals.effective_date) and
-# materialized via boundary_overrides below, so it fires on every revision >= 2026-09-29
-# INCLUDING the empty-ops boundary mints (a set_rate op dropped it at bnd_2026-11-10).
-scheduled_activations: []
+# rate OFF on a future date) are handled by DATE-GATING in the calculator plus a
+# boundary_overrides mint (below). Example: pharma §232 (Sept 29) is date-gated in
+# extract_section232_rates (section_232_headings.pharmaceuticals.effective_date) and
+# materialized via boundary_overrides, so it fires on every revision >= 2026-09-29
+# INCLUDING the empty-ops boundary mints — no synthetic-revision verb step needed.
 
 # --- Boundary-mint overrides (unified timeline / P2-1) ---
 # Curated backstop list of effective dates to mint as synthetic `bnd_<date>`
