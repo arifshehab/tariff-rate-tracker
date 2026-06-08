@@ -630,7 +630,7 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
   # Columns `new_pairs` sets explicitly (must match the mutate() below).
   # `statutory_rate_232` is set to 0 here so MFN-only rows carry a valid
   # statutory rate, not NA, into the remaining statutory_rate_* save in 6b2.
-  EXPLICIT_SET_COLUMNS <- c(REQUIRED_RATE_COLS, 'base_rate', 'statutory_rate_232')
+  EXPLICIT_SET_COLUMNS <- c(REQUIRED_RATE_COLS, 'base_rate', 'statutory_rate_232', 'heading_program')
 
   set_cols <- c(EXPLICIT_SET_COLUMNS, SAFE_NA_COLUMNS)
   unaccounted <- setdiff(names(rates), set_cols)
@@ -657,7 +657,8 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
       rate_232 = 0, rate_301 = 0, rate_ieepa_recip = 0,
       rate_ieepa_fent = 0, rate_s122 = 0,
       rate_section_201 = 0, rate_other = 0,
-      statutory_rate_232 = 0
+      statutory_rate_232 = 0,
+      heading_program = FALSE
     )
 
   # At the post-IEEPA call site `rates` does not yet have statutory_rate_232
@@ -665,6 +666,14 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
   # bind_rows doesn't introduce it prematurely.
   if (!'statutory_rate_232' %in% names(rates)) {
     new_pairs <- new_pairs %>% select(-statutory_rate_232)
+  }
+
+  # heading_program is only present once the post-annex 232 block (step 6e)
+  # has run; the post-IEEPA call site precedes it. Drop the default there so
+  # bind_rows doesn't introduce the column early. A new MFN-only pair is by
+  # definition not a heading-program product, so FALSE (not NA) is correct.
+  if (!'heading_program' %in% names(rates)) {
+    new_pairs <- new_pairs %>% select(-heading_program)
   }
 
   if (nrow(new_pairs) > 0) {
