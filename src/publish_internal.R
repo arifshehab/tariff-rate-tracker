@@ -56,8 +56,13 @@ source(here('src', 'revisions.R'))      # load_revision_dates
 source(here('src', 'policy_params.R'))  # load_policy_params -> SERIES_HORIZON_END
 
 
-# Default location for the shared model-data root.
-SHARED_ROOT_DEFAULT <- '/nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker'
+# Model-data interface root — read from config (config/local_paths.yaml:
+# model_data_root), NOT hardcoded. Single external location the build publishes
+# hour-stamped output vintages to and where parity goldens live; never the repo.
+SHARED_ROOT_DEFAULT <- local({
+  r <- tryCatch(load_local_paths()$model_data_root, error = function(e) NULL)
+  if (is.null(r) || !nzchar(r)) '/nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker' else r
+})
 
 
 #' Publish a curated subset of build outputs to the shared model-data tree
@@ -247,7 +252,9 @@ load_augmented_revision_dates <- function(snapshot_dir, rev_dates) {
 #'
 #' @keywords internal
 resolve_vintage <- function(shared_root) {
-  base <- format(Sys.Date(), '%Y-%m-%d')
+  # Hour-stamped vintage id (YYYY-MM-DD_HH). Multiple builds within the same hour
+  # get a _2/_3 collision suffix so a vintage is never silently overwritten.
+  base <- format(Sys.time(), '%Y-%m-%d_%H')
   candidate <- base
   i <- 2L
   while (file.exists(file.path(shared_root, candidate))) {

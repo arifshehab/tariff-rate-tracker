@@ -3,22 +3,30 @@
 # capture_parity_golden.R — freeze a serial build's outputs as a parity golden
 # =============================================================================
 #
-# Run AFTER a clean serial build (scripts/submit_build_full.sh). Copies the
-# per-revision snapshots, the combined timeseries, and the daily CSVs into
-# tests/golden/<git-sha>/ and writes a manifest recording the exact code +
-# config state the golden was produced under. The parity comparator
-# (scripts/run_parity_check.R) refuses to run when the candidate's
-# policy_params.yaml hash differs from the manifest — otherwise a config edit
-# would silently rebase the golden (the docs/authority_spec.md impl-req-1 hazard).
+# Run AFTER a build. Copies the per-revision snapshots, the combined timeseries,
+# and the daily CSVs to the EXTERNAL model-data interface (config:
+# model_data_root) at <model_data_root>/golden/<git-sha>/ — NEVER the repo
+# working tree — and writes a manifest recording the exact code + config state
+# the golden was produced under. The parity comparator (scripts/run_parity_check.R)
+# refuses to run when the candidate's policy_params.yaml hash differs from the
+# manifest — otherwise a config edit would silently rebase the golden.
 #
 # Usage (after a build):
 #   Rscript scripts/capture_parity_golden.R
-#   Rscript scripts/capture_parity_golden.R --out tests/golden/baseline_2026-06-03
+#   Rscript scripts/capture_parity_golden.R --out <model_data_root>/golden/baseline_2026-06-03
 # =============================================================================
 
 suppressPackageStartupMessages({
   library(here)
   library(jsonlite)
+})
+source(here('src', 'policy_params.R'))   # load_local_paths() -> model_data_root
+
+# The golden lives on the EXTERNAL model-data interface (config:
+# model_data_root), never in the repo working tree: <model_data_root>/golden/<sha>/.
+MODEL_DATA_ROOT <- local({
+  r <- tryCatch(load_local_paths()$model_data_root, error = function(e) NULL)
+  if (is.null(r) || !nzchar(r)) stop('model_data_root not set (config/local_paths.yaml)') else r
 })
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -50,7 +58,8 @@ git_sha_short <- tryCatch(system('git rev-parse --short HEAD', intern = TRUE), e
 git_dirty <- tryCatch(length(system('git status --porcelain -- src config', intern = TRUE)) > 0,
                       error = function(e) NA)
 
-default_out <- if (is_baseline) here('tests', 'golden', git_sha_short) else here('tests', 'golden', git_sha_short, 'scenarios', scenario)
+golden_base <- file.path(MODEL_DATA_ROOT, 'golden', git_sha_short)
+default_out <- if (is_baseline) golden_base else file.path(golden_base, 'scenarios', scenario)
 golden_root <- get_arg('--out', default_out)
 dir.create(golden_root, recursive = TRUE, showWarnings = FALSE)
 dir.create(file.path(golden_root, 'daily'), recursive = TRUE, showWarnings = FALSE)
