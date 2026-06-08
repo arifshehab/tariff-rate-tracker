@@ -1539,6 +1539,18 @@ calculate_rates_for_revision <- function(
       message('  Excluded ', n_auto_pre - length(auto_products),
               ' blanket chapter products from auto_products')
     }
+    # Same exclusion for MHD parts: a Ch72/73/76 steel/aluminum line that matches
+    # an MHD-parts prefix (e.g. 7320.x automotive springs) is still a metal
+    # product and must take the standard steel/aluminum annex rate, not the MHD
+    # heading rate. Without this strip such lines survive in
+    # heading_program_products and the annex override (below) preserves their
+    # prior 232 rate instead of applying the annex_1a/1b rate.
+    n_mhd_pre <- length(mhd_products)
+    mhd_products <- mhd_products[!substr(mhd_products, 1, 2) %in% blanket_chapters]
+    if (length(mhd_products) < n_mhd_pre) {
+      message('  Excluded ', n_mhd_pre - length(mhd_products),
+              ' blanket chapter products from mhd_products')
+    }
 
     # Keep parts_products a clean subset of the surviving auto/MHD lines (after
     # the semi-strip and blanket-chapter exclusions above), then split whole
@@ -2149,6 +2161,12 @@ calculate_rates_for_revision <- function(
           s232_annex == 'annex_3' ~ pmax(0, annex_cfg$annexes$annex_3$floor_rate - base_rate),
           TRUE ~ rate_232
         ))
+
+      # Record heading-program membership (the exact set the override above keys
+      # on) so downstream consumers and tests can distinguish a legitimately
+      # preserved heading-program rate on annex_2 from an actual leak, without
+      # re-deriving the auto/MHD/copper/wood/semi product lists.
+      rates$heading_program <- rates$hts10 %in% heading_program_products
 
       # 9903.82.01 zero-metal-content carve-out (Note 16(a)):
       # Articles classified in subdivision (c) lists that do not contain any

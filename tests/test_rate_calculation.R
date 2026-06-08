@@ -856,17 +856,18 @@ run_test('Russia aluminum derivative surcharge applies in Annex I-B', {
 run_test('Russia annex_2 products are NOT surcharged (annex II out of scope)', {
   if (!file.exists(rev5_snapshot_path)) skip_test('snapshot_2026_rev_5.rds missing')
   s <- readRDS(rev5_snapshot_path)
+  if (!'heading_program' %in% names(s)) {
+    skip_test('snapshot predates heading_program column — rebuild snapshot_2026_rev_5.rds')
+  }
   ru_a2 <- s %>% filter(country == '4621', s232_annex == 'annex_2')
   if (nrow(ru_a2) == 0) skip_test('no Russia × annex_2 rows')
-  # Annex II removes products from S232 entirely; surcharge does not apply.
-  # The only non-zero rate_232 allowed here is the semi override (25%).
-  semi <- if (file.exists(here('resources', 's232_semi_products.csv'))) {
-    read_csv(here('resources', 's232_semi_products.csv'),
-             col_types = cols(hts10 = col_character()),
-             show_col_types = FALSE)$hts10
-  } else character(0)
-  non_semi_a2 <- ru_a2 %>% filter(!(hts10 %in% semi))
-  stopifnot(all(non_semi_a2$rate_232 == 0))
+  # Annex II removes products from the steel/aluminum/copper 232 tariff only.
+  # The separate heading-program authorities (auto 9903.94, MHD 9903.74, wood
+  # 9903.76, semi 9903.79) are unaffected, so heading-program products keep
+  # their non-zero rate_232 on annex_2 by design (06_calculate_rates.R override).
+  # Everything that is NOT a heading-program product must be surcharge-free.
+  non_hp_a2 <- ru_a2 %>% filter(!heading_program)
+  stopifnot(all(non_hp_a2$rate_232 == 0))
 })
 
 run_test('Russia steel (ch 72/73) does NOT get the aluminum-only surcharge', {
@@ -905,17 +906,17 @@ run_test('Non-Russia countries in ch 76 do NOT get the Russia surcharge', {
   stopifnot(!any(other_alum$rate_232 >= 2.0 - 1e-10))
 })
 
-run_test('Annex II × rate_232>0 is semi-products-only (Note 39a invariant)', {
+run_test('Annex II × rate_232>0 is heading-program-only (Note 39a invariant)', {
   if (!file.exists(rev5_snapshot_path)) skip_test('snapshot_2026_rev_5.rds missing')
-  semi_path <- here('resources', 's232_semi_products.csv')
-  if (!file.exists(semi_path)) skip_test('s232_semi_products.csv missing')
   s <- readRDS(rev5_snapshot_path)
-  semi <- read_csv(semi_path,
-                   col_types = cols(hts10 = col_character()),
-                   show_col_types = FALSE)$hts10
+  if (!'heading_program' %in% names(s)) {
+    skip_test('snapshot predates heading_program column — rebuild snapshot_2026_rev_5.rds')
+  }
+  # Annex II strips only the steel/aluminum/copper 232 tariff. Auto/MHD/wood/semi
+  # heading-program rates are separate authorities and survive on annex_2 by
+  # design; any NON-heading-program product with a non-zero rate_232 is a leak.
   leak <- s %>%
-    filter(s232_annex == 'annex_2', rate_232 > 0) %>%
-    filter(!(hts10 %in% semi))
+    filter(s232_annex == 'annex_2', rate_232 > 0, !heading_program)
   stopifnot(nrow(leak) == 0)
 })
 
