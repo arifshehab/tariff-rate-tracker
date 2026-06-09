@@ -974,6 +974,33 @@ if (sys.nframe() == 0) {
 
   # Parse CLI args
   args <- commandArgs(trailingOnly = TRUE)
+
+  # Fail loud on unrecognized flags. A removed flag that is silently ignored
+  # rots invisibly in wrapper scripts: --publish-internal was dropped from this
+  # CLI but stale wrappers kept passing it, running builds that silently never
+  # published. Value-taking flags consume the following token.
+  KNOWN_FLAGS <- c('--full', '--build-only', '--core-only', '--with-alternatives',
+                   '--alternatives-only', '--refresh-usmca', '--publish-git',
+                   '--allow-partial', '--use-hts-dates', '--unweighted',
+                   '--skip-release-check', '--parallel')
+  VALUE_FLAGS <- c('--start-from', '--rebuild-alts', '--workers', '--alt-workers',
+                   '--backend')
+  i <- 1L
+  while (i <= length(args)) {
+    a <- args[i]
+    if (a %in% VALUE_FLAGS) {
+      i <- i + 2L
+    } else if (a %in% KNOWN_FLAGS) {
+      i <- i + 1L
+    } else if (startsWith(a, '--')) {
+      stop('Unrecognized flag: ', a,
+           '. Known flags: ', paste(c(KNOWN_FLAGS, VALUE_FLAGS), collapse = ' '),
+           '. (Flags are never silently ignored — see todo.md build unification plan.)')
+    } else {
+      i <- i + 1L
+    }
+  }
+
   full_rebuild <- '--full' %in% args
   build_only <- '--build-only' %in% args
   core_only <- '--core-only' %in% args

@@ -96,11 +96,40 @@ publish_git <- function(release_dir = RELEASE_DIR_DEFAULT,
   if (dry_run) message('DRY RUN — no files will be written')
   message(strrep('=', 70))
 
-  # Clear prior data files. README.md and MANIFEST.json at the top of release/
-  # are preserved (they're either hand-written or overwritten below).
+  # Validate EVERY source before touching the prior publication. Publishing is
+  # all-or-nothing: a missing or stale source aborts with nothing deleted and
+  # nothing written. (The old behavior deleted release/data/* first and skipped
+  # bad sources with a message — a path typo or a failed daily-series step
+  # could silently wipe the prior publication and "publish" zero files.)
+  problems <- character(0)
+  for (out in RELEASE_OUTPUTS) {
+    src_path <- file.path(repo_root, out$src)
+    if (!file.exists(src_path)) {
+      problems <- c(problems, paste0('missing: ', out$src))
+      next
+    }
+    info <- file.info(src_path)
+    if (!is.null(build_started_at) && !is.na(info$mtime) &&
+        info$mtime < build_started_at) {
+      problems <- c(problems, paste0('stale: ', out$src, ' (mtime ', info$mtime,
+                                     ' < build start ', build_started_at, ')'))
+    }
+  }
+  if (length(problems) > 0) {
+    stop('publish-git: refusing to publish — ', length(problems), ' of ',
+         length(RELEASE_OUTPUTS), ' source(s) failed validation:\n  ',
+         paste(problems, collapse = '\n  '),
+         '\nNothing was deleted or written. Rebuild the missing/stale outputs ',
+         '(daily series writes to output/actual/daily/), then re-run.')
+  }
+
+  # Clear prior data files (sources validated above). README.md and
+  # MANIFEST.json at the top of release/ are preserved; .gitkeep is kept so
+  # the directory stays tracked between publications.
   if (!dry_run) {
     if (dir.exists(data_dir)) {
-      old <- list.files(data_dir, full.names = TRUE)
+      old <- setdiff(list.files(data_dir, full.names = TRUE, all.files = TRUE, no.. = TRUE),
+                     file.path(data_dir, '.gitkeep'))
       if (length(old) > 0) {
         message('publish-git: removing ', length(old), ' file(s) from prior publication')
         file.remove(old)
@@ -113,17 +142,6 @@ publish_git <- function(release_dir = RELEASE_DIR_DEFAULT,
   written <- list()
   for (out in RELEASE_OUTPUTS) {
     src_path <- file.path(repo_root, out$src)
-    if (!file.exists(src_path)) {
-      message('publish-git: skipping (missing) ', out$src)
-      next
-    }
-    info <- file.info(src_path)
-    if (!is.null(build_started_at) && !is.na(info$mtime) &&
-        info$mtime < build_started_at) {
-      message('publish-git: skipping (stale)   ', out$src,
-              ' (mtime ', info$mtime, ' < build start ', build_started_at, ')')
-      next
-    }
 
     dest_name <- paste0(out$name, '_', date_str, '.', out$format)
     dest_path <- file.path(data_dir, dest_name)
