@@ -13,7 +13,6 @@
 #
 # Schema (all keys optional except `scenarios` may be empty):
 #   model_data_root:    output interface root (else config/local_paths.yaml)
-#   staging_root:       external scratch base   (default <model_data_root>/.staging)
 #   policy_params_path: baseline policy params  (default config/policy_params.yaml)
 #   scenarios:          [names] — config/scenarios/<name>/; `actual` is ALWAYS built
 #   use_hts_dates:      bool (default false → policy dates)
@@ -44,10 +43,6 @@ load_build_config <- function(path, repo_root = here::here()) {
     cfg$model_data_root
   } else .local_model_data_root(repo_root)
 
-  staging <- if (!is.null(cfg$staging_root) && nzchar(cfg$staging_root)) {
-    cfg$staging_root
-  } else file.path(mdr, '.staging')
-
   scen <- as.character(cfg$scenarios %||% character(0))
   scen <- setdiff(scen, 'actual')   # actual is implicit, always built
 
@@ -58,7 +53,6 @@ load_build_config <- function(path, repo_root = here::here()) {
 
   list(
     model_data_root    = mdr,
-    staging_root       = staging,
     policy_params_path = cfg$policy_params_path %||% file.path('config', 'policy_params.yaml'),
     scenarios          = scen,
     use_hts_dates      = isTRUE(cfg$use_hts_dates),

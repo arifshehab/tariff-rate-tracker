@@ -62,8 +62,8 @@ Sys.setenv(TARIFF_SCENARIO = if (is_baseline) '' else scenario)
 # Where the array tasks wrote their snapshots. Overridable (TARIFF_TS_DIR) so the
 # gather can read an isolated candidate build without touching data/timeseries —
 # mirrors scripts/build_revision.R. A named scenario derives its own dir.
-# The `actual`-series staging dir a scenario reuses real-revision snapshots from.
-# Orchestrator sets TARIFF_BASELINE_TS_DIR to the run's staged actual dir; falls
+# The `actual`-series scratch dir a scenario reuses real-revision snapshots from.
+# Orchestrator sets TARIFF_BASELINE_TS_DIR to the run's actual scratch dir; falls
 # back to the in-repo data/timeseries for legacy invocations.
 baseline_dir <- Sys.getenv('TARIFF_BASELINE_TS_DIR', unset = here('data', 'timeseries'))
 ts_dir_env <- Sys.getenv('TARIFF_TS_DIR')
@@ -76,7 +76,10 @@ output_dir <- if (nzchar(ts_dir_env)) {
 }
 
 init_logging(
-  log_file = file.path(ensure_dir(file.path(Sys.getenv('TARIFF_OUTPUT_DIR', unset = here('output')), 'logs')),
+  # Logs go to TARIFF_LOG_DIR (the run's external scratch) when set, so they stay
+  # out of the published vintage; otherwise TARIFF_OUTPUT_DIR/logs (or output/logs).
+  log_file = file.path(ensure_dir(Sys.getenv('TARIFF_LOG_DIR',
+                         unset = file.path(Sys.getenv('TARIFF_OUTPUT_DIR', unset = here('output')), 'logs'))),
                        paste0('gather_', format(Sys.time(), '%Y%m%d_%H%M%S'), '.log')),
   level = 'info'
 )
@@ -171,8 +174,8 @@ for (rev_id in ordered) {
 }
 
 # ---- 2. products_raw.csv from the latest revision (serial "last write wins") ----
-# Written into the staging tree (output_dir), NOT the repo — the build never writes
-# the working tree. It is an intermediate (not part of the published vintage layout).
+# Written into the scratch (output_dir = TARIFF_TS_DIR), NOT the repo — a transient
+# intermediate the finalize discards (not part of the published vintage layout).
 last_rev <- ordered[length(ordered)]
 products_last <- readRDS(file.path(output_dir, paste0('products_', last_rev, '.rds')))
 products_raw_path <- file.path(output_dir, 'products_raw.csv')
@@ -227,8 +230,10 @@ saveRDS(metadata, file.path(output_dir, 'metadata.rds'))
 message('Wrote metadata: ', file.path(output_dir, 'metadata.rds'))
 message('Gather complete (streaming; combined panel skipped).')
 
-# Publishing is NO LONGER done here. The gather only assembles + writes the series'
-# downstream into the staging tree. The orchestrator (scripts/submit_build_array.sh)
-# builds every series (actual + each scenario) into one staging dir, then runs the
-# single publish step (scripts/publish_vintage.R -> write_build_output) ONCE, emitting
-# <model_data_root>/<vintage>/{actual, scenarios/<name>}/... for the whole run.
+# The gather wrote this series' daily/quality DIRECTLY into the vintage
+# (TARIFF_OUTPUT_DIR), and left its snapshot_<rev>.rds + metadata.rds in the
+# scratch (TARIFF_TS_DIR). Finalizing — splitting the scratch snapshots into the
+# vintage's snapshots/ parquet, writing the manifest, repointing `latest`, and
+# removing the scratch — is the orchestrator's single finalize step
+# (scripts/submit_build_array.sh -> scripts/publish_vintage.R) once ALL series'
+# gathers have completed. Not done here.

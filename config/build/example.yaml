@@ -4,14 +4,12 @@
 # Produces ONE timestamped vintage under model_data_root containing the `actual`
 # series plus a subfolder per scenario listed below:
 #   <model_data_root>/<vintage>/{actual, scenarios/forced_labor, scenarios/new_301}/...
-# Nothing is written into the repository working tree (staging is external + cleaned).
+# The build writes its outputs straight into the vintage; the only transient
+# files are per-revision rds caches under <model_data_root>/.work/<vintage>/,
+# which the finalize step removes. Nothing is written into the repo working tree.
 
 # Output interface root. Omit to inherit config/local_paths.yaml:model_data_root.
 model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker
-
-# External scratch base for intermediate snapshots/parts. Omit -> <model_data_root>/.staging.
-# A per-run subdir <staging_root>/<vintage>/ is created, published from, and removed.
-staging_root: null
 
 # Baseline policy params (current law). Scenario overlays deep-merge onto this.
 policy_params_path: config/policy_params.yaml

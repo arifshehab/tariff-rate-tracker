@@ -54,9 +54,11 @@ if (!file.exists(timeline_path)) {
 }
 
 init_logging(
-  # Logs follow output_root() (TARIFF_OUTPUT_DIR) so a config-driven run keeps them
-  # in external staging, never the repo working tree.
-  log_file = file.path(ensure_dir(file.path(Sys.getenv('TARIFF_OUTPUT_DIR', unset = here('output')), 'logs')),
+  # Logs go to TARIFF_LOG_DIR (the run's external scratch) when set, so they stay
+  # out of the published vintage and never touch the repo working tree; otherwise
+  # they fall back to TARIFF_OUTPUT_DIR/logs (or output/logs for a dev run).
+  log_file = file.path(ensure_dir(Sys.getenv('TARIFF_LOG_DIR',
+                         unset = file.path(Sys.getenv('TARIFF_OUTPUT_DIR', unset = here('output')), 'logs'))),
                        paste0('build_rev_', rev_id, '.log')),
   level = 'info'
 )
