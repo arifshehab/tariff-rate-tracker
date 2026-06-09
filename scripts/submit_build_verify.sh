@@ -8,11 +8,16 @@
 #
 # What it runs:
 #   1. Rscript src/00_build_timeseries.R --full          (rebuild all snapshots + downstream)
-#   2. Rscript tests/test_rate_calculation.R             (expect 91 pass / 0 fail)
+#   2. Rscript tests/test_rate_calculation.R             (expect 92 pass / 0 fail)
 #   3. Inline sanity checks on the rebuilt snapshot_2026_rev_5.rds:
 #        - Russia (4621) 7320.x springs: annex_1a rate_232 == 0.50 (was 2.0; mhd strip)
 #        - Russia 7308.20 aluminum derivative: still 2.0 (correct)
 #        - heading_program column present; annex_2 non-heading-program rate_232 == 0
+#   4. rev_10 / Annex I-C sanity checks (added 2026-06-09 with the rev_10 merge):
+#        - snapshot_2026_rev_10.rds exists; (c)(xi) codes carry annex_1c rate_232
+#          (0.25 default, >= 0.15 framework floor everywhere)
+#        - bnd_2026-06-08 NOT re-minted (edge-coincident with rev_10; superseded)
+#        - panel has zero NA valid_from/valid_until rows (orphan-gate regression check)
 #
 # Profile mirrors submit_build_core.sh (the validation profile): full rebuild of
 # the timeseries + downstream daily/ETR/quality, no alternatives, no publish.
@@ -93,6 +98,27 @@ Rscript -e '
     cat("annex_2 non-heading-program leak rows (expect 0):", nrow(leak), "\n")
   }
 ' || echo "!!! sanity check errored"
+
+echo ">>> STEP 4: rev_10 / Annex I-C sanity checks"
+Rscript -e '
+  suppressPackageStartupMessages({library(dplyr); library(arrow)})
+  p <- "data/timeseries/snapshot_2026_rev_10.rds"
+  cat("snapshot_2026_rev_10 exists:", file.exists(p), "\n")
+  if (file.exists(p)) {
+    s <- readRDS(p)
+    cxi <- s %>% filter(s232_annex == "annex_1c")
+    cat("annex_1c rows:", nrow(cxi),
+        "| distinct hts10:", n_distinct(cxi$hts10),
+        "| rate_232 range:", if (nrow(cxi)) paste(range(cxi$rate_232), collapse="-") else "NA",
+        "| all >= 0.15:", if (nrow(cxi)) all(cxi$rate_232 >= 0.15 - 1e-9) else NA,
+        "| any == 0.25:", if (nrow(cxi)) any(abs(cxi$rate_232 - 0.25) < 1e-9) else NA, "\n")
+  }
+  cat("bnd_2026-06-08 NOT re-minted (expect TRUE):",
+      !file.exists("data/timeseries/snapshot_bnd_2026-06-08.rds"), "\n")
+  ds <- open_dataset("data/timeseries/rate_timeseries.parquet")
+  na_n <- ds %>% filter(is.na(valid_from) | is.na(valid_until)) %>% count() %>% collect()
+  cat("panel rows with NA intervals (expect 0):", na_n$n, "\n")
+' || echo "!!! rev_10 sanity check errored"
 
 echo "=========================================================="
 echo "End:    $(date -Iseconds)   build=$BUILD_RC test=$TEST_RC"
