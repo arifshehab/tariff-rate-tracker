@@ -397,6 +397,25 @@ assemble_timeseries <- function(output_dir, rev_dates, pp_build,
     }
   }
 
+  # Orphan gate (mirror of the completeness gate): a snapshot on disk whose
+  # revision id has no row in rev_dates would assemble into the panel but get
+  # NA valid_from/valid_until from the interval join — poisoning downstream
+  # date-range logic (min(valid_from) in the daily series). This happened with
+  # a stale snapshot_2026_rev_8.rds left over after rev_8 was excluded from
+  # revision_dates.csv (2026-06-08 build carried 4.8M NA-interval rows).
+  # rev_dates includes synthetic bnd_/sched_ rows by this point, so any
+  # mismatch is a genuinely stale or foreign file: fail loud and name it.
+  revs_on_disk <- sub('^snapshot_', '', tools::file_path_sans_ext(basename(all_snapshot_files)))
+  orphan_revs <- setdiff(revs_on_disk, rev_dates$revision)
+  if (length(orphan_revs) > 0) {
+    stop('assemble_timeseries: ', length(orphan_revs),
+         ' snapshot(s) on disk have no revision_dates row: ',
+         paste(orphan_revs, collapse = ', '),
+         '. They would enter the panel with NA valid_from/valid_until. ',
+         'Delete the stale snapshot_*.rds (and matching ch99_/products_/delta_ ',
+         'files) from ', output_dir, ' or add the revision to revision_dates.csv.')
+  }
+
   # Streaming fill instead of rbindlist. The full panel is ~210M rows x 33
   # cols (~50 GB in memory) after the 2026-06-04 universe expansion; rbindlist
   # requires the list of all snapshots AND the bound result to coexist
