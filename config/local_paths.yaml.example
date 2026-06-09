@@ -39,8 +39,8 @@ tpc_benchmark: data/tpc/tariff_by_flow_day.csv
 tariff_etrs_repo: null
 
 # Model-data interface root — the EXTERNAL, shared location the build publishes
-# hour-stamped output vintages to AND where parity goldens live. Build output
-# never lands in the repo working tree; it routes here. tariff-model reads
-# <root>/<vintage>/actual/snapshots/; goldens live at <root>/golden/<sha>/.
-# Without this: falls back to the default in src/policy_params.R.
+# hour-stamped output vintages to. Build output never lands in the repo working
+# tree; it routes here. tariff-model reads <root>/<vintage>/actual/snapshots/;
+# <root>/latest points at the newest vintage and is the reference for
+# parity/impact comparisons. Without this: falls back to src/policy_params.R.
 model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker

@@ -470,7 +470,7 @@ build_quality_inputs_streaming <- function(snapshot_dir, rev_dates, pp = NULL) {
 run_quality_report <- function(
   ts = NULL,
   timeseries_path = here('data', 'timeseries', 'rate_timeseries.rds'),
-  output_dir = actual_quality_dir(),
+  output_dir = series_section_dir('quality'),
   snapshot_dir = NULL,
   rev_dates = NULL
 ) {

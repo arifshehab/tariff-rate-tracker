@@ -1,0 +1,73 @@
+# Scenario: new_301
+# =============================================================================
+# The full "new Section 301 regime" that steps into the expiring §122 surcharge's
+# place — BOTH June-2026 USTR §301 actions active together:
+#   1. Section 301 "Forced Labor" (FRN 91 FR 34272, 2026-06-05) — 10%/12.5% on
+#      ALL products of 60 economies except Annex A. (Unchanged from the
+#      forced_labor scenario; see config/scenarios/forced_labor/overlay.yaml.)
+#   2. Section 301 "Brazil" (FR Doc 2026-11158, published 2026-06-01) — 25% on
+#      ALL goods of Brazil (census 3510) except a Brazil Annex, with a HARD
+#      §232 carve-out.
+#
+# STACKING (confirmed legal treatment, FR Doc 2026-11158): the two §301 actions
+# stack ADDITIVELY. §301 duties are statutorily imposed "in addition to" all
+# other duties; the two notices were issued one day apart and NEITHER carves out
+# the other (no non-duplication rule). So a Brazilian good not exempt under either
+# annex receives 12.5% (forced-labor) + 25% (Brazil) on its non-§232 content.
+# Brazil therefore STAYS in the forced-labor tier_12_5pct below — both apply.
+# Each authority gates on its OWN exempt list, so the Brazil-vs-FL annex
+# differences resolve with no special-casing. (Validation: GTA's headline
+# aggregate looks closer to a higher-of/replacement model than additive — that is
+# reconciled AFTER building, not baked in here. See plan + memory
+# [[brazil-301-new301-scenario]].)
+#
+# §122 is moot here: it expires 2026-07-23 and both §301s turn on 2026-07-24, so
+# they never overlap in time.
+#
+# Run:  TARIFF_SCENARIO=new_301 (or scripts/build_gather.R --scenario new_301)
+#       -> data/timeseries/new_301/. Baseline (actual) stays byte-identical.
+# =============================================================================
+
+# --- Action 1: forced-labor §301 (identical to the forced_labor scenario) -----
+# content_split + USMCA-eligible clone of ieepa_reciprocal, per-country two-tier,
+# all products minus Annex A. Built only because this block is present; date-gated.
+section_301_forced_labor:
+  effective_date: '2026-07-24'
+  rate_10: 0.10
+  rate_12_5: 0.125
+  exempt_products: 'resources/s301fl_exempt_products.csv'
+  # 10% tier — 14 economies (EU expanded to its 27 member census codes; Taiwan,
+  # Canada, Mexico, UK individual). Census codes.
+  tier_10pct: ['1220', '2010', '2050', '2110', '3310', '3570', '4010', '4050',
+               '4099', '4120', '4190', '4210', '4231', '4239', '4279', '4280',
+               '4330', '4351', '4359', '4370', '4470', '4490', '4510', '4550',
+               '4700', '4710', '4730', '4759', '4791', '4792', '4840', '4850',
+               '4870', '4910', '5350', '5380', '5550', '5570', '5600', '5830']
+  # 12.5% tier — the other 46 economies (incl. 5700 China, 5820 Hong Kong,
+  # 5520 Vietnam, 5800 South Korea, 5880 Japan, 5330 India, 3510 Brazil, ...).
+  # Brazil (3510) STAYS here — the Brazil §301 below stacks additively on top.
+  tier_12_5pct: ['2150', '2190', '2230', '2360', '2470', '2740', '3010', '3070',
+                 '3120', '3330', '3370', '3510', '3550', '4039', '4419', '4621',
+                 '4634', '4890', '5050', '5081', '5110', '5130', '5170', '5180',
+                 '5200', '5230', '5250', '5330', '5420', '5490', '5520', '5590',
+                 '5650', '5700', '5800', '5820', '5880', '6021', '6141', '7140',
+                 '7210', '7250', '7290', '7530', '7620', '7910']
+
+# --- Action 2: Brazil §301 (new authority) ------------------------------------
+# content_split + usmca 'none' (Brazil isn't USMCA). 25% on all goods of Brazil
+# minus the Brazil Annex. The content_split class implements the notice's hard
+# §232 carve-out (metals + autos/MHD) via nonmetal_share. Date-gated like FL.
+section_301_brazil:
+  effective_date: '2026-07-24'
+  rate: 0.25
+  country: '3510'                                   # Brazil census code
+  exempt_products: 'resources/s301_brazil_exempt_products.csv'
+
+# Materialize the 2026-07-24 turn-on as a synthetic boundary-mint revision (it
+# coincides with the §122 expiry boundary 2026-07-23 + 1, which
+# discover_boundaries() subtracts — so it MUST be re-listed here). Both §301
+# authorities are DATE-gated, so the empty-ops mint at 2026-07-24 activates them.
+# deep-merge REPLACES a list wholesale, so re-list the baseline overrides too:
+# 2026-06-08 = §232 metals Annex I-C/III update (Proc. 11032); 2026-09-29 = pharma
+# §232 turn-on; 2026-07-24 = the §301 turn-on. Keep all three.
+boundary_overrides: ['2026-06-08', '2026-07-24', '2026-09-29']

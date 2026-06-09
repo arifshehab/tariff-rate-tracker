@@ -11,6 +11,7 @@ suppressPackageStartupMessages({
 })
 
 source(here('src', 'parity.R'))
+source(here('src', 'policy_params.R'))   # load_local_paths() -> model_data_root
 
 args <- commandArgs(trailingOnly = TRUE)
 get_arg <- function(flag, default = NULL) {
@@ -18,34 +19,38 @@ get_arg <- function(flag, default = NULL) {
   if (length(i) && i[1] < length(args)) args[i[1] + 1] else default
 }
 
-golden_root    <- get_arg('--golden')
+# Reference = the latest published vintage by default (<model_data_root>/latest).
+default_reference <- local({
+  r <- tryCatch(load_local_paths()$model_data_root, error = function(e) NULL)
+  if (is.null(r) || !nzchar(r)) NULL else file.path(r, 'latest')
+})
+reference_root <- get_arg('--reference', default_reference)
 candidate_root <- get_arg('--candidate', here())
 artifacts_arg  <- get_arg('--artifacts', 'snapshot,daily_overall,daily_by_authority,daily_by_country,daily_by_category')
 manifest_path  <- get_arg('--manifest', file.path('output', 'parity_manifest.tsv'))
 
-if (is.null(golden_root)) stop('--golden <dir> is required', call. = FALSE)
-if (!dir.exists(golden_root)) stop('golden dir not found: ', golden_root, call. = FALSE)
+if (is.null(reference_root)) stop('--reference <dir> required (model_data_root/latest not resolvable)', call. = FALSE)
+if (!dir.exists(reference_root)) stop('reference dir not found: ', reference_root, call. = FALSE)
 
 kinds <- strsplit(artifacts_arg, ',')[[1]]
 
 resolve_build_dirs <- function(root) {
-  has_frozen <- file.exists(file.path(root, 'rate_timeseries.rds')) ||
-    length(list.files(root, pattern = '^snapshot_.*\\.rds$')) > 0
-  if (has_frozen) {
-    return(list(ts_dir = root, daily_dir = file.path(root, 'daily')))
+  if (dir.exists(file.path(root, 'actual', 'daily'))) {
+    return(list(ts_dir = file.path(root, 'actual', 'snapshots'),
+                daily_dir = file.path(root, 'actual', 'daily')))
   }
   if (dir.exists(file.path(root, 'data', 'timeseries'))) {
     return(list(ts_dir = file.path(root, 'data', 'timeseries'),
                 daily_dir = file.path(root, 'output', 'actual', 'daily')))
   }
-  list(ts_dir = root, daily_dir = root)
+  list(ts_dir = root, daily_dir = file.path(root, 'daily'))
 }
 
 artifact_dir_for <- function(dirs, kind) {
   if (grepl('^daily', kind)) dirs$daily_dir else dirs$ts_dir
 }
 
-gd <- resolve_build_dirs(golden_root)
+gd <- resolve_build_dirs(reference_root)
 cd <- resolve_build_dirs(candidate_root)
 
 rows <- list()
@@ -62,7 +67,7 @@ for (kind in kinds) {
       kind = kind,
       file = f,
       label = paste0(kind, ':', f),
-      golden_path = file.path(dir_g, f),
+      reference_path = file.path(dir_g, f),
       candidate_path = file.path(dir_c, f)
     )
   }
@@ -72,7 +77,7 @@ manifest <- if (length(rows)) bind_rows(rows) else tibble(
   kind = character(),
   file = character(),
   label = character(),
-  golden_path = character(),
+  reference_path = character(),
   candidate_path = character()
 )
 

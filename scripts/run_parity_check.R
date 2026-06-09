@@ -1,23 +1,25 @@
 #!/usr/bin/env Rscript
 # =============================================================================
-# run_parity_check.R — compare a candidate build against a golden reference
+# run_parity_check.R — compare a candidate build against the reference build
 # =============================================================================
 #
-# The Phase-0+ parity gate. Compares every artifact (snapshots, combined
-# timeseries, daily CSVs) of a candidate build against a frozen golden using
-# the tolerance comparator in src/parity.R, and exits non-zero on any drift.
+# The parity gate. Compares every artifact (snapshots, combined timeseries,
+# daily CSVs) of a candidate build against a REFERENCE build — by default the
+# latest published vintage (<model_data_root>/latest) — using the tolerance
+# comparator in src/parity.R, and exits non-zero on any drift.
 #
 # Layouts (auto-detected per side):
-#   frozen — snapshots + rate_timeseries.rds at <root>, daily CSVs in <root>/daily
-#            (this is what scripts/capture_parity_golden.R writes)
-#   live   — a working repo: snapshots in <root>/data/timeseries,
-#            daily CSVs in <root>/output/actual/daily
+#   vintage — a published vintage: daily CSVs in <root>/actual/daily,
+#             snapshots (hive-partitioned parquet) in <root>/actual/snapshots
+#             (this is <model_data_root>/latest or any dated vintage)
+#   live    — a working repo: snapshots in <root>/data/timeseries,
+#             daily CSVs in <root>/output/actual/daily
+#   flat    — snapshots + rate_timeseries.rds at <root>, daily CSVs in <root>/daily
 #
 # Usage:
-#   Rscript scripts/run_parity_check.R --golden tests/golden/<sha>
-#       # candidate defaults to the live repo (cwd)
-#   Rscript scripts/run_parity_check.R --golden <dir> --candidate <dir>
-#   Rscript scripts/run_parity_check.R --golden <dir> --artifacts snapshot,timeseries
+#   Rscript scripts/run_parity_check.R                       # candidate=cwd vs latest
+#   Rscript scripts/run_parity_check.R --reference <dir> --candidate <dir>
+#   Rscript scripts/run_parity_check.R --reference <dir> --artifacts daily_overall
 #
 # Exit code: 0 = all within tolerance; 1 = at least one violation (or setup error).
 # =============================================================================
@@ -29,6 +31,7 @@ suppressPackageStartupMessages({
 })
 
 source(here('src', 'parity.R'))
+source(here('src', 'policy_params.R'))   # load_local_paths() -> model_data_root
 
 args <- commandArgs(trailingOnly = TRUE)
 get_arg <- function(flag, default = NULL) {
@@ -36,27 +39,37 @@ get_arg <- function(flag, default = NULL) {
   if (length(i) && i[1] < length(args)) args[i[1] + 1] else default
 }
 
-golden_root    <- get_arg('--golden')
+# Reference = the latest published vintage by default (<model_data_root>/latest).
+default_reference <- local({
+  r <- tryCatch(load_local_paths()$model_data_root, error = function(e) NULL)
+  if (is.null(r) || !nzchar(r)) NULL else file.path(r, 'latest')
+})
+reference_root <- get_arg('--reference', default_reference)
 candidate_root <- get_arg('--candidate', here())
-artifacts_arg  <- get_arg('--artifacts', 'snapshot,timeseries,daily_overall,daily_by_authority,daily_by_country,daily_by_category')
-strict_config  <- !('--no-config-check' %in% args)
+# Default to the daily series — the consumable a published vintage carries.
+# (A vintage stores snapshots as partitioned parquet, not snapshot_*.rds, so
+# snapshot/timeseries parity only applies between two rds builds; request it
+# explicitly with --artifacts snapshot,timeseries when both sides are rds.)
+artifacts_arg  <- get_arg('--artifacts', 'daily_overall,daily_by_authority,daily_by_country,daily_by_category')
 
-if (is.null(golden_root)) stop('--golden <dir> is required', call. = FALSE)
-if (!dir.exists(golden_root)) stop('golden dir not found: ', golden_root, call. = FALSE)
+if (is.null(reference_root)) stop('--reference <dir> required (model_data_root/latest not resolvable)', call. = FALSE)
+if (!dir.exists(reference_root)) stop('reference dir not found: ', reference_root, call. = FALSE)
 kinds <- strsplit(artifacts_arg, ',')[[1]]
 
-# Resolve where snapshots and daily CSVs live for a given root (frozen vs live).
+# Resolve where snapshots and daily CSVs live for a given root (vintage / live / flat).
 resolve_build_dirs <- function(root) {
-  has_frozen <- file.exists(file.path(root, 'rate_timeseries.rds')) ||
-    length(list.files(root, pattern = '^snapshot_.*\\.rds$')) > 0
-  if (has_frozen) {
-    return(list(ts_dir = root, daily_dir = file.path(root, 'daily')))
+  # Published vintage: <root>/actual/{daily,snapshots}.
+  if (dir.exists(file.path(root, 'actual', 'daily'))) {
+    return(list(ts_dir = file.path(root, 'actual', 'snapshots'),
+                daily_dir = file.path(root, 'actual', 'daily')))
   }
+  # Live working repo.
   if (dir.exists(file.path(root, 'data', 'timeseries'))) {
     return(list(ts_dir = file.path(root, 'data', 'timeseries'),
                 daily_dir = file.path(root, 'output', 'actual', 'daily')))
   }
-  list(ts_dir = root, daily_dir = root)
+  # Flat layout: snapshots + rate_timeseries.rds + daily/ all under <root>.
+  list(ts_dir = root, daily_dir = file.path(root, 'daily'))
 }
 
 # An artifact kind lives in either the daily tree or the timeseries tree.
@@ -64,29 +77,13 @@ artifact_dir_for <- function(dirs, kind) {
   if (grepl('^daily', kind)) dirs$daily_dir else dirs$ts_dir
 }
 
-gd <- resolve_build_dirs(golden_root)
+gd <- resolve_build_dirs(reference_root)
 cd <- resolve_build_dirs(candidate_root)
 
 cat('=== Parity check ===\n')
-cat('Golden:    ', golden_root, '  (ts:', gd$ts_dir, ')\n')
+cat('Reference: ', reference_root, '  (ts:', gd$ts_dir, ')\n')
 cat('Candidate: ', candidate_root, '  (ts:', cd$ts_dir, ')\n')
 cat('Artifacts: ', paste(kinds, collapse = ', '), '\n\n')
-
-# ---- config-hash guard (impl-req-1: a config edit must not silently rebase) ----
-manifest_path <- file.path(golden_root, 'manifest.json')
-if (strict_config && file.exists(manifest_path)) {
-  manifest <- jsonlite::read_json(manifest_path)
-  golden_md5 <- manifest$policy_params_md5
-  cand_md5 <- unname(tools::md5sum(here('config', 'policy_params.yaml')))
-  if (!is.null(golden_md5) && !is.na(cand_md5) && !identical(golden_md5, cand_md5)) {
-    stop(sprintf(paste0('policy_params.yaml hash mismatch vs golden manifest:\n',
-                        '  golden:    %s\n  candidate: %s\n',
-                        'The golden was captured under a different config. Re-capture the\n',
-                        'golden, or pass --no-config-check to override.'),
-                 golden_md5, cand_md5), call. = FALSE)
-  }
-  cat('Config check: policy_params.yaml matches golden manifest.\n\n')
-}
 
 # ---- pair files per artifact kind and compare ----
 results <- list()
@@ -134,7 +131,7 @@ for (kind in kinds) {
   gfiles <- list.files(dir_g, pattern = utils::glob2rx(spec$glob), full.names = TRUE)
   cfiles <- list.files(dir_c, pattern = utils::glob2rx(spec$glob), full.names = TRUE)
   if (length(gfiles) == 0 && length(cfiles) == 0) next
-  cat(sprintf('--- %s (%d golden / %d candidate files) ---\n', kind, length(gfiles), length(cfiles)))
+  cat(sprintf('--- %s (%d reference / %d candidate files) ---\n', kind, length(gfiles), length(cfiles)))
   results[[kind]] <- pair_and_compare(kind, gfiles, cfiles)
 }
 

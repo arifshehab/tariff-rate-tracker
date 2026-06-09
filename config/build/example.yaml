@@ -1,0 +1,27 @@
+# Build-run config — the SINGLE input to the build.
+#   SCENARIO build:  bash scripts/submit_build_array.sh --config config/build/example.yaml
+#
+# Produces ONE timestamped vintage under model_data_root containing the `actual`
+# series plus a subfolder per scenario listed below:
+#   <model_data_root>/<vintage>/{actual, scenarios/forced_labor, scenarios/new_301}/...
+# The build writes its outputs straight into the vintage; the only transient
+# files are per-revision rds caches under <model_data_root>/.work/<vintage>/,
+# which the finalize step removes. Nothing is written into the repo working tree.
+
+# Output interface root. Omit to inherit config/local_paths.yaml:model_data_root.
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker
+
+# Baseline policy params (current law). Scenario overlays deep-merge onto this.
+policy_params_path: config/policy_params.yaml
+
+# Scenarios to build alongside `actual` (each maps to config/scenarios/<name>/overlay.yaml).
+# `actual` is ALWAYS built; do not list it here. Empty list = actual only.
+scenarios:
+  - forced_labor
+  - new_301
+
+# Flags
+use_hts_dates: false        # false -> policy effective dates (default)
+weight_mode: required       # required | unweighted
+update_latest: true         # repoint <model_data_root>/latest at this vintage
+allow_partial: false        # false -> fail loud if any expected revision snapshot is missing

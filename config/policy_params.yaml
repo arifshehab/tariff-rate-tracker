@@ -173,7 +173,7 @@ section_232_headings:
   # Pharmaceuticals (chapter 30) — DORMANT 232 sub-program (register-then-activate).
   # No Ch99 backing in baseline => extract_section232_rates sets pharma_rate = 0 and
   # compute_heading_gates gates this OFF, so the heading loop skips it => byte-
-  # identical to golden. A scenario activates it via
+  # identical to baseline. A scenario activates it via
   # set_rate(section_232, program='pharmaceuticals', rate=X). usmca_exempt: true
   # routes it through the generic s232_usmca_eligible path (full (1 - usmca_share)
   # scaling; ch30 isn't auto/MHD). Reciprocal/s122 displacement rides the normal

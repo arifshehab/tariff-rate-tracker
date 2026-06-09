@@ -53,20 +53,19 @@ is_baseline <- !nzchar(scenario) || scenario %in% c('actual', 'baseline')
 # Propagate to any nested load_policy_params().
 Sys.setenv(TARIFF_SCENARIO = if (is_baseline) '' else scenario)
 
-# Isolate DOWNSTREAM outputs too. run_daily_series() -> save_daily_outputs() writes
-# to output_root()/actual/daily (actual_daily_dir, src/output_paths.R), which is NOT
-# TARIFF_TS_DIR — so without this a scenario's daily/ETR series would CLOBBER the
-# baseline output/actual/daily. Route output_root to a scenario-specific tree via
-# TARIFF_OUTPUT_DIR unless the caller already set one.
-if (!is_baseline && !nzchar(Sys.getenv('TARIFF_OUTPUT_DIR'))) {
-  Sys.setenv(TARIFF_OUTPUT_DIR = file.path('output', paste0('scenario_', scenario)))
-  message('  Scenario "', scenario, '": downstream outputs -> ', Sys.getenv('TARIFF_OUTPUT_DIR'))
-}
+# Downstream output placement is series-aware (src/output_paths.R): the writers route
+# their section dir through series_section_dir(), which reads TARIFF_SERIES — 'actual'
+# -> output_root()/actual/<section>, a scenario name -> output_root()/scenarios/<name>/
+# <section>. The orchestrator (scripts/submit_build_array.sh) sets TARIFF_SERIES +
+# TARIFF_OUTPUT_DIR per series, so this gather no longer routes output itself.
 
 # Where the array tasks wrote their snapshots. Overridable (TARIFF_TS_DIR) so the
 # gather can read an isolated candidate build without touching data/timeseries —
 # mirrors scripts/build_revision.R. A named scenario derives its own dir.
-baseline_dir <- here('data', 'timeseries')
+# The `actual`-series scratch dir a scenario reuses real-revision snapshots from.
+# Orchestrator sets TARIFF_BASELINE_TS_DIR to the run's actual scratch dir; falls
+# back to the in-repo data/timeseries for legacy invocations.
+baseline_dir <- Sys.getenv('TARIFF_BASELINE_TS_DIR', unset = here('data', 'timeseries'))
 ts_dir_env <- Sys.getenv('TARIFF_TS_DIR')
 output_dir <- if (nzchar(ts_dir_env)) {
   ts_dir_env
@@ -77,7 +76,10 @@ output_dir <- if (nzchar(ts_dir_env)) {
 }
 
 init_logging(
-  log_file = file.path(ensure_dir(here('output', 'logs')),
+  # Logs go to TARIFF_LOG_DIR (the run's external scratch) when set, so they stay
+  # out of the published vintage; otherwise TARIFF_OUTPUT_DIR/logs (or output/logs).
+  log_file = file.path(ensure_dir(Sys.getenv('TARIFF_LOG_DIR',
+                         unset = file.path(Sys.getenv('TARIFF_OUTPUT_DIR', unset = here('output')), 'logs'))),
                        paste0('gather_', format(Sys.time(), '%Y%m%d_%H%M%S'), '.log')),
   level = 'info'
 )
@@ -172,13 +174,15 @@ for (rev_id in ordered) {
 }
 
 # ---- 2. products_raw.csv from the latest revision (serial "last write wins") ----
+# Written into the scratch (output_dir = TARIFF_TS_DIR), NOT the repo — a transient
+# intermediate the finalize discards (not part of the published vintage layout).
 last_rev <- ordered[length(ordered)]
 products_last <- readRDS(file.path(output_dir, paste0('products_', last_rev, '.rds')))
-dir.create(here('data', 'processed'), recursive = TRUE, showWarnings = FALSE)
+products_raw_path <- file.path(output_dir, 'products_raw.csv')
 products_last %>%
   mutate(ch99_refs = vapply(ch99_refs, paste, FUN.VALUE = character(1), collapse = ';')) %>%
   select(hts10, base_rate, base_rate_raw, ch99_refs, n_ch99_refs, description) %>%
-  write_csv(here('data', 'processed', 'products_raw.csv'))
+  write_csv(products_raw_path)
 
 # ---- 3. Downstream ----
 # Daily binds the small daily_part_<rev>.rds files written by the array tasks
@@ -226,31 +230,10 @@ saveRDS(metadata, file.path(output_dir, 'metadata.rds'))
 message('Wrote metadata: ', file.path(output_dir, 'metadata.rds'))
 message('Gather complete (streaming; combined panel skipped).')
 
-# ---- 5. Write the build output to the model-data interface ----
-# A baseline build's output IS the hour-aligned vintage on the configured
-# interface (config/local_paths.yaml: model_data_root) — it writes the vintage
-# and repoints `latest` (what tariff-model reads). A failed write fails the
-# build. Scenario builds reach the interface via the next baseline build's sweep,
-# not here.
-#
-# LOCAL / OFF-SERVER OPT-OUT: set TARIFF_NO_PUBLISH=1 to skip the interface
-# write entirely. The build's snapshots + outputs still land in-repo
-# (data/timeseries/, output/actual/), so a machine with no model-data interface
-# (laptop, CI, scratch/verification/parity rebuilds that must NOT clobber the
-# live interface) can run the gather without configuring model_data_root.
-#   TARIFF_NO_PUBLISH=1 Rscript scripts/build_gather.R ...
-publish_off <- nzchar(Sys.getenv('TARIFF_NO_PUBLISH', ''))
-if (!is_baseline) {
-  message('Interface write deferred: scenario build "', scenario,
-          '" (written by the next baseline build\'s sweep).')
-} else if (publish_off) {
-  message('Interface write skipped: TARIFF_NO_PUBLISH set ',
-          '(off-server / verification / scratch build). ',
-          'Output stays in-repo (data/timeseries/, output/).')
-} else {
-  source(here('src', 'write_output.R'))
-  # build_started_at = NULL: the gather just finalized metadata.rds, so skip the
-  # stale-snapshot guard (it would false-trip on the file we just wrote).
-  res <- write_build_output(build_started_at = NULL)
-  message('Wrote vintage to interface: ', res$vintage_dir, ' (latest -> ', res$vintage, ')')
-}
+# The gather wrote this series' daily/quality DIRECTLY into the vintage
+# (TARIFF_OUTPUT_DIR), and left its snapshot_<rev>.rds + metadata.rds in the
+# scratch (TARIFF_TS_DIR). Finalizing — splitting the scratch snapshots into the
+# vintage's snapshots/ parquet, writing the manifest, repointing `latest`, and
+# removing the scratch — is the orchestrator's single finalize step
+# (scripts/submit_build_array.sh -> scripts/publish_vintage.R) once ALL series'
+# gathers have completed. Not done here.

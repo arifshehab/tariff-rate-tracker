@@ -79,7 +79,7 @@ export_snapshot_for_etrs <- function(ts,
   # only when that authority is live), so surface it when there, omit it otherwise.
   # total_rate already includes its contribution either way.
   export <- snapshot %>%
-    select(all_of(export_cols), any_of('rate_s301fl'))
+    select(all_of(export_cols), any_of('rate_s301fl'), any_of('rate_s301br'))
 
   # Write
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)

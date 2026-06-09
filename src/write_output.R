@@ -59,7 +59,7 @@ source(here('src', 'policy_params.R'))  # load_policy_params -> SERIES_HORIZON_E
 
 # Model-data interface root — read from config (config/local_paths.yaml:
 # model_data_root), NOT hardcoded. Single external location the build publishes
-# hour-stamped output vintages to and where parity goldens live; never the repo.
+# hour-stamped output vintages to and where parity references live; never the repo.
 SHARED_ROOT_DEFAULT <- tryCatch(load_local_paths()$model_data_root, error = function(e) NULL)
 
 
@@ -79,6 +79,17 @@ SHARED_ROOT_DEFAULT <- tryCatch(load_local_paths()$model_data_root, error = func
 #' @param include_scenarios If TRUE (default), publish every dir under
 #'   output/scenarios/. Set FALSE to publish only the actual/ (current-law)
 #'   tree — e.g. when scenario outputs are stale or intentionally withheld.
+#' @param snapshot_src_root Dir holding the actual `snapshot_<rev>.rds` (+ a
+#'   `<name>/` subdir per scenario) to split into parquet. Defaults to
+#'   `<repo_root>/data/timeseries`. The finalize step points this at the run's
+#'   external scratch.
+#' @param output_src_root Dir holding the daily/quality/etr sections to publish.
+#'   Defaults to `<repo_root>/output`. The finalize step points this at the
+#'   vintage itself (the gather wrote the sections there directly), so they are
+#'   inventoried in place rather than copied.
+#' @param wipe_vintage If TRUE (default) the vintage dir is cleared before
+#'   writing (standalone publish owns the whole dir). FALSE when the gather
+#'   already populated it — only the snapshots/ subdir is rebuilt.
 #' @return Invisibly, a list with `vintage`, `vintage_dir`, `manifest`, and
 #'   `n_files` on success; NULL on dry-run.
 write_build_output <- function(shared_root = SHARED_ROOT_DEFAULT,
@@ -88,7 +99,21 @@ write_build_output <- function(shared_root = SHARED_ROOT_DEFAULT,
                              build_started_at = Sys.time(),
                              dry_run = FALSE,
                              update_latest = TRUE,
-                             include_scenarios = TRUE) {
+                             include_scenarios = TRUE,
+                             snapshot_src_root = NULL,
+                             output_src_root = NULL,
+                             wipe_vintage = TRUE) {
+
+  # Snapshots (the per-revision snapshot_<rev>.rds the finalize splits into
+  # parquet) and the already-written daily/quality sections can come from
+  # different roots. The finalize step (scripts/publish_vintage.R) reads
+  # snapshots from the run's external scratch but the daily/quality already live
+  # in the vintage itself (the gather wrote them there directly) — so it passes
+  # output_src_root = vintage_dir and wipe_vintage = FALSE, and publish_dir
+  # inventories those in place instead of copying. Both default to the repo-
+  # layout under repo_root for the standalone CLI / legacy callers.
+  if (is.null(snapshot_src_root)) snapshot_src_root <- file.path(repo_root, 'data', 'timeseries')
+  if (is.null(output_src_root))   output_src_root   <- file.path(repo_root, 'output')
 
   if (!requireNamespace('arrow', quietly = TRUE)) {
     stop('write_build_output requires the arrow package (parquet conversion). ',
@@ -99,7 +124,7 @@ write_build_output <- function(shared_root = SHARED_ROOT_DEFAULT,
          'Install with: Rscript src/install_dependencies.R --all')
   }
 
-  metadata_path <- file.path(repo_root, 'data', 'timeseries', 'metadata.rds')
+  metadata_path <- file.path(snapshot_src_root, 'metadata.rds')
   # Staleness guard: when called from a build run, refuse to publish a snapshot
   # panel that was not finalized by this build. Individual snapshots may be
   # older on legitimate incremental builds, so metadata.rds is the freshness
@@ -131,7 +156,10 @@ write_build_output <- function(shared_root = SHARED_ROOT_DEFAULT,
   vintage_dir <- file.path(shared_root, vintage)
   # Hour-aligned: the vintage IS this build's output for the hour. A rebuild in
   # the same hour replaces it wholesale (no stale files linger from a prior run).
-  if (!dry_run && dir.exists(vintage_dir)) unlink(vintage_dir, recursive = TRUE)
+  # When wipe_vintage is FALSE the gather has already written daily/quality into
+  # the vintage; we must NOT clear it — only the snapshots/ subdir is rebuilt
+  # fresh (publish_series_snapshots unlinks its own dest).
+  if (!dry_run && wipe_vintage && dir.exists(vintage_dir)) unlink(vintage_dir, recursive = TRUE)
 
   message('\n', strrep('=', 70))
   message('PUBLISHING TO SHARED MODEL DATA')
@@ -152,13 +180,13 @@ write_build_output <- function(shared_root = SHARED_ROOT_DEFAULT,
   # the combined rds) would catch any convention drift.
   rev_dates   <- load_revision_dates()
   horizon_end <- load_policy_params()$SERIES_HORIZON_END %||% Sys.Date()
-  actual_ts_dir <- file.path(repo_root, 'data', 'timeseries')
+  actual_ts_dir <- snapshot_src_root
   rev_dates_actual <- load_augmented_revision_dates(actual_ts_dir, rev_dates)
 
   copied <- list()
-  out_root <- file.path(repo_root, 'output')
+  out_root <- output_src_root
 
-  copied$timeseries <- publish_timeseries(repo_root, vintage_dir,
+  copied$timeseries <- publish_timeseries(snapshot_src_root, vintage_dir,
                                           rev_dates = rev_dates_actual,
                                           horizon_end = horizon_end,
                                           dry_run = dry_run)
@@ -169,7 +197,7 @@ write_build_output <- function(shared_root = SHARED_ROOT_DEFAULT,
   # exist today — a clean no-op until the build writes per-scenario snapshots.
   series_snapshots <- list(actual = copied$timeseries$snapshots)
   if (include_scenarios) {
-    ts_src_root <- file.path(repo_root, 'data', 'timeseries')
+    ts_src_root <- snapshot_src_root
     for (sub in list.dirs(ts_src_root, recursive = FALSE)) {
       if (length(list.files(sub, pattern = '^snapshot_.*\\.rds$')) == 0) next
       name <- basename(sub)
@@ -382,9 +410,8 @@ publish_series_snapshots <- function(snapshot_dir, dest_snaps_dir,
 #' tariff-model's read_rate_panel.R reads the snapshot layout (John's switch).
 #'
 #' @keywords internal
-publish_timeseries <- function(repo_root, vintage_dir, rev_dates, horizon_end,
+publish_timeseries <- function(src_dir, vintage_dir, rev_dates, horizon_end,
                                cores = NULL, dry_run = FALSE) {
-  src_dir    <- file.path(repo_root, 'data', 'timeseries')
   dest_snaps <- actual_snapshots_dir(vintage_dir)
 
   res <- publish_series_snapshots(src_dir, dest_snaps,
@@ -422,6 +449,19 @@ publish_dir <- function(src_dir, dest_dir, min_mtime = NULL, dry_run = FALSE) {
   if (!dir.exists(src_dir)) {
     message('publish: skipping (not present) ', src_dir)
     return(list(present = FALSE, files = character()))
+  }
+
+  # In-place section: the gather wrote this section straight into the vintage, so
+  # src == dest. Nothing to copy — just inventory what is there for the manifest.
+  in_place <- dir.exists(dest_dir) &&
+    normalizePath(src_dir, mustWork = FALSE) == normalizePath(dest_dir, mustWork = FALSE)
+  if (in_place) {
+    files <- list.files(dest_dir, recursive = TRUE, full.names = TRUE,
+                        all.files = FALSE, no.. = TRUE)
+    files <- files[!file.info(files)$isdir]
+    message('publish: ', basename(dest_dir), ' already in place (', length(files),
+            ' file', if (length(files) != 1) 's' else '', ') — inventory only')
+    return(list(present = TRUE, files = files))
   }
 
   src_files <- list.files(src_dir, recursive = TRUE, full.names = TRUE,

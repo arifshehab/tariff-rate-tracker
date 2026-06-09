@@ -1,0 +1,49 @@
+#!/usr/bin/env Rscript
+# =============================================================================
+# publish_vintage.R — finalize ONE vintage on the model-data interface
+# =============================================================================
+# The single finalize step of the build. The gather has already written each
+# series' daily/quality DIRECTLY into the vintage (<model_data_root>/<vintage>/
+# {actual,scenarios/<name>}/), and the array tasks left their per-revision
+# snapshot_<rev>.rds (+ <name>/ subdirs) in the run's external scratch. This
+# step hands write_build_output():
+#   - snapshot_src_root = the scratch  -> split into <vintage>/.../snapshots/*.parquet
+#   - output_src_root   = the vintage  -> daily/quality inventoried IN PLACE (no copy)
+# and writes the manifest + (optionally) repoints `latest`. It does NOT wipe the
+# vintage (the gather's outputs already live there). The orchestrator removes the
+# scratch after this succeeds. The repo working tree is never read or written.
+#
+# Env (set by scripts/submit_build_array.sh):
+#   TARIFF_SCRATCH          scratch holding snapshot_<rev>.rds + <name>/ (REQUIRED)
+#   TARIFF_VINTAGE          vintage id YYYY-MM-DD-HH (REQUIRED; shared by all series)
+#   TARIFF_MODEL_DATA_ROOT  interface root (optional; else local_paths.yaml default)
+#   TARIFF_UPDATE_LATEST    '0' to publish additively without moving `latest`
+# =============================================================================
+
+suppressPackageStartupMessages(library(here))
+source(here('src', 'write_output.R'))   # write_build_output + SHARED_ROOT_DEFAULT
+
+scratch <- Sys.getenv('TARIFF_SCRATCH', unset = '')
+vintage <- Sys.getenv('TARIFF_VINTAGE', unset = '')
+if (!nzchar(scratch)) stop('TARIFF_SCRATCH not set', call. = FALSE)
+if (!nzchar(vintage)) stop('TARIFF_VINTAGE not set', call. = FALSE)
+if (!dir.exists(scratch)) stop('scratch dir does not exist: ', scratch, call. = FALSE)
+
+mdr <- Sys.getenv('TARIFF_MODEL_DATA_ROOT', unset = '')
+shared_root <- if (nzchar(mdr)) mdr else SHARED_ROOT_DEFAULT
+vintage_dir <- file.path(shared_root, vintage)
+update_latest <- !identical(Sys.getenv('TARIFF_UPDATE_LATEST', '1'), '0')
+
+message('Finalizing vintage ', vintage, ' (scratch ', scratch, ') -> ', vintage_dir)
+res <- write_build_output(
+  shared_root       = shared_root,
+  vintage           = vintage,
+  snapshot_src_root = scratch,            # split the staged snapshots from the scratch
+  output_src_root   = vintage_dir,        # daily/quality already in the vintage -> inventory in place
+  wipe_vintage      = FALSE,              # do NOT clear the vintage; the gather populated it
+  build_started_at  = NULL,               # scratch metadata just finalized; skip stale guard
+  include_scenarios = TRUE,               # sweep every scenarios/<name> built this run
+  update_latest     = update_latest
+)
+message('Finalized vintage: ', res$vintage_dir,
+        if (update_latest) paste0(' (latest -> ', res$vintage, ')') else ' (latest unchanged)')

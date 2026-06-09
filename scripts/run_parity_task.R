@@ -32,7 +32,7 @@ if (row_idx < 1L || row_idx > nrow(manifest)) {
 
 task <- manifest[row_idx, ]
 result <- tryCatch(
-  compare_parity_files(task$candidate_path[[1]], task$golden_path[[1]], task$kind[[1]], label = task$label[[1]]),
+  compare_parity_files(task$candidate_path[[1]], task$reference_path[[1]], task$kind[[1]], label = task$label[[1]]),
   error = function(e) list(
     label = task$label[[1]], pass = FALSE, n_violations = NA_integer_,
     n_rows_common = NA_integer_, violations = NULL, error = conditionMessage(e)
