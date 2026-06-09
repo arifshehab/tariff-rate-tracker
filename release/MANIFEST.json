@@ -1,0 +1,67 @@
+{
+  "publication_date": "2026-06-09",
+  "published_at": "2026-06-09T17:59:46-0400",
+  "data_as_of": {
+    "last_revision": "2026_rev_10",
+    "last_build_time": "2026-06-09T16:54:15-0400"
+  },
+  "build_started_at": "NA",
+  "repo_root": "/nfs/roberts/project/pi_nrs36/ji252/repos/tariff-rate-tracker",
+  "git": {
+    "commit": "9613097e31b0316ee062c34a21bcacb4a5d0f87f",
+    "branch": "master",
+    "dirty": true,
+    "remote": "git@github.com:Budget-Lab-Yale/tariff-rate-tracker.git"
+  },
+  "build_flags": {
+    "manual": true
+  },
+  "r_version": "4.4.2",
+  "package_versions": {
+    "tidyverse": "2.0.0",
+    "jsonlite": "1.8.9",
+    "yaml": "2.3.10",
+    "here": "1.0.1",
+    "arrow": "17.0.0.1",
+    "digest": "0.6.37",
+    "readr": "2.1.5"
+  },
+  "files": [
+    {
+      "name": "daily_overall",
+      "source": "output/actual/daily/daily_overall.csv",
+      "path": "data/daily_overall_2026-06-09.csv",
+      "format": "csv",
+      "n_rows": 730,
+      "size_bytes": 143271,
+      "sha256": "b170735fd5bfd5718220494dbc4f07dad2b9f236c36dc2ff4841c66ab23c2281"
+    },
+    {
+      "name": "daily_by_country",
+      "source": "output/actual/daily/daily_by_country.csv",
+      "path": "data/daily_by_country_2026-06-09.csv",
+      "format": "csv",
+      "n_rows": 175200,
+      "size_bytes": 26672778,
+      "sha256": "15704e514ffe57fde8eaec79c44d0b48232f24ef36c00c1a6d3d8354bcbf0603"
+    },
+    {
+      "name": "daily_by_authority",
+      "source": "output/actual/daily/daily_by_authority.csv",
+      "path": "data/daily_by_authority_2026-06-09.csv",
+      "format": "csv",
+      "n_rows": 730,
+      "size_bytes": 165047,
+      "sha256": "f7779cea20314d90e2b63ac484658be1f061a0d4fab52eb1b7bd73a0c8917432"
+    },
+    {
+      "name": "daily_by_category",
+      "source": "output/actual/daily/daily_by_category.csv",
+      "path": "data/daily_by_category_2026-06-09.csv",
+      "format": "csv",
+      "n_rows": 38690,
+      "size_bytes": 5331211,
+      "sha256": "01ae18c83a1270341f26d97a74fbbd027aaa483b52cd9d9ec5680055b9a2b775"
+    }
+  ]
+}
