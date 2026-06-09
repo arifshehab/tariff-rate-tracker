@@ -82,11 +82,29 @@ calculate_rates_fast <- function(products, ch99_data, countries,
   message('  Product-Ch99 ref pairs: ', nrow(product_refs))
 
   # Join with Chapter 99 rates
-  product_ch99_rates <- product_refs %>%
-    left_join(ch99_lookup, by = 'ch99_code') %>%
-    filter(!is.na(rate))
+  product_ch99_all <- product_refs %>%
+    left_join(ch99_lookup, by = 'ch99_code')
+  product_ch99_rates <- product_ch99_all %>% filter(!is.na(rate))
 
   message('  Product-Ch99 pairs with rates: ', nrow(product_ch99_rates))
+
+  # Surface what the rate filter discards instead of dropping silently. Pairs
+  # land here when a product references a ch99 heading that parsed without a
+  # rate — mostly §301 exclusion headings (9903.88.xx, "the duty provided in
+  # the applicable subheading"), which the engine does not model anywhere else:
+  # those products are charged the full §301 rate even while an exclusion is
+  # in force. A jump in this count after onboarding a revision means new
+  # rate-less headings appeared and should be triaged.
+  dropped_pairs <- product_ch99_all %>% filter(is.na(rate))
+  if (nrow(dropped_pairs) > 0) {
+    top_dropped <- dropped_pairs %>% count(ch99_code, sort = TRUE)
+    message('  Product-Ch99 pairs DROPPED (ref has no parsed rate): ',
+            nrow(dropped_pairs), ' pairs / ',
+            n_distinct(dropped_pairs$hts10), ' products / ',
+            nrow(top_dropped), ' ch99 codes; top: ',
+            paste0(head(top_dropped$ch99_code, 5),
+                   ' (', head(top_dropped$n, 5), ')', collapse = ', '))
+  }
 
   # For each product-country, determine applicable rates.
   # Pre-compute a (ch99_code, country) applicability mapping from the ~100-300
@@ -1492,6 +1510,11 @@ calculate_rates_for_revision <- function(
          'non-chapter 232 programs (autos, copper, MHD, wood, semiconductors). ',
          'See config/policy_params.yaml.')
   }
+
+  # Step 7 (USMCA, ~line 3096/3147) reads this unconditionally; without 232
+  # rates no product is a content-scaled 232 vehicle, so the empty set is the
+  # correct value — not just a crash guard.
+  usmca_vehicle_products <- character(0)
 
   if (s232_rates$has_232) {
     # --- Identify covered products by prefix matching ---
