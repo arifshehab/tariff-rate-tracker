@@ -27,7 +27,11 @@
 # =============================================================================
 
 set -euo pipefail
-REPO=/nfs/roberts/project/pi_nrs36/jar335/Repositories/tariff-rate-tracker
+# Repo root: TARIFF_REPO override, else derived from this script's location —
+# so any clone (any user) can run the orchestrator without editing it. The
+# component batch scripts carry no #SBATCH --chdir; every sbatch below passes
+# --chdir="$REPO" explicitly.
+REPO="${TARIFF_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 cd "$REPO"
 mkdir -p "$HOME/slurm-logs"
 
@@ -131,13 +135,13 @@ for series in "${SERIES_LIST[@]}"; do
   ARRAY_JOB=$(TARIFF_SCENARIO="$SCEN" TARIFF_SERIES="$series" TARIFF_POLICY_PARAMS="$POLICY_PARAMS_PATH" \
     TARIFF_TS_DIR="$TS_DIR" TARIFF_OUTPUT_DIR="$OUT_DIR" TARIFF_LOG_DIR="$LOG_DIR" REVLIST="$RL" REV_TIMELINE="$RT" \
     BUILD_REVISION_ARGS="$BUILD_REVISION_ARGS" \
-    sbatch --parsable --array=0-$((N-1)) scripts/build_array_task.sh)
+    sbatch --parsable --chdir="$REPO" --array=0-$((N-1)) scripts/build_array_task.sh)
 
   echo "--- [$series] gather (afterok:$ARRAY_JOB) ---"
   GJOB=$(TARIFF_SCENARIO="$SCEN" TARIFF_SERIES="$series" TARIFF_POLICY_PARAMS="$POLICY_PARAMS_PATH" \
     TARIFF_TS_DIR="$TS_DIR" TARIFF_OUTPUT_DIR="$OUT_DIR" TARIFF_LOG_DIR="$LOG_DIR" TARIFF_BASELINE_TS_DIR="$BASELINE_TS_DIR" \
     REV_TIMELINE="$RT" GATHER_ARGS="$GATHER_ARGS" \
-    sbatch --parsable --dependency=afterok:"$ARRAY_JOB" scripts/submit_build_gather.sh)
+    sbatch --parsable --chdir="$REPO" --dependency=afterok:"$ARRAY_JOB" scripts/submit_build_gather.sh)
   echo "    array=$ARRAY_JOB gather=$GJOB"
   GATHER_JOBS+=("$GJOB")
 done

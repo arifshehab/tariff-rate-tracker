@@ -21,7 +21,7 @@
 #SBATCH --mem=192G
 #SBATCH --output=/home/%u/slurm-logs/tariff-build-full-%j.out
 #SBATCH --error=/home/%u/slurm-logs/tariff-build-full-%j.err
-#SBATCH --chdir=/nfs/roberts/project/pi_nrs36/jar335/Repositories/tariff-rate-tracker
+# (no #SBATCH --chdir: submit from the repo root — sbatch uses the submission dir)
 
 set -euo pipefail
 

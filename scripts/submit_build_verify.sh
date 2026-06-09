@@ -19,10 +19,11 @@
 #        - bnd_2026-06-08 NOT re-minted (edge-coincident with rev_10; superseded)
 #        - panel has zero NA valid_from/valid_until rows (orphan-gate regression check)
 #
-# Profile mirrors submit_build_core.sh (the validation profile): full rebuild of
-# the timeseries + downstream daily/ETR/quality, no alternatives, no publish.
+# The validation profile: full rebuild of the timeseries + downstream
+# daily/ETR/quality, no alternatives, no publish. (The shared-filer route is
+# the array flow — see scripts/README.md.)
 #
-# Resource sizing (from submit_build_core.sh):
+# Resource sizing:
 #   - Walltime 4h: main build + post-build is ~1-3h with margin (no alternatives).
 #   - Mem 192G: combine-snapshots has OOM'd at 96G (job 11189086, 2026-05-08).
 #   - CPUs 4: build is single-threaded R; 4 covers BLAS/Arrow/OS overhead.
@@ -35,7 +36,7 @@
 #SBATCH --mem=192G
 #SBATCH --output=/home/%u/slurm-logs/tariff-build-verify-%j.out
 #SBATCH --error=/home/%u/slurm-logs/tariff-build-verify-%j.err
-#SBATCH --chdir=/nfs/roberts/project/pi_nrs36/ji252/repos/tariff-rate-tracker
+# (no #SBATCH --chdir: submit from the repo root — sbatch uses the submission dir)
 
 set -uo pipefail
 

@@ -19,7 +19,7 @@
 #SBATCH --mem=64G
 #SBATCH --output=/home/%u/slurm-logs/tariff-rev-%A_%a.out
 #SBATCH --error=/home/%u/slurm-logs/tariff-rev-%A_%a.err
-#SBATCH --chdir=/nfs/roberts/project/pi_nrs36/jar335/Repositories/tariff-rate-tracker
+# (no #SBATCH --chdir: the orchestrator passes --chdir=$REPO explicitly)
 
 set -euo pipefail
 mkdir -p ~/slurm-logs output/logs

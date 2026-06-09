@@ -17,6 +17,41 @@
   - **Fix.** Proper: specific-duty→AVE conversion using per-HTS10 unit value (customs value ÷ quantity from Census/DataWeb), gated to the snapshot's effective window. Cheap interim win: salvage the ad-valorem component of compound rates (parse `X% + $Y/kg`, keep `X%`) so compound lines aren't a total loss. Secondary: `1901.90` dairy preps are TRQ-structured (over-quota collects the high rate; no TRQ-utilization model — see `docs/trackermiss_phase3_implementation.md`).
   - **Re-frames `docs/analysis/eta_compliance_gap_drivers.md` reason #3:** specific-duty conversion is listed there as a minor *residual* ("worth checking where 232/ADCVD don't explain it") — the chapter data shows it is the **dominant** driver for HS17/19/21, not a residual.
 
+## Build unification plan (2026-06-09) — one build, three destinations, two backends
+
+Today the compute backend dictates the destination: the serial entrypoint
+(`00_build_timeseries.R --full`) writes only repo-local (+ `release/` via
+`--publish-git`); the array flow (`submit_build_array.sh --config`) writes only
+the shared model_data vintage ("repo never written"). Getting all destinations
+means building twice. In-process cross-revision parallelism is a stub
+(`parallel_lapply_revisions` always serial); only `--parallel` alternatives are
+real. `submit_build.sh`/`submit_build_core.sh` were stale untracked wrappers
+passing `--publish-internal`, a flag the entrypoint silently ignores (removed
+from the CLI but never errored). Target end state: **one build product, three
+publishers (repo mirror / vintage / release-git), two compute backends (array =
+default, serial = parity baseline), one config, one verification gate.**
+
+- [ ] **Phase 0 — hygiene (started 2026-06-09):** delete stale untracked wrappers;
+  `scripts/README.md` declaring blessed entry points; parameterize the
+  jar335-hardcoded repo paths in `submit_build_array.sh` / `build_array_task.sh` /
+  `submit_build_gather.sh` / `submit_build_full.sh`; error on unrecognized CLI
+  flags in `00_build_timeseries.R`; harden `publish_git` (validate-then-delete,
+  fail loud on zero/partial publish).
+- [ ] **Phase 1 — destinations as config:** `destinations:` block in the build
+  config (`repo:` mirror, `vintage:` + `update_latest:`, `release_git:`); three
+  thin publishers reading one canonical build tree (publish_vintage exists;
+  publish_git generalized to a source root; repo-mirror new). After this,
+  verify-then-publish is ONE build.
+- [ ] **Phase 2 — shared verification gate:** lift the verify steps (test suite +
+  Russia/rev_10 sanity + NA-interval check) out of `submit_build_verify.sh` into
+  `scripts/verify_build.R --output-root <dir>`; `verify: true` in config; array
+  finalize requires it to pass before repointing `latest`.
+- [ ] **Phase 3 — parallel by default:** array = default backend for real work;
+  serial = golden parity baseline (keep; that's its job). Do NOT finish the
+  in-process Phase-3 revision-parallel stub (array supersedes it). Fold the
+  rebuild-alternatives into the array config as post-gather work units so they
+  stop being a separate manual job.
+
 ## §301 exclusion headings dropped silently — full §301 charged on excluded lines (found 2026-06-09)
 
 - [ ] **Model §301 exclusion headings (9903.88.69 and friends); today their refs are dropped and the product pays full §301.** Exclusion headings parse to `rate = NA` (their text — "the duty provided in the applicable subheading" — carries no percentage), and `calculate_rates_fast()` filters NA-rate pairs out of the product-Ch99 join (`src/06_calculate_rates.R`, "Join with Chapter 99 rates"). The rate-bearing ref (e.g. 9903.88.03 @ 25%) survives, the exclusion ref vanishes, so the engine charges full §301 on China even while a USTR exclusion is in force. Build logs now print the dropped-pair count + top headings every run (instrumentation landed 2026-06-09); the modeling itself is this item.
