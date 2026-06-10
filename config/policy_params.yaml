@@ -490,6 +490,21 @@ section_301_rates:
   - ch99_pattern: '9903.91.14'
     s301_rate: 1.00
 
+# --- Section 301 USTR exclusion headings (step 6a-excl) ---
+# Headings like 9903.88.69 carry NO rate ("The duty provided in the applicable
+# subheading") and EXCLUDE the referencing product from §301 duties while their
+# window is in force. The registry lists known exclusion headings; validity
+# windows are read PER REVISION from each archive's own heading text
+# (effective_date_offset / expiry_date_offset — USTR extends windows over
+# time), with the CSV's validity_start/validity_end as curator overrides.
+# coverage_share = 1.0 full-line zeroes rate_301 (Phase-1 UPPER BOUND on the
+# correction; exclusions are product-description-scoped and usually cover a
+# slice of an HTS10 line); Phase 2 replaces it with IMDB-realized claim
+# shares. Delete this block (`section_301_exclusions: ~` in an overlay) to
+# disable the hook.
+section_301_exclusions:
+  headings_file: 'resources/s301_exclusion_headings.csv'
+
 # --- Weighted ETR reporting and comparison defaults ---
 # These are reporting-time convenience parameters, not tariff policy logic.
 # They are still centralized here so date labels and benchmark harmonization

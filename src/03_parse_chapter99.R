@@ -190,11 +190,15 @@ parse_chapter99 <- function(json_path) {
     # Parse countries
     country_info <- parse_countries(description)
 
-    # Extract a legal effective-date offset from the description, if any
-    # (e.g., "...effective with respect to entries on or after April 3, 2025...").
+    # Extract legal window offsets from the description, if any
+    # (e.g., "...effective with respect to entries on or after April 3, 2025..."
+    # or "...on or after June 15, 2024 and through November 9, 2026...").
     # Used by filter_active_ch99() to drop entries that exist in the HTS but
-    # aren't yet legally collectible at the revision's effective_date.
+    # aren't legally collectible at the revision's effective_date (not yet
+    # active, or window expired), and by the §301 exclusion hook in
+    # 06_calculate_rates.R to date-gate exclusion headings per revision.
     eff_offset <- extract_effective_date_offset(description)
+    exp_offset <- extract_expiry_date_offset(description)
 
     tibble(
       ch99_code = ch99_code,
@@ -206,7 +210,8 @@ parse_chapter99 <- function(json_path) {
       general_raw = general,
       other_raw = other,
       description = description,
-      effective_date_offset = eff_offset
+      effective_date_offset = eff_offset,
+      expiry_date_offset = exp_offset
     )
   })
 

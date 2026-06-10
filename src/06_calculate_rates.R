@@ -2690,6 +2690,87 @@ calculate_rates_for_revision <- function(
       }
     }
 
+  # 6a-excl. Section 301 USTR exclusion headings (e.g. 9903.88.69). These
+  #     headings carry NO rate ("The duty provided in the applicable
+  #     subheading") and EXCLUDE the referencing product from §301 duties
+  #     while their window is in force. The NA rate drops them from the
+  #     footnote-rate join in calculate_rates_fast(), so without this step
+  #     the engine charges full §301 mid-exclusion (todo.md §"§301 exclusion
+  #     headings"). The registry CSV names known exclusion headings +
+  #     coverage_share; the validity window comes from THIS revision's own
+  #     heading text (windows are recomputed from the description right here,
+  #     so the step is immune to ch99_<rev>.rds caches that predate the
+  #     expiry_date_offset column), with the CSV's validity_start/_end as
+  #     curator overrides. Phase 1: coverage_share = 1.0 full-line zeroing,
+  #     the flagged UPPER BOUND on the correction (exclusions are product-
+  #     description-scoped and usually cover a slice of an HTS10 line);
+  #     Phase 2 replaces it with IMDB-realized exclusion claim shares.
+  excl_cfg <- pp$section_301_exclusions
+  if (!is.null(excl_cfg)) {
+    excl_path <- here(excl_cfg$headings_file %||% 'resources/s301_exclusion_headings.csv')
+    if (!file.exists(excl_path)) {
+      stop('section_301_exclusions configured but headings file not found: ',
+           excl_path)
+    }
+    excl_registry <- suppressMessages(read_csv(excl_path, col_types = cols(
+      ch99_code = col_character(), validity_start = col_date(),
+      validity_end = col_date(), coverage_share = col_double(),
+      .default = col_character()
+    )))
+
+    eff_d <- as.Date(effective_date)
+    active_excl <- ch99_data %>%
+      filter(ch99_code %in% excl_registry$ch99_code) %>%
+      mutate(
+        win_start = as.Date(vapply(description, function(d)
+          as.character(extract_effective_date_offset(d)), character(1),
+          USE.NAMES = FALSE)),
+        win_end = as.Date(vapply(description, function(d)
+          as.character(extract_expiry_date_offset(d)), character(1),
+          USE.NAMES = FALSE))
+      ) %>%
+      distinct(ch99_code, win_start, win_end) %>%
+      inner_join(excl_registry, by = 'ch99_code') %>%
+      mutate(
+        win_start = coalesce(validity_start, win_start),
+        win_end   = coalesce(validity_end,   win_end)
+      ) %>%
+      filter(coverage_share > 0,
+             is.na(win_start) | win_start <= eff_d,
+             is.na(win_end)   | eff_d <= win_end)
+
+    if (nrow(active_excl) > 0) {
+      excl_shares <- products %>%
+        select(hts10, ch99_refs) %>%
+        unnest(ch99_refs) %>%
+        rename(ch99_code = ch99_refs) %>%
+        inner_join(active_excl %>% select(ch99_code, coverage_share),
+                   by = 'ch99_code') %>%
+        group_by(hts10) %>%
+        summarise(excl_coverage = max(coverage_share), .groups = 'drop')
+
+      if (nrow(excl_shares) > 0) {
+        n_pairs_before <- sum(rates$rate_301 > 0)
+        rates <- rates %>%
+          left_join(excl_shares, by = 'hts10', relationship = 'many-to-one') %>%
+          mutate(
+            rate_301 = if_else(!is.na(excl_coverage),
+                               rate_301 * (1 - excl_coverage), rate_301),
+            rate_301_cs = if_else(!is.na(excl_coverage),
+                                  rate_301_cs * (1 - excl_coverage), rate_301_cs)
+          ) %>%
+          select(-excl_coverage)
+        message('  Section 301 exclusions: ', nrow(excl_shares),
+                ' products reference ', nrow(active_excl),
+                ' active exclusion heading',
+                if (nrow(active_excl) == 1) '' else 's', ' (',
+                paste(active_excl$ch99_code, collapse = ', '),
+                '); pairs with rate_301 > 0: ', n_pairs_before,
+                ' -> ', sum(rates$rate_301 > 0))
+      }
+    }
+  }
+
   # 6b. Apply Section 122 blanket tariff (non-discriminatory, all countries)
   #     Section 122 (Trade Act of 1974) is a uniform tariff applied after SCOTUS
   #     invalidated IEEPA. Product exemptions from Annex II list; 232 mutual

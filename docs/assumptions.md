@@ -280,3 +280,17 @@ The tracker uses two uncalibrated parameters to approximate these:
 **Source:** CBP CSMS #67400472 (January 2026 guidance), White House proclamation of January 14, 2026. Calibration deferred pending better CBP/CBP trade-press data on advanced-IC import shares.
 
 **Implementation:** `src/06_calculate_rates.R` heading loop (gate), post-stacking override (ensures semi rate persists through derivative and annex pipelines). `resources/s232_semi_products.csv`, `resources/semi_qualifying_shares.csv`.
+
+## 17. Section 301 USTR Exclusion Headings: Full-Line Zeroing (Phase-1 Upper Bound)
+
+**Assumption:** Chapter 99 headings like 9903.88.69 ("The duty provided in the applicable subheading" — no rate of their own) EXCLUDE the referencing product from §301 duties while their stated window is in force. The tracker zeroes the full HTS10 line's `rate_301` for products referencing an in-window exclusion heading (`coverage_share = 1.0`). USTR exclusions are product-**description**-scoped and typically cover only a slice of an HTS10 line, so full-line zeroing is the **upper bound on the correction** — the truth lies between the pre-fix treatment (full §301 charged mid-exclusion, the bug this fixes) and this. Phase 2 replaces `coverage_share` with IMDB-realized exclusion claim shares (entries filed under 9903.88.69 etc. vs total entries on the same HTS10×month — same pattern as the Annex II 9903.01.32 claim-share channel).
+
+Validity windows are read **per revision from each archive's own heading text** (`effective_date_offset` / `expiry_date_offset`): USTR extends windows over time (9903.88.69's stated expiry moved 2025-05-31 → 2025-08-31 → 2025-11-29 → 2026-11-09 across 2025 revisions), so the published-text window of each revision is the legally correct one for that snapshot. If an extension was granted retroactively after a lapse, the lapse is modeled as published — same retro-window limitation class as the EU/Korea framework items (todo.md).
+
+**Not exclusions:** 9903.88.21–.28 (US note 20(z)–(gg)) look identical in the rate column but are PERMANENT CONDITIONAL derived-rate carve-outs (apply only when the entry's duty rate derives from another subheading on a §301 list). They are registered with `coverage_share = 0` — never full-line zeroed — pending Phase-2 calibration.
+
+**Impact:** Bounded: China-only, ~170 HTS10 lines in rev_9 (dominated by 9903.88.69, the note 20(vvv) round, in force Jun 15 2024 → Nov 9 2026). Direction pre-fix was always overstatement of statutory rates (positive η contribution on affected lines).
+
+**Source:** Heading text in each HTS revision's Chapter 99 (parsed); USTR exclusion FR notices. Found 2026-06-09 via the dropped-pairs instrumentation in `calculate_rates_fast()`.
+
+**Implementation:** `resources/s301_exclusion_headings.csv` (registry; regenerate via `scripts/build_s301_exclusion_headings.R`), step 6a-excl in `src/06_calculate_rates.R`, `extract_expiry_date_offset()` + NA-rate expiry gate in `filter_active_ch99()` (`src/rate_schema.R`), expiry boundary scan in `src/timeline.R`. Config-gated via `section_301_exclusions:` in `config/policy_params.yaml` (`section_301_exclusions: ~` in a scenario overlay disables).

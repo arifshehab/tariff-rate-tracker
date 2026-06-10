@@ -298,13 +298,84 @@ extract_effective_date_offset <- function(description) {
 }
 
 
-#' Drop Ch99 entries that are not yet legally active for a given revision
+#' Extract a legal expiry date from a Ch99 description
 #'
-#' Filters `ch99_data` to remove rows whose `effective_date_offset` (extracted
-#' by `extract_effective_date_offset()` during `parse_chapter99()`) is strictly
-#' AFTER the revision's `effective_date`. Rows with NA offset (no future-date
-#' phrase in the description) are always retained — those are active as of
-#' their HTS publication.
+#' Counterpart to extract_effective_date_offset() for window END dates. Time-
+#' bounded Ch99 headings state their window in the description — e.g. the §301
+#' exclusion heading 9903.88.69: "Effective with respect to entries on or after
+#' June 15, 2024 and through November 9, 2026, articles the product of
+#' China...". Two phrasings occur, with different inclusivity:
+#'   "through [Month D, YYYY]"      -> that date IS the last active day
+#'   "on or before [Month D, YYYY]" -> that date IS the last active day
+#'   "before [Month D, YYYY]"       -> last active day is the PRIOR day
+#'     (e.g. 9903.88.68: "on or after June 1, 2023, and before June 15, 2024")
+#'
+#' Returns the LAST ACTIVE DAY, normalized across phrasings. Multiple matches
+#' return the LATEST date (conservative: keeps the entry active through the
+#' longest stated window; the mirror of the start extractor's min()). Errors
+#' via stop() if a matched phrase fails to parse — silent NA would let an
+#' expired heading appear perpetually active.
+#'
+#' @param description Ch99 description text (scalar character)
+#' @return Date (last active day), NA if no expiry phrase or text is empty
+extract_expiry_date_offset <- function(description) {
+  if (is.null(description) || length(description) == 0 ||
+      is.na(description) || description == '') {
+    return(as.Date(NA))
+  }
+  matches <- regmatches(
+    description,
+    gregexpr('(through|on or before|before) [A-Za-z]+ [0-9]{1,2}, [0-9]{4}',
+             description, ignore.case = TRUE)
+  )[[1]]
+  # "on or after" contains no expiry keyword so it never matches; "on or
+  # before" is matched in full (the alternation is ordered longest-first so
+  # the bare-"before" branch cannot shave it down to exclusive semantics).
+  if (length(matches) == 0) return(as.Date(NA))
+  exclusive <- grepl('^before ', matches, ignore.case = TRUE)
+  date_strs <- sub('^(through|on or before|before) ', '', matches,
+                   ignore.case = TRUE)
+  # %B in as.Date expects title-case month names ("April"); normalize.
+  date_strs <- vapply(date_strs, function(s) {
+    parts <- strsplit(s, ' ', fixed = TRUE)[[1]]
+    parts[1] <- paste0(toupper(substr(parts[1], 1, 1)),
+                       tolower(substring(parts[1], 2)))
+    paste(parts, collapse = ' ')
+  }, character(1), USE.NAMES = FALSE)
+  parsed <- as.Date(date_strs, format = '%B %d, %Y')
+  if (any(is.na(parsed))) {
+    bad <- date_strs[is.na(parsed)]
+    stop('extract_expiry_date_offset: failed to parse ',
+         paste(shQuote(bad), collapse = ', '),
+         ' from description: ', shQuote(description))
+  }
+  last_active <- parsed - ifelse(exclusive, 1L, 0L)
+  max(last_active)
+}
+
+
+#' Drop Ch99 entries that are not legally active for a given revision
+#'
+#' Filters `ch99_data` two ways:
+#'   * START gate: removes rows whose `effective_date_offset` (extracted by
+#'     `extract_effective_date_offset()` during `parse_chapter99()`) is
+#'     strictly AFTER the revision's `effective_date` — published but not yet
+#'     legally collectible.
+#'   * EXPIRY gate (NA-RATE ROWS ONLY): removes rate-less rows whose
+#'     `expiry_date_offset` (last active day, extracted by
+#'     `extract_expiry_date_offset()`) is strictly BEFORE the revision's
+#'     `effective_date` — window over, text persists in the HTS. NA-rate rows
+#'     never enter the rate join (`calculate_rates_fast()` filters
+#'     `!is.na(rate)`), so dropping them is numerically a no-op by
+#'     construction; what it buys is correct date-gating for the §301
+#'     exclusion hook, which reads these headings out of ch99_data.
+#'     RATE-BEARING rows past their stated expiry are RETAINED and loudly
+#'     flagged: as of 2026-06-10 exactly two exist (9903.88.09, vestigial
+#'     2019 §301 transition line; 9903.91.04, Biden §301 with stated expiry
+#'     2025-12-31 — see todo.md). Dropping them would move numbers and needs
+#'     its own parity-gated review.
+#' Rows with NA offsets (no window phrase in the description) are always
+#' retained.
 #'
 #' Centralized here so both call sites of `calculate_rates_for_revision()`
 #' (`build_full_timeseries` in 00_build_timeseries.R and
@@ -330,6 +401,31 @@ filter_active_ch99 <- function(ch99_data, revision_effective_date) {
             ' not yet legally active at ', rev_date,
             ' (earliest activation: ', earliest, ')')
     ch99_data <- ch99_data[!not_yet_active, , drop = FALSE]
+  }
+  if ('expiry_date_offset' %in% names(ch99_data)) {
+    # Same backwards-compatibility contract as the start gate: caches built
+    # before the expiry column existed skip this gate.
+    expired <- !is.na(ch99_data$expiry_date_offset) &
+               ch99_data$expiry_date_offset < rev_date
+    expired_na_rate <- expired & is.na(ch99_data$rate)
+    expired_rated   <- expired & !is.na(ch99_data$rate)
+    if (any(expired_na_rate)) {
+      n_drop <- sum(expired_na_rate)
+      message('  Dropping ', n_drop, ' EXPIRED rate-less Ch99 entr',
+              if (n_drop == 1) 'y' else 'ies', ' at ', rev_date, ': ',
+              paste(head(ch99_data$ch99_code[expired_na_rate], 8), collapse = ', '),
+              if (n_drop > 8) ', ...' else '')
+      ch99_data <- ch99_data[!expired_na_rate, , drop = FALSE]
+      expired_rated <- expired_rated[!expired_na_rate]
+    }
+    if (any(expired_rated)) {
+      # Retained on purpose (dropping would move numbers); see docstring.
+      message('  NOTE: ', sum(expired_rated), ' RATE-BEARING Ch99 entr',
+              if (sum(expired_rated) == 1) 'y is' else 'ies are',
+              ' past stated expiry at ', rev_date, ' but RETAINED: ',
+              paste(ch99_data$ch99_code[expired_rated], collapse = ', '),
+              ' — review before enabling a rate-bearing expiry gate (todo.md)')
+    }
   }
   ch99_data
 }

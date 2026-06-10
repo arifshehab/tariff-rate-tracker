@@ -1022,6 +1022,122 @@ run_test('filter_active_ch99 is a no-op when column is missing', {
   stopifnot(out$ch99_code == '9903.94.01')
 })
 
+# --- Expiry-date machinery (§301 exclusion windows; 2026-06-10) -------------
+
+run_test('extract_expiry_date_offset returns NA for empty/no-pattern text', {
+  stopifnot(is.na(extract_expiry_date_offset('')))
+  stopifnot(is.na(extract_expiry_date_offset(NA_character_)))
+  stopifnot(is.na(extract_expiry_date_offset(
+    'Articles the product of China, as provided for in U.S. note 20(z)')))
+  # A start-only window has no expiry.
+  stopifnot(is.na(extract_expiry_date_offset(
+    'effective with respect to entries on or after April 3, 2025, passenger vehicles')))
+})
+
+run_test('extract_expiry_date_offset: "through" is inclusive (9903.88.69 wording)', {
+  desc <- paste0('Effective with respect to entries on or after June 15, 2024 ',
+                 'and through November 9, 2026, articles the product of China, ',
+                 'each covered by an exclusion granted by the U.S. Trade Representative')
+  stopifnot(extract_expiry_date_offset(desc) == as.Date('2026-11-09'))
+  # The same description's START offset must be untouched by the expiry parse.
+  stopifnot(extract_effective_date_offset(desc) == as.Date('2024-06-15'))
+})
+
+run_test('extract_expiry_date_offset: "before" is exclusive (9903.88.68 wording)', {
+  desc <- paste0('Effective with respect to entries on or after June 1, 2023, ',
+                 'and before June 15, 2024, articles the product of China')
+  stopifnot(extract_expiry_date_offset(desc) == as.Date('2024-06-14'))
+})
+
+run_test('extract_expiry_date_offset: "on or before" is inclusive, multiple -> latest', {
+  stopifnot(extract_expiry_date_offset('entered on or before March 1, 2025, goods') ==
+              as.Date('2025-03-01'))
+  desc <- 'goods through May 31, 2025, extended through November 9, 2026'
+  stopifnot(extract_expiry_date_offset(desc) == as.Date('2026-11-09'))
+})
+
+run_test('extract_expiry_date_offset stops on unparseable matched phrase', {
+  err <- tryCatch(extract_expiry_date_offset('valid through Maybruary 99, 2025, goods'),
+                  error = function(e) e)
+  stopifnot(inherits(err, 'error'))
+  stopifnot(grepl('failed to parse', err$message))
+})
+
+run_test('filter_active_ch99 expiry gate drops EXPIRED rate-less rows only', {
+  ch99 <- tibble::tibble(
+    ch99_code = c('9903.88.67', '9903.88.69', '9903.91.04', '9903.99.99'),
+    rate = c(NA, NA, 0.25, 0.50),
+    effective_date_offset = as.Date(c('2021-10-12', '2024-06-15', NA, NA)),
+    expiry_date_offset = as.Date(c('2024-06-14', '2026-11-09', '2025-12-31', NA))
+  )
+  # 2026-01-15: .67 (rate-less, expired) drops; .69 in-window keeps;
+  # 9903.91.04 (RATE-BEARING, past stated expiry) is RETAINED by design —
+  # dropping it would move numbers without its own review (see todo.md);
+  # NA-window row always keeps.
+  out <- suppressMessages(filter_active_ch99(ch99, as.Date('2026-01-15')))
+  stopifnot(setequal(out$ch99_code, c('9903.88.69', '9903.91.04', '9903.99.99')))
+})
+
+run_test('filter_active_ch99 keeps rate-less rows on their last active day', {
+  ch99 <- tibble::tibble(
+    ch99_code = c('9903.88.69'),
+    rate = NA_real_,
+    effective_date_offset = as.Date('2024-06-15'),
+    expiry_date_offset = as.Date('2026-11-09')
+  )
+  # On the expiry date itself the heading is still active (last active day);
+  # one day later it is gone.
+  stopifnot(nrow(filter_active_ch99(ch99, as.Date('2026-11-09'))) == 1)
+  stopifnot(nrow(suppressMessages(
+    filter_active_ch99(ch99, as.Date('2026-11-10')))) == 0)
+})
+
+run_test('filter_active_ch99 skips expiry gate when column is missing', {
+  # Caches built before expiry_date_offset existed: start gate still applies,
+  # expiry gate silently skipped.
+  ch99 <- tibble::tibble(
+    ch99_code = c('9903.88.67', '9903.94.01'),
+    rate = c(NA, 0.25),
+    effective_date_offset = as.Date(c('2021-10-12', '2025-04-03'))
+  )
+  out <- suppressMessages(filter_active_ch99(ch99, as.Date('2025-03-12')))
+  stopifnot(setequal(out$ch99_code, '9903.88.67'))
+})
+
+run_test('s301 exclusion registry: schema + safety invariants', {
+  reg_path <- here('resources', 's301_exclusion_headings.csv')
+  if (!file.exists(reg_path)) skip_test('registry CSV missing')
+  reg <- read_csv(reg_path, col_types = cols(
+    ch99_code = col_character(), validity_start = col_date(),
+    validity_end = col_date(), coverage_share = col_double(),
+    .default = col_character()
+  ), show_col_types = FALSE)
+  stopifnot(all(c('ch99_code', 'validity_start', 'validity_end',
+                  'coverage_share', 'source', 'source_note') %in% names(reg)))
+  stopifnot(!any(duplicated(reg$ch99_code)))
+  stopifnot(all(reg$coverage_share >= 0 & reg$coverage_share <= 1))
+  # 9903.88.21-.28 are note 20(z)-(gg) CONDITIONAL derived-rate carve-outs,
+  # not USTR product exclusions — they must never be full-line zeroed.
+  zgg <- reg %>% filter(ch99_code %in% sprintf('9903.88.%02d', 21:28))
+  stopifnot(nrow(zgg) == 8, all(zgg$coverage_share == 0))
+  # The live exclusion round must be registered at the Phase-1 upper bound.
+  stopifnot(reg$coverage_share[reg$ch99_code == '9903.88.69'] == 1)
+})
+
+run_test('rev_9 snapshot: §301 exclusion zeroes China rate_301 on 9903.88.69 refs', {
+  # Worked example from the bug report: 0304725000 (frozen haddock) refs both
+  # 9903.88.03 (25%, kept) and 9903.88.69 (exclusion, in force through
+  # 2026-11-09). Pre-fix snapshots model 25% China §301 mid-exclusion-window.
+  # Snapshot-based: skips when missing; FAILS against a pre-fix stale
+  # artifact (same lifecycle as Test 12 — rebuild rev_9 to re-sync).
+  snap_path <- here('data', 'timeseries', 'snapshot_2026_rev_9.rds')
+  if (!file.exists(snap_path)) skip_test('snapshot_2026_rev_9.rds missing')
+  s <- readRDS(snap_path)
+  haddock <- s %>% filter(hts10 == '0304725000', country == '5700')
+  if (nrow(haddock) == 0) skip_test('0304725000 x China not in snapshot')
+  stopifnot(abs(haddock$rate_301) < 1e-10)
+})
+
 run_test('parse_chapter99 populates effective_date_offset from JSON', {
   # Synthetic rev_6-style JSON: 9903.94.01 with the auto effective-date
   # description; 9903.99.99 with no date pattern.

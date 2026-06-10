@@ -221,6 +221,19 @@ discover_boundaries <- function(rev_dates, snapshot_dir = NULL, policy_params = 
     offs <- offs[!is.na(offs)]
     offs <- offs[offs > intervals$valid_from[i] & offs <= intervals$valid_until[i]]
     for (o in offs) add_rec(o, rev_id, paste0('ch99:', rev_id))
+
+    # Expiry mirror: a rate-less heading active at the revision's effective_date
+    # whose window ENDS interior to the interval changes state on expiry + 1
+    # (the first day filter_active_ch99's expiry gate drops it, releasing the
+    # §301 exclusion hook's scaling). Same owner-archive logic as the start
+    # scan. Rate-bearing expiries are excluded — the calc RETAINS those rows
+    # (see filter_active_ch99), so no recompute would change state.
+    if ('expiry_date_offset' %in% names(ch99)) {
+      exps <- unique(ch99$expiry_date_offset[is.na(ch99$rate)])
+      exps <- exps[!is.na(exps)] + 1L
+      exps <- exps[exps > intervals$valid_from[i] & exps <= intervals$valid_until[i]]
+      for (o in exps) add_rec(o, rev_id, paste0('ch99_expiry:', rev_id))
+    }
   }
 
   # (b) Config boundaries the CALC re-resolves on recompute: collect_schedule_
