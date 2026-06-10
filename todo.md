@@ -1,13 +1,13 @@
 # Tariff Rate Tracker — TODO
 
-## Active priorities (updated 2026-06-05: revisions re-dated, rebuild in flight)
+## Active priorities (updated 2026-06-10: rev_10 merged + first `release/` publish; build-unification Phase 0 done)
 
-1. **Validate the re-dated rebuild (running 2026-06-05).** Revision re-dating LANDED (commit 6559c2f): `policy_effective_date` populated for 35 revisions from the change-record audit (`scripts/audit_revision_dates.R`); 2026_rev_8 dropped from the series; the `tpc_policy_revision=rev_7` override removed. Full rebuild with corrected dates in progress. Acceptance checks when it lands: (a) TPC policy-aligned table — Apr 17 should move from −9.71pp to low single digits (Apr 17 now falls in rev_10: pause + China 125%+20% + electronics exempt, the regime TPC models); Mar 17 / Jul 17 mappings also shift (now rev_5 / rev_16 windows); (b) `test_tpc_comparison.R` + `compare_etrs.R`; (c) re-run `src/revision_changelog.R` so the changelog summary table picks up corrected dates; (d) hand snapshots to tariff-etr-eval — the eval's month-weighting (`usmca_h2avg` day-weighted to months) shifts materially in Mar–May and Sep–Dec 2025.
-2. **Findings from the three-model decomposition (2026-06-06, `output/model_compare/`).** (a) **8471 in the annex era:** the auto-parts applicability exclusion removed 8471 from `heading_program_products`, so from 2026_rev_5 the step-5c metals-annex override now applies — and bare `8471` is on annex_1b (aluminum) per the proclamation's own Note 16(c) list (`s232_annex_products.csv`). Production therefore charges computers 25% full-value annex_1b from Apr 6, 2026 (vs 23.76% auto-parts before the fix — levels barely moved, +0.04pp ETR). This is the literal statutory reading of the new regime and there is no post-April Census evidence yet (eval window ends Mar 2026); decide when April+ collections land — the dormant 9903.82.01 zero-metal-content carve-out or an annex-level applicability share are the natural knobs. (b) **Fix-1 universe lines are invisible to all weighted ETRs:** the GTAP weights file uses 2024-vintage HTS10 codes, so the padded `…00` 8-digit-leaf codes (Swiss watches, ch98) never match the weights join — in the three-model comparison AND in production `08_weighted_etr.R`. Daily *weighted* series understate their contribution; the eval's Census-side panel is unaffected. Fix: HS8-level fallback in the weights join or a concordance pass on the weights file.
-3. **Retro-window follow-ups from the re-dating (NEW).** Three legally-retroactive regimes are not modeled because their HTS text arrived weeks after legal effect: EU framework exemptions retro to Sep 1 2025 (text Sep 25, rev_24); Korea floor retro to Nov 14 2025 (text Dec 5, rev_32); rev_4's 232-derivative items (Mar 12) briefly absent Mar 7–13 (rev_4 dated at the Mar-7 USMCA carve-out; stated-date gate releases them at rev_5 Mar 14). Pattern for fixing any of these if they matter in the eval: date-bounded config override like `swiss_framework`. Also: extend the release-currency gate to cross-check NEW revisions' dates against their change records at build time so dates can't drift again.
-3. ~~**Sync published rev_5 artifacts with current code**~~ **DONE 2026-06-08** — `tests/test_rate_calculation.R` now passes 92/0/0 (was 3 failures in Test 12 "Annex-era country surcharges (rev_5)" against stale artifacts); the landed Russia fix is reflected in saved outputs. All four CI smoke suites green. No further action needed here.
-4. **Finish the biggest post-annex modeling gaps**: Russia clause (8) full smelter/cast origin logic, UK 95% qualifying-content blending, Annex IV exception buckets, and product-condition exemptions like 9903.81.92 are still approximated or unmodeled. (9903.82.01 zero-metal-content is now scaffolded but dormant — calibration is its own line item below.)
-5. **Then clear secondary rebuild/calibration debt**: rerun the OOM-failed post-build alternatives, calibrate semi/annex/zmc assumptions, and tackle the remaining low-priority performance and cleanup items.
+1. **Validate the re-dated rebuild.** Revision re-dating LANDED (commit 6559c2f): `policy_effective_date` populated for 35 revisions from the change-record audit (`scripts/audit_revision_dates.R`); 2026_rev_8 dropped from the series; the `tpc_policy_revision=rev_7` override removed. The full rebuild with corrected dates has since completed (the 2026-06-09 `release/` publish is built from it, through 2026_rev_10). Acceptance checks still outstanding: (a) ~~TPC policy-aligned table~~ DIRECTION CHANGE 2026-06-10: the manual TPC alignment table is retired — external validation moves to the **external-tracker comparison database** (see its section below + `docs/external_tracker_comparison.md`); until that lands, the spot-check is the same fact (Apr 17 should move from −9.71pp to low single digits under the re-dating) verified against the TPC flow file directly; (b) `compare_etrs.R`; (c) re-run `src/revision_changelog.R` so the changelog summary table picks up corrected dates; (d) hand snapshots to tariff-etr-eval — the eval's month-weighting (`usmca_h2avg` day-weighted to months) shifts materially in Mar–May and Sep–Dec 2025.
+2. **Findings from the three-model decomposition (2026-06-06, `output/model_compare/`).** (a) **8471 in the annex era:** the auto-parts applicability exclusion removed 8471 from `heading_program_products`, so from 2026_rev_5 the step-5c metals-annex override now applies — and bare `8471` is on annex_1b (aluminum) per the proclamation's own Note 16(c) list (`s232_annex_products.csv`). Production therefore charges computers 25% full-value annex_1b from Apr 6, 2026 (vs 23.76% auto-parts before the fix — levels barely moved, +0.04pp ETR). This is the literal statutory reading of the new regime and there is no post-April Census evidence yet (eval window ends Mar 2026); decide when April+ collections land — the dormant 9903.82.01 zero-metal-content carve-out or an annex-level applicability share are the natural knobs. (b) **Fix-1 universe lines are invisible to all weighted ETRs:** the GTAP weights file uses 2024-vintage HTS10 codes, so the padded `…00` 8-digit-leaf codes (Swiss watches, ch98) never match the weights join — in the three-model comparison AND in the production weighted-output path (formerly `08_weighted_etr.R`, now the output/daily path). Daily *weighted* series understate their contribution; the eval's Census-side panel is unaffected. Fix: HS8-level fallback in the weights join or a concordance pass on the weights file.
+3. **Retro-window follow-ups from the re-dating.** Three legally-retroactive regimes are not modeled because their HTS text arrived weeks after legal effect: EU framework exemptions retro to Sep 1 2025 (text Sep 25, rev_24); Korea floor retro to Nov 14 2025 (text Dec 5, rev_32); rev_4's 232-derivative items (Mar 12) briefly absent Mar 7–13 (rev_4 dated at the Mar-7 USMCA carve-out; stated-date gate releases them at rev_5 Mar 14). Pattern for fixing any of these if they matter in the eval: date-bounded config override like `swiss_framework`. Also: extend the release-currency gate to cross-check NEW revisions' dates against their change records at build time so dates can't drift again.
+4. ~~**Sync published rev_5 artifacts with current code**~~ **DONE 2026-06-08** — `tests/test_rate_calculation.R` now passes 92/0/0 (was 3 failures in Test 12 "Annex-era country surcharges (rev_5)" against stale artifacts); the landed Russia fix is reflected in saved outputs. All four CI smoke suites green. No further action needed here.
+5. **Finish the biggest post-annex modeling gaps**: Russia clause (8) full smelter/cast origin logic, UK 95% qualifying-content blending, Annex IV exception buckets, and product-condition exemptions like 9903.81.92 are still approximated or unmodeled. (9903.82.01 zero-metal-content is now scaffolded but dormant — calibration is its own line item below.)
+6. **Then clear secondary rebuild/calibration debt**: rerun the OOM-failed post-build alternatives, calibrate semi/annex/zmc assumptions, and tackle the remaining low-priority performance and cleanup items.
 
 ## Specific-duty / compound-duty AVE gap (2026-06-08) — dominant driver of negative η in the food complex
 
@@ -31,12 +31,12 @@ from the CLI but never errored). Target end state: **one build product, three
 publishers (repo mirror / vintage / release-git), two compute backends (array =
 default, serial = parity baseline), one config, one verification gate.**
 
-- [ ] **Phase 0 — hygiene (started 2026-06-09):** delete stale untracked wrappers;
-  `scripts/README.md` declaring blessed entry points; parameterize the
-  jar335-hardcoded repo paths in `submit_build_array.sh` / `build_array_task.sh` /
-  `submit_build_gather.sh` / `submit_build_full.sh`; error on unrecognized CLI
-  flags in `00_build_timeseries.R`; harden `publish_git` (validate-then-delete,
-  fail loud on zero/partial publish).
+- [x] **Phase 0 — hygiene. DONE 2026-06-10** (commits `711223b`, `9613097`):
+  stale untracked wrappers deleted; `scripts/README.md` declares blessed entry
+  points; jar335-hardcoded repo paths parameterized in `submit_build_array.sh` /
+  `build_array_task.sh` / `submit_build_gather.sh` / `submit_build_full.sh`;
+  `00_build_timeseries.R` errors on unrecognized CLI flags; `publish_git`
+  hardened (validate-then-delete, fail loud on zero/partial publish).
 - [ ] **Phase 1 — destinations as config:** `destinations:` block in the build
   config (`repo:` mirror, `vintage:` + `update_latest:`, `release_git:`); three
   thin publishers reading one canonical build tree (publish_vintage exists;
@@ -51,6 +51,107 @@ default, serial = parity baseline), one config, one verification gate.**
   in-process Phase-3 revision-parallel stub (array supersedes it). Fold the
   rebuild-alternatives into the array config as post-gather work units so they
   stop being a separate manual job.
+- [ ] **Phase 4 — alternatives unification (planned 2026-06-10):** see next
+  section.
+
+## External-tracker comparison database (2026-06-10) — replaces the manual TPC alignment table
+
+Full survey + verified endpoints + design: `docs/external_tracker_comparison.md`.
+Decision: stop maintaining the hand-built TPC policy-aligned table; instead keep
+a vintage-stamped comparison database of external tracker series under
+`data/comparison/`, refreshed by fetchers, compared automatically against
+`output/actual/daily/`.
+
+- [ ] **Fetchers (`src/fetch_comparison_trackers.R`).** Browser UA mandatory
+  (TPC 403s default agents). (a) Datawrapper resolver: `GET
+  datawrapper.dwcdn.net/<id>/` → parse meta-refresh version → `<id>/<n>/dataset.csv`;
+  version `n` = vintage key, ingest on bump. IDs: TPC `aO4iG` (daily 9-good),
+  `MC81F` (weekly by tariff type), `e1Iok` (by-country snapshot); Tax Foundation
+  `hn0bW` (daily-dated step series w/ event labels), `2dFbJ` (annual 1821–2026).
+  (b) Treasury DTS API (daily customs deposits, `transaction_catg = "DHS -
+  Customs Duties, Taxes, and Fees"`, no key). (c) PIIE ZIP HEAD-poll on
+  `Last-Modified` (monthly collections ETR by country/BEC).
+- [ ] **Comparison report (`src/compare_external_trackers.R`).** Tidy panel
+  (date × source × series × value × vintage) + five automated overlays:
+  headline daily ETR vs Tax Foundation steps + TPC type-sum; authority
+  decomposition vs TPC `MC81F` (and CBP collections-by-action if scraped);
+  by-country vs TPC `e1Iok` on vintage dates; 9-good daily spot-check vs
+  `aO4iG`; statutory-vs-collections wedge vs DTS/PIIE (ingestion only —
+  η analysis stays in `tariff-etr-adj`).
+- [ ] **One-time GTA/SGEPT flow-level cross-validation.** Their public xlsx
+  (CC BY 4.0, ~235k country×HS8 flows with explicit stacking formulas) is the
+  closest methodological sibling but is frozen at 2025-12-23
+  (pre-IEEPA-strikedown) — validate a pre-strikedown date against it; revisit
+  ingestion if they refresh the file (live model is behind their MCP server).
+- [ ] **Retire the old path once overlays 1–3 exist:** the per-revision TPC
+  match-rate step in the build and `07_validate_tpc.R`-based acceptance checks
+  point at the comparison DB instead. The private flow-level file
+  (`data/tpc/tariff_by_flow_day.csv`) stays for historical flow-level
+  validation — public endpoints don't include it (bilateral channel with
+  McClelland/Wong for refreshes).
+
+## Alternatives unification plan (2026-06-10) — one registry, one flag, one runner
+
+Today there are THREE ways a non-baseline series gets built, and one class that
+can't be built at all:
+(a) **named scenarios** — `config/scenarios/<name>/overlay.yaml` deep-merged
+    onto policy params via `TARIFF_SCENARIO` env (forced_labor, new_301);
+(b) **AuthoritySpec ops** — `TARIFF_SCENARIO_OPS` RDS env var read by
+    `scripts/build_revision.R`, or the `operations` field threaded through
+    `build_alternative_timeseries()`;
+(c) **rebuild alternatives** — pp_override closures hardcoded in
+    `build_rebuild_alt_registry()` (`09_daily_series.R`) + `SCENARIO_SPECS` in
+    `build_usmca_scenarios.R`, run via `--with-alternatives`/`--rebuild-alts`;
+(d) **orphaned counterfactuals** — `no_ieepa`, `no_ieepa_recip`, `no_301`,
+    `no_232`, `no_s122`, `pre_2025` lost their engine in Phase 7 and currently
+    have no authoring location or runner.
+
+Target end state: **every non-baseline series is a named folder under
+`config/scenarios/<name>/`, listed by one registry, requested by one CLI flag
+on the main run, executed by one runner (`alt_runner()`, fresh process per
+variant), written to one output layout (`output/scenarios/<name>/`).**
+
+- [ ] **Step 1 — inventory + classify by mechanism.** For each variant decide
+  what expresses it: config **overlay** (`metal_flat` → `metal_content.method:
+  flat`; `dutyfree_nonzero`; `subdivision_r_mid` → subdivision-r shares;
+  `usmca_annual/monthly/2024/dec2025` → share-mode keys — VERIFY the USMCA
+  loaders read these from policy params; if not, add the config keys first) or
+  AuthoritySpec **operations** (`no_301`/`no_232`/`no_s122` → `disable`;
+  `no_ieepa`/`no_ieepa_recip` → `set_active`/`disable` on the IEEPA programs;
+  `pre_2025` → disable all post-2024 authorities). Existing named scenarios
+  (forced_labor, new_301) are already conformant.
+- [ ] **Step 2 — declarative registry.** Each `config/scenarios/<name>/` gets a
+  `meta.yaml` (`kind: scenario|alternative|counterfactual`, `description`,
+  `publish: true|false`) plus optional `overlay.yaml` and optional
+  `operations.yaml` (YAML-authored ops list replacing the ad-hoc
+  `TARIFF_SCENARIO_OPS` RDS). New `list_scenarios()` reads the folders; after
+  migration DELETE `build_rebuild_alt_registry()` and `SCENARIO_SPECS`.
+- [ ] **Step 3 — one flag, one runner.** Replace `--with-alternatives` +
+  `--rebuild-alts` with `--alternatives <comma-list|all|none>` (fail-loud
+  rename per Phase 0 policy; update `scripts/README.md` + sbatch wrappers).
+  Every requested name dispatches through `alt_runner()` (fresh R process,
+  `--alt-workers` concurrency — this is what fixes the 2026-04-22 OOM class).
+  Note the cost honestly: under "baseline = the empty scenario" the no_*
+  counterfactuals are full recalcs now, not cheap column-zeroing — but workers
+  reuse the cached `ch99_<rev>.rds`/`products_<rev>.rds` parses, so each
+  variant is calculator-only. On Slurm they become post-gather array work
+  units (build-unification Phase 3).
+- [ ] **Step 4 — uniform outputs + publish.** Everything writes via
+  `save_alternative_output()` to `output/scenarios/<name>/`; retire the
+  `output/alternative/` split (keep a symlink or README pointer one release).
+  `publish_git`/`publish_vintage` read `meta.publish` to decide what ships.
+- [ ] **Step 5 — parity + verification.** Migration gate: rebuild alts must
+  reproduce current `output/alternative/*.csv` byte-for-byte-or-tolerance
+  (golden diff) before the old registry is deleted. Counterfactuals get sanity
+  invariants in `verify_build.R` (build-unification Phase 2): `no_301` ETR ≤
+  baseline everywhere, `pre_2025` ≈ MFN-only, every requested variant's output
+  manifest is fresh — a failed variant fails the build instead of message().
+
+Sequencing: do after build-unification Phases 1–2 (destinations + verify gate),
+alongside Phase 3 (the array fold-in). Authoring the six counterfactual
+`operations.yaml` files in Step 1 also closes the "Rerun 6 OOM-failed
+post-build alternatives" item below — those stale CSVs get regenerated by the
+new path, not the old one.
 
 ## §301 exclusion headings dropped silently — full §301 charged on excluded lines (found 2026-06-09)
 
@@ -73,7 +174,7 @@ Source: `docs/tracker_review_extreme_etas.md` (eval-side Census-vs-statutory eta
 - [x] **4. Re-run `expand_ieepa_exempt.R` (ch97 Berman).** DONE 2026-06-04. Re-ran against a refreshed universe (`scripts/refresh_product_caches.R`): +424 codes (378 new ch98 leaves, 30 ch97, 16 ch49). Audit removals preserved (0 PV codes, 0 non-8523.51). Write-back now preserves the date-window columns.
 - [x] **5. Effective-date the IEEPA exempt list.** DONE 2026-06-04 — and bigger than scoped. `scripts/build_annex_ii_dates.R` extracts the note 2(v)(iii)(a) enumeration from every chapter-99 PDF, dates each entry by first appearance using the LEGAL amendment dates from the change records (electronics 2025-04-05 retroactive; EO 14346 metals/gold 2025-09-08; ag expansion 2025-11-13), and END-dates removals (copper → 232 PP 10962, exempt through 2025-07-31; wood → 232 PP 10976, through 2025-10-13; +405 windowed entries appended that were missing entirely). Loader filters in `06_calculate_rates.R` + `generate_etrs_config.R`. Also removed 74 ch06 entries — see discoveries below.
 - [x] **6. USMCA eligibility false negatives.** DONE 2026-06-04. Two real root causes: (a) `extract_usmca_eligibility()` read each 10-digit item's own `special` field, but special lives on 8-digit LEGAL lines — statistical suffixes (~59% of HTS10s) were false-negative; now inherits via a legal-line stack (mirrors base-rate inheritance) and handles 8-digit leaves. (b) The h2_average share loader mapped zero-trade pairs to share 0 and absent pairs defaulted to 0 at the join; now zero-trade → NA and application falls back HTS10 → HS8 value-weighted share → 0 (fixes 2709.00.20.10 full-10% vs sibling ≈0). Residual: 7108.12.10.17 ($576M, observed claim share 0.001 with positive trade) — likely monetary gold; needs a bullion-channel decision (below).
-- [ ] **Companion (diagnostics): universe completeness check.** Census HS10 universe vs snapshot universe per revision, duty-weighted, in `diagnostics.R` — would have caught item 1 cheaply and separates modeled-zero from missing-line from concordance drift in future eta reviews.
+- [x] **Companion (diagnostics): universe completeness check. DONE 2026-06-10.** `report_universe_completeness()` in `src/diagnostics.R` (wired into `run_all_diagnostics()`): per-revision comparison of the Census import-weights HS10 universe vs the snapshot universe, classifying each Census code as exact / hs8_drift (suffix concordance) / missing_line (true gap), with import-value shares; flags revisions with >0.1% of import value on missing lines; writes `output/diagnostics/universe_completeness.csv` + `universe_missing_detail.csv`. Skips gracefully when no weights file is present (unweighted/CI environments). Needs a weighted environment (cluster) to produce output — run with the next cluster build.
 
 ### Discoveries from the 2026-06-04 fix pass
 
@@ -98,13 +199,13 @@ Presidential proclamation of 2 April 2026 replaces single-rate 232 with four pro
 
 ### Open work
 
-Recommended order here: the rev_5 artifact sync / Russia fix has landed (active-priority #3, now DONE — `test_rate_calculation.R` green 92/0/0), so the release artifacts are in sync. Remaining: the full re-dated rebuild (active-priority #1, Slurm) and the post-annex modeling/documentation items.
+Recommended order here: the rev_5 artifact sync / Russia fix has landed (active-priority #4, now DONE — `test_rate_calculation.R` green 92/0/0), so the release artifacts are in sync, and the re-dated rebuild has completed (2026-06-09 `release/` publish). Remaining: rebuild validation (active-priority #1) and the post-annex modeling/documentation items below.
 
-- [ ] **Russia rev_5 release sync:** the source fix has landed (`section_232_annexes.country_surcharges` plus the post-annex `pmax()` path in step 5c), and a fresh `calculate_rates_for_revision()` run now restores the 200% rate for `country == '4621'` on Annex I-A/I-B/III aluminum and aluminum derivatives. But the checked-in `snapshot_2026_rev_5.rds` and `rate_timeseries.rds` still predate that fix, so `tests/test_rate_calculation.R` fails against the saved rev_5 artifact (Test 12: 3 failures, confirmed 2026-05-19).
+- [x] **Russia rev_5 release sync — DONE 2026-06-08** (same resolution as active-priority #4): the source fix landed (`section_232_annexes.country_surcharges` plus the post-annex `pmax()` path in step 5c) and the saved artifacts were re-synced; `tests/test_rate_calculation.R` passes 92/0/0 including Test 12 against the saved rev_5 artifact.
 - [ ] **Russia clause (8) is still only partially modeled.** The April 2, 2026 proclamation covers Annex I-A/I-B/III aluminum articles or derivatives that are the product of Russia **or** where any primary aluminum was smelted in Russia **or** the article was cast in Russia. Current logic only keys on exporter country (`country == '4621'`). See `docs/s232/russia_rev5_fix_plan.md`.
 - [ ] **Narrow Russia `section_232_country_exemptions` to aluminum-only (pre-annex correctness).** The Russia entry in `config/policy_params.yaml:227-231` uses `applies_to: ['steel','aluminum']` with `rate: 2.0`, but Proclamation 10522 (2023) was an **aluminum** action — applying 200% to Russian *steel* at step 4 is wrong on its own merits. In the annex era the annex override masks it for everything except (formerly) the shielded 7320 springs, but **pre-2026-04-06 snapshots carry Russian steel at 2.0**. Narrowing to `applies_to: ['aluminum']` is the principled root fix. **Out of scope for the rev_5 test fix** (the `mhd_products` blanket-chapter strip, landed 2026-06-08, already makes rev_5 correct). Before changing: verify against a pre-annex Russia-steel snapshot and confirm no annex-era regression. Full diagnosis in `docs/russia_surcharge_mhd_leak_fix_plan.md` §"Companion consideration".
-- [ ] **Document (or assign) `deriv_type` in annex-era revisions.** In rev_5 all rows have `deriv_type = NA` and per-type shares = 0 because `apply_232_derivatives()` gates on pre-annex Ch99 codes (9903.81.89-93, 9903.85.04/07/08, 9903.78.01) that are absent from the rev_5 HTS. This is correct-by-policy (full-value taxation replaces metal-content scaling) but arrived at accidentally through a failing gate. Either add a comment documenting the intent, or have step 5c assign a sentinel value (e.g., `deriv_type = 'annex_1a'`) so downstream readers can distinguish "no derivative classification" from "annex-era full-value regime." See `docs/s232/rev5_baseline_review.md` §§4-5.
-- [ ] **Rebuild release artifacts from HEAD.** Re-run `2026_rev_5`, then recombine `rate_timeseries.rds` and `metadata.rds`, so published outputs match the current tree and the new Russia snapshot tests pass on saved artifacts.
+- [x] **Document (or assign) `deriv_type` in annex-era revisions. DONE 2026-06-10** — comment approach, not sentinel. Block comment at the derivative-Ch99 gate in `apply_232_derivatives()` (`src/06_calculate_rates.R`) documents that the annex-era skip (deriv_type = NA, shares = 0 from rev_5 on) is the intended policy outcome, that `s232_annex` is the column downstream readers should use in the annex era, and WHY a sentinel must not be assigned: stacking gates per-type metal-share selection on `!is.na(deriv_type)`, and annex products are taxed full-value (`nonmetal_share = 0`), so a non-NA deriv_type would wrongly re-enable metal-content splitting. See `docs/s232/rev5_baseline_review.md` §§4-5.
+- [x] **Rebuild release artifacts from HEAD — DONE** (covered by the 2026-06-08 artifact sync and the full re-dated rebuild published 2026-06-09): published outputs match the current tree; Russia snapshot tests pass on saved artifacts.
 - [x] **Dynamic Ch99 parsing** in `load_annex_products()` / `extract_section232_rates()` — landed 2026-05-19 across 4 commits. `Rscript src/scrape_us_notes.R --annex` regenerates `resources/s232_annex_products.csv` by parsing Note 16(c)(i)–(x) from `data/us_notes/chapter99_<revision>.pdf` (initial parser `0d41a7b`; hardening `ed69eef` — auto-detects latest revision via `latest_local_chapter99_revision()`, derives effective_date from `policy_params.yaml::section_232_annexes.effective_date`, 25 tests in `tests/run_tests_annex_parser.R` wired into CI; methodology doc `59d2561` at `docs/s232/annex_parser.md`). Idempotent; curator entries (`source != 'us_note_16'`) win on prefix overlap so manual edge-case calls (annex_2 removals, (c)(ix) overrides) are preserved. Validated semantically against the curator baseline for rev_5 — 2652 codes assigned identically, 0 disagreements. Future Note 16 changes flow through automatically (rev_6's 9903.82.18/.19 USMCA carve-out reuses (c)(i)/(c)(iii) products that are already covered).
 - [x] **9903.82.01 zero-metal-content carve-out — scaffolded** (`7250a0f`, 2026-05-19). Note 16(a) exemption for articles in (c) lists containing no aluminum/steel/copper. Added `section_232_annexes.exemptions.zero_metal_content` config block + step 5c rate-scaling branch in `06_calculate_rates.R` + 4 tests. Dormant (`aggregate_share = 0.0`); behaviorally a no-op until calibrated. **Calibration is its own item below.**
 - [ ] **Modeling gap: conditioned post-annex branches still open**
@@ -280,12 +381,12 @@ landed: `42c0cab` (blocking + required-changes), `0338405` (Phase C hardening).
 
 ## Pipeline
 
-Recommended order here: finish the USMCA refresh path, then rerun the OOM-failed post-build alternatives, and leave generic pharma shares for later.
+Recommended order here: rerun the OOM-failed post-build alternatives (the USMCA refresh path is done), and leave generic pharma shares for later.
 
 - [ ] Generic pharma country-specific exemption shares (per TPC feedback; low priority)
   - Planning note: `docs/analysis/generic_pharma_exemption_share_plan_2026-03-24.md`
-- [ ] USMCA 2026 monthly refresh — see "USMCA scenario and share-loading (2026-04-20)" above.
-- [ ] **Rerun 6 OOM-failed post-build alternatives (2026-04-22).** Full rebuild via `--full --with-alternatives` completed the main timeseries (58.5 min) and the 6 rebuild alternatives (usmca_annual/monthly/2024/dec2025, metal_flat, dutyfree_nonzero) successfully, but the 6 post-build scenarios `no_ieepa`, `no_ieepa_recip`, `no_301`, `no_232`, `no_s122`, `pre_2025` all failed with `cannot allocate vector of size 705.6 Mb` on `filter(revision == 'rev_X')` — R ran out of memory after accumulating state across the ~5-hour run. The corresponding `output/alternative/*_{no_*,pre_2025}.csv` files are stale (dated Apr 15-20, pre-dating the semi tariff work). Rerun option: a fresh R process per scenario. Either restart the machine and re-run `--full --with-alternatives`, or run each failed scenario in its own Rscript invocation (prototype: `apply_scenario(ts, name, scenarios_path) |> build_daily_aggregates(...) |> save_alternative_output(...)`). Each should take a few minutes with fresh memory.
+- [x] USMCA 2026 monthly refresh — DONE; see "USMCA scenario and share-loading (2026-04-20)" above (section closed 2026-05-19).
+- [ ] **Rerun 6 OOM-failed post-build alternatives (2026-04-22).** Full rebuild via `--full --with-alternatives` completed the main timeseries (58.5 min) and the 6 rebuild alternatives (usmca_annual/monthly/2024/dec2025, metal_flat, dutyfree_nonzero) successfully, but the 6 post-build scenarios `no_ieepa`, `no_ieepa_recip`, `no_301`, `no_232`, `no_s122`, `pre_2025` all failed with `cannot allocate vector of size 705.6 Mb` on `filter(revision == 'rev_X')` — R ran out of memory after accumulating state across the ~5-hour run. The corresponding `output/alternative/*_{no_*,pre_2025}.csv` files are stale (dated Apr 15-20, pre-dating the semi tariff work). NOTE (2026-06-10): the original rerun recipe (`apply_scenario()` from `apply_scenarios.R` / `config/scenarios.yaml`) predates the theseus refactor — both files are deleted. Superseded by the **Alternatives unification plan** above: these six counterfactuals get authored as `operations.yaml` scenarios in Step 1 and regenerated by the unified runner.
 
 ## More-granular preference share construction (2026-04-28)
 
