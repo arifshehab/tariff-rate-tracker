@@ -1,0 +1,5 @@
+# Counterfactual: remove Section 232. Zeroing rate_232 pre-stacking routes every
+# pair through the "without 232" stacking branch (all other authorities apply
+# full-value), which is the intended counterfactual. Same caveat as the legacy
+# engine: IEEPA floors computed in earlier steps are not re-derived.
+disabled_authorities: [section_232]

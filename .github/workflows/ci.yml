@@ -64,3 +64,6 @@ jobs:
 
       - name: Run rate-calculation tests
         run: Rscript tests/test_rate_calculation.R
+
+      - name: Run scenario-registry tests
+        run: Rscript tests/test_scenario_registry.R

@@ -3326,6 +3326,16 @@ calculate_rates_for_revision <- function(
     rates$statutory_rate_s301br <- coalesce(rates$statutory_rate_s301br, 0)
   }
 
+  # 7g. Authority kill-switch (counterfactual scenarios). `disabled_authorities`
+  # in the merged config (set ONLY by scenario overlays, e.g.
+  # config/scenarios/no_301/overlay.yaml — absent in baseline => no-op,
+  # byte-identical) zeroes the listed authorities' rate columns here, before
+  # stacking, so totals and contribution shares recompute consistently on what
+  # remains. Names validate against the config authority_columns map; unknown
+  # names fail loud. See apply_authority_disables() in rate_schema.R.
+  rates <- apply_authority_disables(rates, pp$disabled_authorities,
+                                    pp$AUTHORITY_COLUMNS)
+
   # 8. Re-apply stacking rules with updated IEEPA and 232 rates. Phase 3b: when
   # enabled (TARIFF_RESOLVED_STACKING), route through the resolved-program long
   # table — the scenario/new-coverage substrate — and collapse back; default OFF

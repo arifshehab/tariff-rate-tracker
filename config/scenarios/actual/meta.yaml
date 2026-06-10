@@ -1,0 +1,3 @@
+kind: baseline
+description: 'The observed-policy baseline (empty overlay; never run as an alternative)'
+publish: false

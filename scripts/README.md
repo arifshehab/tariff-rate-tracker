@@ -12,6 +12,24 @@ gather / finalize components, parity and equivalence harnesses) or one-off
 diagnostics. See `todo.md` "Build unification plan" for where this is headed:
 one build product, destinations chosen by config, not by which wrapper you ran.
 
+## Alternatives / counterfactuals (2026-06-10 unification)
+
+Every non-baseline variant is a folder under `config/scenarios/<name>/`
+(`meta.yaml` + `overlay.yaml`; registry in `src/scenario_registry.R`). Request
+them on the main entrypoint with the canonical selector:
+
+```bash
+Rscript src/00_build_timeseries.R --alternatives all                  # every alternative + counterfactual
+Rscript src/00_build_timeseries.R --alternatives no_301,metal_flat    # by name
+Rscript src/00_build_timeseries.R --alternatives counterfactuals     # all kind=counterfactual
+```
+
+Legacy spellings `--with-alternatives` (== `--alternatives alternatives`) and
+`--rebuild-alts <list>` still work — the blog pipeline passes them — but new
+scripts should use `--alternatives`. Outputs land in `output/scenarios/<name>/`.
+Full named series (`forced_labor`, `new_301`, kind=scenario) still build via
+`TARIFF_SCENARIO=<name>`, not through `--alternatives`.
+
 ## Components of the array flow (not run directly)
 
 - `list_revisions.R`, `build_array_task.sh` / `build_revision.R`,

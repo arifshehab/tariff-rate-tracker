@@ -1436,15 +1436,15 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
 }
 
 
-#' Build the rebuild-alternatives registry
+#' Build the rebuild-alternatives registry — DEPRECATED
 #'
-#' Returns a list of (variant, pp_override) records — one per rebuild
-#' alternative. Each pp_override is a fully-populated policy_params list,
-#' so it serializes cleanly across to subprocess workers without any
-#' parent-environment lookups.
-#'
-#' Order matches the historical sequence in run_alternative_series() so
-#' a serial run produces the same logs as before.
+#' Superseded by the declarative config/scenarios registry
+#' (src/scenario_registry.R + per-scenario overlay.yaml); no production caller
+#' remains. Kept ONLY so tests/test_scenario_registry.R can assert that each
+#' migrated overlay produces the same policy_params as the historical closure.
+#' DELETE this function (and that test's parity section) once the cluster
+#' golden-diff gate confirms the migrated alternatives reproduce
+#' output/alternative/*.csv (alternatives-unification Step 5, todo.md).
 #'
 #' @param pp Base policy_params (typically load_policy_params())
 #' @return List of spec records: list(variant, pp_override)
@@ -1511,87 +1511,97 @@ build_rebuild_alt_registry <- function(pp) {
 
 #' Run all alternative daily series
 #'
-#' This now drives ONLY the rebuild alternatives (the USMCA-share pp_override
-#' variants) — re-run full calculation with modified policy params, gated on
-#' rebuild = TRUE. The former post-build / 'tpc_additive' stacking alternatives
-#' are no longer performed here (scenarios route through
-#' build_alternative_timeseries(operations=...) instead).
+#' Alternatives unification (todo.md Phase 4): every runnable variant is a
+#' named folder under config/scenarios/<name>/ (kind: alternative or
+#' counterfactual; see src/scenario_registry.R). Each requested name becomes
+#' one alt_runner() spec whose pp_override is load_policy_params(scenario =
+#' name) — the same overlay merge the main build applies under TARIFF_SCENARIO
+#' — and runs a full per-revision recalc + daily aggregation to
+#' output/scenarios/<name>/.
 #'
-#' When alt_workers > 1, rebuild alternatives are dispatched concurrently
-#' via alt_runner() in src/parallel.R. Default alt_workers = 1 preserves
-#' today's serial behavior.
+#' Selection: `alternatives` is the canonical selector ('all', 'alternatives',
+#' 'counterfactuals', or a comma-list of names; see
+#' resolve_alternatives_selector()). The legacy rebuild/rebuild_alts arguments
+#' (--with-alternatives / --rebuild-alts) map onto it — rebuild = TRUE alone
+#' means the 'alternatives' kind, matching the historical 7-variant set — so
+#' existing wrappers (incl. the blog pipeline) keep working unchanged. Unknown
+#' names now FAIL LOUD (Phase-0 policy) instead of being silently dropped.
+#'
+#' When alt_workers > 1, variants are dispatched concurrently via alt_runner()
+#' in src/parallel.R. Default alt_workers = 1 preserves serial behavior.
 #'
 #' @param imports Import weights tibble (or NULL)
-#' @param policy_params Policy params list
-#' @param rebuild Logical; if TRUE, also run rebuild alternatives
-#' @param rebuild_alts Optional character vector subsetting which rebuild
-#'   alternatives to run (e.g., c('metal_flat', 'usmca_2024')). Default NULL
-#'   runs all of them. Only consulted when rebuild = TRUE.
-#' @param alt_workers Concurrent workers for rebuild alternatives (>= 1)
+#' @param policy_params Baseline policy params (kept for API compatibility;
+#'   per-variant params load from the registry)
+#' @param rebuild Legacy flag (--with-alternatives); TRUE = kind 'alternative'
+#' @param rebuild_alts Legacy character vector (--rebuild-alts) of names
+#' @param alternatives Canonical selector (--alternatives); overrides legacy
+#' @param alt_workers Concurrent workers for alternatives (>= 1)
+#' @param use_policy_dates Date mode passed into each variant's
+#'   load_policy_params(); MUST match the main build
 #' @return Invisible NULL
 run_alternative_series <- function(imports = NULL, policy_params = NULL,
                                     rebuild = FALSE,
                                     rebuild_alts = NULL,
-                                    alt_workers = 1L) {
+                                    alternatives = NULL,
+                                    alt_workers = 1L,
+                                    use_policy_dates = TRUE) {
 
   message('\n', strrep('=', 70))
   message('ALTERNATIVE DAILY SERIES')
   message(strrep('=', 70))
 
+  # --- Resolve which scenarios to run ---
+  if (is.null(alternatives) && rebuild) {
+    alternatives <- if (!is.null(rebuild_alts)) {
+      paste(rebuild_alts, collapse = ',')
+    } else {
+      'alternatives'
+    }
+  }
+  alt_names <- resolve_alternatives_selector(alternatives)
+
+  if (length(alt_names) == 0L) {
+    message('No alternatives requested (pass --alternatives <names|all|',
+            'alternatives|counterfactuals>).')
+    message(strrep('=', 70), '\n')
+    return(invisible(NULL))
+  }
+
   if (is.null(imports)) imports <- load_import_weights()
 
-  # Phase 7: the legacy post-build scenario engine (apply_scenarios.R +
-  # config/scenarios.yaml + run_post_build_scenarios_per_revision) has been
-  # removed. Counterfactuals are now authored as AuthoritySpec operations
-  # (src/scenario_ops.R) and applied at build time via
-  # build_alternative_timeseries(operations=...). This function now drives only
-  # the rebuild alternatives (the USMCA-share pp_override variants).
+  alt_specs <- build_scenario_alt_specs(alt_names,
+                                        use_policy_dates = use_policy_dates)
 
-  # --- Rebuild alternatives (only with --with-alternatives) ---
-  if (rebuild) {
-    pp <- policy_params %||% load_policy_params()
-    alt_registry <- build_rebuild_alt_registry(pp)
+  if (!exists('alt_runner', mode = 'function')) {
+    source(here('src', 'parallel.R'))
+  }
 
-    if (!is.null(rebuild_alts)) {
-      alt_registry <- Filter(function(spec) spec$variant %in% rebuild_alts,
-                              alt_registry)
-      missing <- setdiff(rebuild_alts, vapply(alt_registry, `[[`, character(1), 'variant'))
-      if (length(missing) > 0L) {
-        message('  rebuild_alts filter dropped unknown variants: ',
-                paste(missing, collapse = ', '))
-      }
-    }
+  alt_workers <- max(1L, as.integer(alt_workers))
+  message(sprintf(
+    '\n  Running %d alternatives [%s] %s...',
+    length(alt_specs),
+    paste(alt_names, collapse = ', '),
+    if (alt_workers > 1L) sprintf('(%d concurrent)', alt_workers) else '(sequential)'
+  ))
 
-    if (!exists('alt_runner', mode = 'function')) {
-      source(here('src', 'parallel.R'))
-    }
+  alt_log_dir <- here('output', 'logs', 'alternatives')
+  results <- alt_runner(
+    alt_specs,
+    alt_workers = alt_workers,
+    log_dir = alt_log_dir,
+    imports = imports
+  )
 
-    alt_workers <- max(1L, as.integer(alt_workers))
-    message(sprintf(
-      '\n  Running %d rebuild alternatives %s...',
-      length(alt_registry),
-      if (alt_workers > 1L) sprintf('(%d concurrent)', alt_workers) else '(sequential)'
-    ))
-
-    alt_log_dir <- here('output', 'logs', 'alternatives')
-    results <- alt_runner(
-      alt_registry,
-      alt_workers = alt_workers,
-      log_dir = alt_log_dir,
-      imports = imports
-    )
-
-    statuses <- vapply(results, function(r) r$status %||% 'unknown', character(1))
-    n_ok <- sum(statuses == 'ok')
-    failed <- vapply(results[statuses != 'ok'], function(r) r$variant, character(1))
-    message(sprintf('\n  Rebuild alternatives: %d/%d succeeded',
-                    n_ok, length(results)))
-    if (length(failed) > 0L) {
-      message('  Failed: ', paste(failed, collapse = ', '))
-    }
-    if (alt_workers > 1L) {
-      message('  Per-alt logs: ', alt_log_dir)
-    }
+  statuses <- vapply(results, function(r) r$status %||% 'unknown', character(1))
+  n_ok <- sum(statuses == 'ok')
+  failed <- vapply(results[statuses != 'ok'], function(r) r$variant, character(1))
+  message(sprintf('\n  Alternatives: %d/%d succeeded', n_ok, length(results)))
+  if (length(failed) > 0L) {
+    message('  Failed: ', paste(failed, collapse = ', '))
+  }
+  if (alt_workers > 1L) {
+    message('  Per-alt logs: ', alt_log_dir)
   }
 
   message('\n', strrep('=', 70))

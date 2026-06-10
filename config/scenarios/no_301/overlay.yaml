@@ -1,0 +1,4 @@
+# Counterfactual: remove Section 301. Zeroes rate_301 (legacy-additive column),
+# matching the legacy `no_301` scenario. rate_301_cs (content-split) is all-zero
+# at baseline; add section_301_content_split here if that ever changes.
+disabled_authorities: [section_301]

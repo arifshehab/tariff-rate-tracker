@@ -92,66 +92,56 @@ a vintage-stamped comparison database of external tracker series under
 
 ## Alternatives unification plan (2026-06-10) — one registry, one flag, one runner
 
-Today there are THREE ways a non-baseline series gets built, and one class that
-can't be built at all:
-(a) **named scenarios** — `config/scenarios/<name>/overlay.yaml` deep-merged
-    onto policy params via `TARIFF_SCENARIO` env (forced_labor, new_301);
-(b) **AuthoritySpec ops** — `TARIFF_SCENARIO_OPS` RDS env var read by
-    `scripts/build_revision.R`, or the `operations` field threaded through
-    `build_alternative_timeseries()`;
-(c) **rebuild alternatives** — pp_override closures hardcoded in
-    `build_rebuild_alt_registry()` (`09_daily_series.R`) + `SCENARIO_SPECS` in
-    `build_usmca_scenarios.R`, run via `--with-alternatives`/`--rebuild-alts`;
-(d) **orphaned counterfactuals** — `no_ieepa`, `no_ieepa_recip`, `no_301`,
-    `no_232`, `no_s122`, `pre_2025` lost their engine in Phase 7 and currently
-    have no authoring location or runner.
+**LANDED 2026-06-10 (Steps 1–4).** Discovery that reshaped the plan: the
+AuthoritySpec verb/operations API the original plan assumed (`scenario_ops.R`,
+`TARIFF_SCENARIO_OPS`) was deliberately DELETED in `54cc662` (no production
+caller; `docs/scenarios.md` was stale). The live mechanism is config overlays
+only — so everything, including counterfactuals, is now an overlay.
 
-Target end state: **every non-baseline series is a named folder under
-`config/scenarios/<name>/`, listed by one registry, requested by one CLI flag
-on the main run, executed by one runner (`alt_runner()`, fresh process per
-variant), written to one output layout (`output/scenarios/<name>/`).**
+What landed (see `docs/scenarios.md` for the model):
+- **Registry**: `src/scenario_registry.R` (`list_scenarios()`,
+  `resolve_alternatives_selector()`, `build_scenario_alt_specs()`); every
+  non-baseline series is `config/scenarios/<name>/{meta.yaml, overlay.yaml}`
+  with `kind: alternative|counterfactual|scenario|baseline`. The 7 rebuild
+  alternatives migrated from pp_override closures to overlays (the USMCA
+  loaders DO read the pp keys — verified); per-variant pp now comes from
+  `load_policy_params(scenario = name)`, identical to a TARIFF_SCENARIO build.
+- **Counterfactuals resurrected as overlays**: new `disabled_authorities:`
+  config hook — `apply_authority_disables()` in `src/rate_schema.R`, called at
+  step 7g of `calculate_rates_for_revision()` (pre-stacking, so totals/shares
+  recompute consistently). Six scenarios authored with their exact legacy
+  `config/scenarios.yaml` semantics (no_ieepa, no_ieepa_recip, no_301, no_232,
+  no_s122, pre_2025 — pre_2025 keeps 232 + legacy 301 incl. their 2025-26
+  expansions, as before). Absent in baseline ⇒ byte-identical no-op.
+- **One flag, one runner**: `--alternatives <names|all|alternatives|counterfactuals>`
+  on `00_build_timeseries.R`; `run_alternative_series()` resolves the selector
+  against the registry and dispatches through `alt_runner()`. Legacy
+  `--with-alternatives`/`--rebuild-alts` kept as working aliases (the blog
+  pipeline passes them) with a nudge message; unknown names now fail loud.
+  Outputs already unify at `output/scenarios/<name>/` via `scenario_dir()`.
+- **Tests**: `tests/test_scenario_registry.R` (35 green locally): registry
+  validation, selector expansion, closure-vs-overlay pp parity for all 7
+  alternatives, `apply_authority_disables()` units, counterfactual round-trips,
+  and the invariant that a counterfactual pp differs from baseline ONLY in
+  `disabled_authorities`.
 
-- [ ] **Step 1 — inventory + classify by mechanism.** For each variant decide
-  what expresses it: config **overlay** (`metal_flat` → `metal_content.method:
-  flat`; `dutyfree_nonzero`; `subdivision_r_mid` → subdivision-r shares;
-  `usmca_annual/monthly/2024/dec2025` → share-mode keys — VERIFY the USMCA
-  loaders read these from policy params; if not, add the config keys first) or
-  AuthoritySpec **operations** (`no_301`/`no_232`/`no_s122` → `disable`;
-  `no_ieepa`/`no_ieepa_recip` → `set_active`/`disable` on the IEEPA programs;
-  `pre_2025` → disable all post-2024 authorities). Existing named scenarios
-  (forced_labor, new_301) are already conformant.
-- [ ] **Step 2 — declarative registry.** Each `config/scenarios/<name>/` gets a
-  `meta.yaml` (`kind: scenario|alternative|counterfactual`, `description`,
-  `publish: true|false`) plus optional `overlay.yaml` and optional
-  `operations.yaml` (YAML-authored ops list replacing the ad-hoc
-  `TARIFF_SCENARIO_OPS` RDS). New `list_scenarios()` reads the folders; after
-  migration DELETE `build_rebuild_alt_registry()` and `SCENARIO_SPECS`.
-- [ ] **Step 3 — one flag, one runner.** Replace `--with-alternatives` +
-  `--rebuild-alts` with `--alternatives <comma-list|all|none>` (fail-loud
-  rename per Phase 0 policy; update `scripts/README.md` + sbatch wrappers).
-  Every requested name dispatches through `alt_runner()` (fresh R process,
-  `--alt-workers` concurrency — this is what fixes the 2026-04-22 OOM class).
-  Note the cost honestly: under "baseline = the empty scenario" the no_*
-  counterfactuals are full recalcs now, not cheap column-zeroing — but workers
-  reuse the cached `ch99_<rev>.rds`/`products_<rev>.rds` parses, so each
-  variant is calculator-only. On Slurm they become post-gather array work
-  units (build-unification Phase 3).
-- [ ] **Step 4 — uniform outputs + publish.** Everything writes via
-  `save_alternative_output()` to `output/scenarios/<name>/`; retire the
-  `output/alternative/` split (keep a symlink or README pointer one release).
-  `publish_git`/`publish_vintage` read `meta.publish` to decide what ships.
-- [ ] **Step 5 — parity + verification.** Migration gate: rebuild alts must
-  reproduce current `output/alternative/*.csv` byte-for-byte-or-tolerance
-  (golden diff) before the old registry is deleted. Counterfactuals get sanity
-  invariants in `verify_build.R` (build-unification Phase 2): `no_301` ETR ≤
-  baseline everywhere, `pre_2025` ≈ MFN-only, every requested variant's output
-  manifest is fresh — a failed variant fails the build instead of message().
-
-Sequencing: do after build-unification Phases 1–2 (destinations + verify gate),
-alongside Phase 3 (the array fold-in). Authoring the six counterfactual
-`operations.yaml` files in Step 1 also closes the "Rerun 6 OOM-failed
-post-build alternatives" item below — those stale CSVs get regenerated by the
-new path, not the old one.
+Remaining:
+- [ ] **Step 5 — cluster parity + verification gate.** (a) Golden diff: run
+  `--alternatives alternatives` on the cluster and confirm the migrated
+  overlays reproduce the prior `--with-alternatives` outputs; then DELETE the
+  deprecated `build_rebuild_alt_registry()` (09_daily_series.R) and the
+  parity section of the test. (b) First-ever run of the six counterfactuals
+  (`--alternatives counterfactuals`, fresh-process-per-variant fixes the
+  2026-04-22 OOM class) — sanity invariants: `no_301` ETR ≤ baseline
+  everywhere, `pre_2025` < baseline post-Jan-2025. (c) Fold sanity checks into
+  `verify_build.R` (build-unification Phase 2) so a failed variant fails the
+  build instead of message(). (d) Wire `tests/test_scenario_registry.R` into
+  CI (`.github/workflows/ci.yml` smoke job) and the submit_plank harnesses.
+- [ ] **Migrate `SCENARIO_SPECS` in `build_usmca_scenarios.R`** (the standalone
+  USMCA scenario builder) onto the registry, or retire that script if
+  `--alternatives` covers its use.
+- [ ] **`publish_git`/`publish_vintage` read `meta.publish`** to decide which
+  scenario outputs ship (today: publish behavior unchanged).
 
 ## §301 exclusion headings dropped silently — full §301 charged on excluded lines (found 2026-06-09)
 
@@ -386,7 +376,7 @@ Recommended order here: rerun the OOM-failed post-build alternatives (the USMCA 
 - [ ] Generic pharma country-specific exemption shares (per TPC feedback; low priority)
   - Planning note: `docs/analysis/generic_pharma_exemption_share_plan_2026-03-24.md`
 - [x] USMCA 2026 monthly refresh — DONE; see "USMCA scenario and share-loading (2026-04-20)" above (section closed 2026-05-19).
-- [ ] **Rerun 6 OOM-failed post-build alternatives (2026-04-22).** Full rebuild via `--full --with-alternatives` completed the main timeseries (58.5 min) and the 6 rebuild alternatives (usmca_annual/monthly/2024/dec2025, metal_flat, dutyfree_nonzero) successfully, but the 6 post-build scenarios `no_ieepa`, `no_ieepa_recip`, `no_301`, `no_232`, `no_s122`, `pre_2025` all failed with `cannot allocate vector of size 705.6 Mb` on `filter(revision == 'rev_X')` — R ran out of memory after accumulating state across the ~5-hour run. The corresponding `output/alternative/*_{no_*,pre_2025}.csv` files are stale (dated Apr 15-20, pre-dating the semi tariff work). NOTE (2026-06-10): the original rerun recipe (`apply_scenario()` from `apply_scenarios.R` / `config/scenarios.yaml`) predates the theseus refactor — both files are deleted. Superseded by the **Alternatives unification plan** above: these six counterfactuals get authored as `operations.yaml` scenarios in Step 1 and regenerated by the unified runner.
+- [ ] **Rerun 6 OOM-failed post-build alternatives (2026-04-22).** Full rebuild via `--full --with-alternatives` completed the main timeseries (58.5 min) and the 6 rebuild alternatives (usmca_annual/monthly/2024/dec2025, metal_flat, dutyfree_nonzero) successfully, but the 6 post-build scenarios `no_ieepa`, `no_ieepa_recip`, `no_301`, `no_232`, `no_s122`, `pre_2025` all failed with `cannot allocate vector of size 705.6 Mb` on `filter(revision == 'rev_X')` — R ran out of memory after accumulating state across the ~5-hour run. The corresponding `output/alternative/*_{no_*,pre_2025}.csv` files are stale (dated Apr 15-20, pre-dating the semi tariff work). SUPERSEDED 2026-06-10 by the **Alternatives unification** (landed): the six counterfactuals are now `disabled_authorities` overlay scenarios; regenerate with `Rscript src/00_build_timeseries.R --alternatives counterfactuals --alternatives-only` on the cluster (= unification Step 5b). Fresh process per variant via `--parallel --alt-workers N` avoids the old OOM.
 
 ## More-granular preference share construction (2026-04-28)
 

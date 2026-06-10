@@ -14,9 +14,13 @@
 #   Rscript src/00_build_timeseries.R --core-only  # Build + downstream, but skip weighted outputs
 #   Rscript src/00_build_timeseries.R --unweighted  # Opt out of weighted outputs for this run
 #                                                   # (alternative to setting weight_mode in config/local_paths.yaml)
-#   Rscript src/00_build_timeseries.R --with-alternatives  # Also run rebuild alternatives
+#   Rscript src/00_build_timeseries.R --alternatives all   # Also run every registered alternative + counterfactual
+#   Rscript src/00_build_timeseries.R --alternatives no_301,metal_flat  # Run specific scenarios by name
+#   Rscript src/00_build_timeseries.R --alternatives counterfactuals    # Run all kind=counterfactual scenarios
 #   Rscript src/00_build_timeseries.R --alternatives-only  # Run only alternatives (requires existing timeseries)
-#   Rscript src/00_build_timeseries.R --rebuild-alts metal_flat,usmca_2024  # Subset rebuild alternatives (used with --with-alternatives or --alternatives-only)
+#   Legacy spellings (still supported, map to the registry):
+#   Rscript src/00_build_timeseries.R --with-alternatives  # == --alternatives alternatives
+#   Rscript src/00_build_timeseries.R --rebuild-alts metal_flat,usmca_2024  # == --alternatives metal_flat,usmca_2024
 #   Rscript src/00_build_timeseries.R --refresh-usmca     # Re-download USMCA shares from DataWeb API
 #   (output is written to the model-data interface automatically by the gather —
 #    config: model_data_root; no --publish step. See scripts/build_gather.R.)
@@ -31,9 +35,14 @@
 # is blocked) and must be fetched manually into data/hts_archives/. Bypass with
 # --skip-release-check (e.g., offline runs).
 #
-# Available rebuild-alts names (passed comma-separated): usmca_annual,
-#   usmca_monthly, usmca_2024, usmca_dec2025, metal_flat, dutyfree_nonzero,
-#   subdivision_r_mid. Default (omit --rebuild-alts) runs all of them.
+# Scenario names come from the config/scenarios registry (one folder per
+# scenario: meta.yaml + overlay.yaml; see src/scenario_registry.R).
+#   kind=alternative:    usmca_annual, usmca_monthly, usmca_2024, usmca_dec2025,
+#                        metal_flat, dutyfree_nonzero, subdivision_r_mid
+#   kind=counterfactual: no_ieepa, no_ieepa_recip, no_301, no_232, no_s122,
+#                        pre_2025
+#   kind=scenario (forced_labor, new_301) build as full series via
+#   TARIFF_SCENARIO=<name>, not through --alternatives.
 #
 # Parallel mode (Phase 0/1):
 #   --parallel             Enable parallel mode (off by default)
@@ -984,7 +993,7 @@ if (sys.nframe() == 0) {
                    '--allow-partial', '--use-hts-dates', '--unweighted',
                    '--skip-release-check', '--parallel')
   VALUE_FLAGS <- c('--start-from', '--rebuild-alts', '--workers', '--alt-workers',
-                   '--backend')
+                   '--backend', '--alternatives')
   i <- 1L
   while (i <= length(args)) {
     a <- args[i]
@@ -1014,10 +1023,27 @@ if (sys.nframe() == 0) {
   skip_release_check <- '--skip-release-check' %in% args
   start_from <- NULL
   rebuild_alts <- NULL
+  alternatives_arg <- NULL
   for (i in seq_along(args)) {
     if (args[i] == '--start-from' && i < length(args)) start_from <- args[i + 1]
     if (args[i] == '--rebuild-alts' && i < length(args))
       rebuild_alts <- strsplit(args[i + 1], ',')[[1]]
+    if (args[i] == '--alternatives' && i < length(args))
+      alternatives_arg <- args[i + 1]
+  }
+
+  # --alternatives <names|all|alternatives|counterfactuals> is the canonical
+  # selector (config/scenarios registry; see src/scenario_registry.R). The
+  # legacy pair still works — --with-alternatives == --alternatives alternatives,
+  # --rebuild-alts <list> == --alternatives <list> — so existing wrappers
+  # (incl. the blog pipeline) are unaffected. Nudge toward the new flag.
+  if (is.null(alternatives_arg) && (with_alternatives || !is.null(rebuild_alts))) {
+    message('NOTE: --with-alternatives / --rebuild-alts are legacy spellings; ',
+            'prefer --alternatives <names|all|alternatives|counterfactuals>.')
+  }
+  if (!is.null(alternatives_arg) && (with_alternatives || !is.null(rebuild_alts))) {
+    stop('Pass either --alternatives or the legacy --with-alternatives/',
+         '--rebuild-alts pair, not both.')
   }
 
   # --unweighted overrides config to opt into an unweighted run for this invocation.
@@ -1041,6 +1067,7 @@ if (sys.nframe() == 0) {
     core_only = core_only,
     with_alternatives = with_alternatives,
     alternatives_only = alternatives_only,
+    alternatives = alternatives_arg,
     refresh_usmca = refresh_usmca,
     use_policy_dates = use_policy_dates,
     start_from = start_from,
@@ -1090,7 +1117,9 @@ if (sys.nframe() == 0) {
       run_alternative_series(imports = imports, policy_params = pp,
                               rebuild = TRUE,
                               rebuild_alts = rebuild_alts,
-                              alt_workers = parallel_cfg$alt_workers)
+                              alternatives = alternatives_arg,
+                              alt_workers = parallel_cfg$alt_workers,
+                              use_policy_dates = use_policy_dates)
     })
 
     if (do_publish_git) {
@@ -1269,7 +1298,9 @@ if (sys.nframe() == 0) {
         run_alternative_series(imports = imports, policy_params = pp,
                                 rebuild = with_alternatives,
                                 rebuild_alts = rebuild_alts,
-                                alt_workers = parallel_cfg$alt_workers)
+                                alternatives = alternatives_arg,
+                                alt_workers = parallel_cfg$alt_workers,
+                                use_policy_dates = use_policy_dates)
       }, error = function(e) message('Alternative series failed: ', conditionMessage(e)))
     }
 

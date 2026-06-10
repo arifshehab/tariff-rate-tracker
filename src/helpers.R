@@ -17,6 +17,7 @@ source(here('src', 'timeline.R'))           # Phase 3c: unified schedule-boundar
 source(here('src', 'rate_schema.R'))
 source(here('src', 'data_loaders.R'))
 source(here('src', 'output_paths.R'))   # Phase 5: output layout (actual/ + scenarios/)
+source(here('src', 'scenario_registry.R'))  # alternatives unification: config/scenarios registry
 
 # =============================================================================
 # Output helpers

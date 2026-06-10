@@ -1,49 +1,101 @@
-# Scenarios and Counterfactuals
+# Scenarios, alternatives, and counterfactuals
 
-> **The legacy YAML scenario engine was removed in Phase 7.** `config/scenarios.yaml`,
-> `src/apply_scenarios.R`, and `run_post_build_scenarios_per_revision` are gone.
-> Counterfactuals are no longer post-build *patches* of the output panel — they are
-> **AuthoritySpec operations** applied to the policy spec *before* the calculator
-> runs, so every downstream column (stacking, daily series, ETRs) is recomputed
-> consistently. "Baseline = the empty scenario."
+> **History.** Two prior mechanisms are gone: the legacy post-build patch engine
+> (`config/scenarios.yaml` + `apply_scenarios.R`, deleted in Phase 7) and the
+> AuthoritySpec verb/operations API (`src/scenario_ops.R`,
+> `TARIFF_SCENARIO_OPS`, deleted in `54cc662` — it never had a production
+> caller). The live mechanism is the **config overlay model**, unified
+> 2026-06-10 under one registry. "Baseline = the empty scenario."
 
-## How scenarios work now
+## The model
 
-A scenario is a list of **operations** applied to the baseline `authority_spec_set`
-before `calculate_rates_for_revision()`. See
-[`docs/authority_spec.md`](authority_spec.md) for the design and
-[`src/scenario_ops.R`](../src/scenario_ops.R) for the authoritative verb list and
-per-authority support. Current verbs:
+Every non-baseline series is a folder:
 
-| verb | authorities | effect |
-|---|---|---|
-| `set_country_scope` | section_301, section_201 | replace a program's country scope (e.g. 301 → {China, Vietnam}) |
-| `set_active` | any | move a program/authority active window (e.g. the IEEPA invalidation date) |
-| `disable` | 301/201 (scope) + 232/s122 (rate) | empty the scope, or zero the resolved rates |
-| `set_rate` | section_232 (per program), section_122 | change a rate (232 recomputes `has_232`; s122 sets `has_s122`) |
-| `set_exempt` | section_232 (steel/aluminum/autos) | replace a program's country exemption list |
-
-New-coverage verbs (`add_program` for a brand-new tariff with no Chapter-99
-backing, plus its import-weight provisioning) land in **Phase 8**.
-
-## Authoring and running a scenario
-
-Operations are a plain list of records; pass them to the build via the
-`TARIFF_SCENARIO_OPS` env var (an RDS path), which `scripts/build_revision.R`
-reads, or via the `operations` field of a rebuild alt-spec (threaded through
-`build_alternative_timeseries()`).
-
-```r
-# Bump Section 232 steel to 50% on one revision:
-ops <- list(list(op = "set_rate", authority = "section_232",
-                 program = "steel", rate = 0.50))
-saveRDS(ops, "my_scenario.rds")
 ```
+config/scenarios/<name>/
+  meta.yaml      kind + description + publish flag
+  overlay.yaml   the config DIFF vs config/policy_params.yaml
+```
+
+At load time, `load_policy_params(scenario = name)` (or `TARIFF_SCENARIO=<name>`)
+deep-merges the overlay onto the baseline config (`.deep_merge_lists()` in
+`src/policy_params.R`: maps merge field-by-field, everything else replaces
+wholesale; `key: ~` deletes a baseline key). The rest of the pipeline runs
+unchanged on the merged params, so every downstream column — stacking, daily
+series, ETR exports — recomputes consistently.
+
+The registry (`src/scenario_registry.R`) reads the folders:
+
+- `list_scenarios()` — names, kinds, descriptions
+- `resolve_alternatives_selector('all' | 'alternatives' | 'counterfactuals' | 'a,b,c')`
+- `build_scenario_alt_specs(names)` — alt-runner specs whose `pp_override` is
+  exactly the pp a `TARIFF_SCENARIO=<name>` build would see
+
+## Kinds
+
+| kind | meaning | how it runs |
+|---|---|---|
+| `alternative` | methodology/calibration variant (USMCA share modes, `metal_flat`, `dutyfree_nonzero`, `subdivision_r_mid`) | `--alternatives` on the main build → `alt_runner()` → `output/scenarios/<name>/` |
+| `counterfactual` | policy what-if (`no_301`, `no_232`, `no_ieepa`, `no_ieepa_recip`, `no_s122`, `pre_2025`) | same runner |
+| `scenario` | full named series (`forced_labor`, `new_301`) | main build under `TARIFF_SCENARIO=<name>` / `TARIFF_SERIES=<name>` — persisted snapshots, quality reports |
+| `baseline` | `actual` — documentation stub | never run |
+
+## Running alternatives
 
 ```bash
-TARIFF_SCENARIO_OPS=my_scenario.rds TARIFF_TS_DIR=data/timeseries_steel \
-  Rscript scripts/build_revision.R rev_20
+Rscript src/00_build_timeseries.R --alternatives all
+Rscript src/00_build_timeseries.R --alternatives no_301,metal_flat
+Rscript src/00_build_timeseries.R --alternatives counterfactuals --alternatives-only
 ```
 
-The empty operations list is the identity (baseline). Operations fail **loudly**
-on anything unsupported — they never silently no-op.
+Legacy spellings still work (`--with-alternatives` == `--alternatives
+alternatives`; `--rebuild-alts <list>` == `--alternatives <list>`). Unknown
+names fail loud. Each variant is a full per-revision recalc (counterfactuals
+are not cheap column patches anymore — consistency over speed), dispatched
+through `alt_runner()` with one fresh subprocess per variant when
+`--parallel --alt-workers N` is set.
+
+## Counterfactuals: the authority kill-switch
+
+A counterfactual overlay sets one key:
+
+```yaml
+# config/scenarios/no_301/overlay.yaml
+disabled_authorities: [section_301]
+```
+
+Names come from the config's `authority_columns` map (section_232, section_301,
+section_301_content_split, ieepa_reciprocal, ieepa_fentanyl, section_122,
+other). `calculate_rates_for_revision()` zeroes the mapped rate columns just
+before stacking (step 7g → `apply_authority_disables()` in
+`src/rate_schema.R`), so totals and contribution shares recompute on what
+remains. Unknown names fail loud; the key is absent in baseline, so baseline
+output is byte-identical.
+
+Carried-over limitation (same as the legacy engine): cross-authority effects
+computed in earlier steps (e.g. IEEPA floors measured against a 232-inclusive
+base) are not re-derived when the other authority is disabled.
+
+## Authoring a new scenario
+
+1. `mkdir config/scenarios/<name>` and write `meta.yaml` (pick the kind) +
+   `overlay.yaml` containing ONLY the diff vs baseline.
+2. Empty overlay == baseline (the `actual` invariant). Unknown config keys are
+   inert unless the pipeline reads them — prefer keys the calculator already
+   consumes, or add an explicit hook (like `disabled_authorities`) rather than
+   patching outputs.
+3. `Rscript tests/test_scenario_registry.R` — registry validation is part of
+   the suite.
+4. For a publishable full series, set `kind: scenario` and build with
+   `TARIFF_SCENARIO=<name>`; for sensitivity/counterfactual daily series, use
+   `--alternatives <name>`.
+
+## Migration status (2026-06-10)
+
+The seven historical rebuild alternatives were migrated from hand-coded
+`pp_override` closures (`build_rebuild_alt_registry()`, now deprecated) to
+overlays; `tests/test_scenario_registry.R` pins closure-vs-overlay parity.
+The six counterfactuals orphaned by the Phase-7 deletion were resurrected as
+`disabled_authorities` overlays with their legacy semantics. Remaining gate
+before deleting the deprecated closure registry: a cluster run reproducing
+`output/alternative/*.csv` (todo.md, alternatives-unification Step 5).
