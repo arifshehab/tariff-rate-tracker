@@ -575,7 +575,22 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
   }
 
   if (!is.null(deriv_products) && nrow(deriv_products) > 0 && s232_rates$has_232) {
-    # Check if derivative Ch99 entries exist in this revision (either type)
+    # Check if derivative Ch99 entries exist in this revision (either type).
+    #
+    # ANNEX-ERA BEHAVIOR (2026_rev_5+, effective 2026-04-06): the April 2026
+    # proclamation removed these pre-annex derivative Ch99 codes from the HTS,
+    # so both gates below are FALSE, this whole block is skipped, and every row
+    # keeps deriv_type = NA with per-type shares = 0. That is the INTENDED
+    # policy outcome, not a silent failure: the annex restructuring replaced
+    # metal-content-scaled derivative duties with full-value annex rates,
+    # which step 5c assigns via the annex override. In annex-era snapshots,
+    # `s232_annex` (annex_1a/_1b/_2/_3) is the column that classifies metal
+    # products — downstream readers should use it, not deriv_type, from rev_5
+    # on. Do NOT backfill deriv_type with a sentinel here: stacking selects
+    # per-type metal shares by gating on !is.na(deriv_type), and annex products
+    # are taxed full-value (nonmetal_share = 0), so a non-NA deriv_type would
+    # wrongly re-enable metal-content splitting. See
+    # docs/s232/rev5_baseline_review.md §§4-5.
     alum_deriv_ch99 <- c('9903.85.04', '9903.85.07', '9903.85.08')
     steel_deriv_ch99 <- c('9903.81.89', '9903.81.90', '9903.81.91', '9903.81.93')
     has_alum_deriv <- any(ch99_data$ch99_code %in% alum_deriv_ch99)

@@ -254,6 +254,164 @@ report_revision_summary <- function(timeseries_dir = 'data/timeseries') {
 }
 
 
+# =============================================================================
+# Universe Completeness (Census import universe vs snapshot universe)
+# =============================================================================
+
+#' Report snapshot HTS10 universe completeness vs the Census import universe
+#'
+#' For each revision snapshot, compares the snapshot's HTS10 universe against
+#' the Census import-weights universe (every HS10 with positive imports in the
+#' weights vintage) and classifies each Census code as:
+#'   - exact:        the 10-digit code is present in the snapshot
+#'   - hs8_drift:    absent at 10 digits but its HS8 prefix is present —
+#'                   usually statistical-suffix drift between the weights
+#'                   vintage and the snapshot's HTS revision (concordance,
+#'                   not a coverage gap)
+#'   - missing_line: no snapshot line shares the HS8 prefix — a true universe
+#'                   gap (this is the check that would have caught the 473
+#'                   dropped 8-digit leaves fixed 2026-06-04)
+#'
+#' Both counts and import-value shares are reported per revision, so a tiny
+#' code count with large trade value is visible. This separates modeled-zero
+#' (line present, rate 0 — fine) from missing-line from concordance drift in
+#' future eta reviews.
+#'
+#' @param timeseries_dir Directory containing snapshot RDS files
+#' @param imports Optional pre-loaded weights tibble (hs10, cty_code, imports).
+#'   If NULL, resolves via `load_local_paths()$import_weights`; skips (returns
+#'   NULL invisibly) when no weights file is available, so unweighted
+#'   environments degrade gracefully.
+#' @param detail_revision Revision id for the per-code detail table
+#'   (default: latest snapshot)
+#' @param detail_n Max rows in the detail table (default 100, by import value)
+#' @return List with 'summary' (per-revision tibble) and 'missing_detail'
+#'   (top non-exact Census codes for detail_revision), or NULL if skipped
+report_universe_completeness <- function(timeseries_dir = 'data/timeseries',
+                                         imports = NULL,
+                                         detail_revision = NULL,
+                                         detail_n = 100) {
+  message('\n=== Universe Completeness (Census vs snapshot) ===\n')
+
+  if (is.null(imports)) {
+    local_paths <- tryCatch(load_local_paths(), error = function(e) NULL)
+    imports_path <- if (!is.null(local_paths)) local_paths$import_weights else NULL
+    if (is.null(imports_path) || !nzchar(imports_path) || !file.exists(imports_path)) {
+      message('No import weights available — skipping universe completeness check.')
+      return(invisible(NULL))
+    }
+    imports <- readRDS(imports_path)
+  }
+
+  # Census universe: total import value per HS10 across countries
+  census_universe <- imports %>%
+    group_by(hs10) %>%
+    summarise(import_value = sum(imports), .groups = 'drop') %>%
+    filter(import_value > 0)
+  total_value <- sum(census_universe$import_value)
+  message('Census universe: ', nrow(census_universe), ' HS10 codes, $',
+          round(total_value / 1e9, 1), 'B import value')
+
+  snapshot_files <- list.files(timeseries_dir, pattern = '^snapshot_.*\\.rds$',
+                               full.names = TRUE)
+  if (length(snapshot_files) == 0) {
+    message('No snapshot files found in ', timeseries_dir)
+    return(invisible(NULL))
+  }
+
+  per_rev <- map(snapshot_files, function(f) {
+    snapshot <- tryCatch(readRDS(f), error = function(e) NULL)
+    if (is.null(snapshot) || nrow(snapshot) == 0) return(NULL)
+
+    rev_id <- snapshot$revision[1]
+    eff_date <- snapshot$effective_date[1]
+    snap_hts10 <- unique(snapshot$hts10)
+    snap_hs8 <- unique(substr(snap_hts10, 1, 8))
+    rm(snapshot)
+
+    classified <- census_universe %>%
+      mutate(
+        status = case_when(
+          hs10 %in% snap_hts10 ~ 'exact',
+          substr(hs10, 1, 8) %in% snap_hs8 ~ 'hs8_drift',
+          TRUE ~ 'missing_line'
+        )
+      )
+
+    by_status <- classified %>%
+      group_by(status) %>%
+      summarise(n = n(), value = sum(import_value), .groups = 'drop')
+    get_stat <- function(s, col) {
+      v <- by_status[[col]][by_status$status == s]
+      if (length(v) == 0) 0 else v
+    }
+
+    list(
+      summary = tibble(
+        revision = rev_id,
+        effective_date = eff_date,
+        n_census_hs10 = nrow(census_universe),
+        n_snapshot_hts10 = length(snap_hts10),
+        n_exact = get_stat('exact', 'n'),
+        n_hs8_drift = get_stat('hs8_drift', 'n'),
+        n_missing_line = get_stat('missing_line', 'n'),
+        pct_value_exact = round(100 * get_stat('exact', 'value') / total_value, 3),
+        pct_value_hs8_drift = round(100 * get_stat('hs8_drift', 'value') / total_value, 3),
+        pct_value_missing = round(100 * get_stat('missing_line', 'value') / total_value, 3),
+        n_snapshot_only = sum(!snap_hts10 %in% census_universe$hs10)
+      ),
+      classified = classified
+    )
+  })
+  per_rev <- compact(per_rev)
+  if (length(per_rev) == 0) {
+    message('No readable snapshots.')
+    return(invisible(NULL))
+  }
+
+  summary <- map_dfr(per_rev, 'summary') %>% arrange(effective_date)
+
+  cat('Per-revision universe completeness (value shares are % of Census imports):\n\n')
+  print(summary %>% select(
+    revision, effective_date, n_exact, n_hs8_drift, n_missing_line,
+    pct_value_exact, pct_value_missing
+  ), n = Inf)
+
+  # Flag revisions where missing-line value exceeds 0.1% of imports
+  flagged <- summary %>% filter(pct_value_missing > 0.1)
+  if (nrow(flagged) > 0) {
+    cat('\n--- ATTENTION: revisions with > 0.1% of import value on missing lines ---\n')
+    print(flagged %>% select(revision, effective_date, n_missing_line, pct_value_missing))
+  }
+
+  # Detail for the requested (default latest) revision
+  rev_ids <- map_chr(per_rev, ~ .x$summary$revision)
+  detail_idx <- if (!is.null(detail_revision)) {
+    match(detail_revision, rev_ids)
+  } else {
+    which.max(map_dbl(per_rev, ~ as.numeric(.x$summary$effective_date)))
+  }
+  missing_detail <- tibble()
+  if (!is.na(detail_idx)) {
+    missing_detail <- per_rev[[detail_idx]]$classified %>%
+      filter(status != 'exact') %>%
+      arrange(desc(import_value)) %>%
+      head(detail_n) %>%
+      mutate(
+        chapter = substr(hs10, 1, 2),
+        revision = rev_ids[detail_idx]
+      )
+    if (nrow(missing_detail) > 0) {
+      cat('\nTop non-exact Census codes by import value (',
+          rev_ids[detail_idx], '):\n', sep = '')
+      print(missing_detail %>% head(15))
+    }
+  }
+
+  return(list(summary = summary, missing_detail = missing_detail))
+}
+
+
 #' Run all diagnostics
 #'
 #' @param timeseries_dir Directory with time series data
@@ -280,7 +438,17 @@ run_all_diagnostics <- function(
     write_csv(china_history, file.path(output_dir, 'china_ieepa_history.csv'))
   }
 
-  # 3. 301 coverage gap (use latest snapshot)
+  # 3. Universe completeness (skips itself when no weights file is available)
+  universe <- report_universe_completeness(timeseries_dir)
+  if (!is.null(universe)) {
+    write_csv(universe$summary, file.path(output_dir, 'universe_completeness.csv'))
+    if (nrow(universe$missing_detail) > 0) {
+      write_csv(universe$missing_detail,
+                file.path(output_dir, 'universe_missing_detail.csv'))
+    }
+  }
+
+  # 4. 301 coverage gap (use latest snapshot)
   if (file.exists(tpc_path)) {
     census_codes <- read_csv(census_codes_path, col_types = cols(.default = col_character()))
 
@@ -297,7 +465,7 @@ run_all_diagnostics <- function(
     }
   }
 
-  # 4. TPC discrepancy decomposition (if comparison file exists)
+  # 5. TPC discrepancy decomposition (if comparison file exists)
   decomp_path <- file.path('output', 'validation', 'tpc_comparison_all.csv')
   if (file.exists(decomp_path)) {
     decomp <- decompose_tpc_discrepancies(decomp_path)
