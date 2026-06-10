@@ -2333,6 +2333,82 @@ calculate_rates_for_revision <- function(
                 ', annexes=', paste(zmc_annexes, collapse = ','))
       }
 
+      # Other aggregate-share annex exemption routes — all dormant by default
+      # (aggregate_share = 0 in policy_params.yaml; the sgept_exemptions
+      # scenario carries SGEPT's estimates). Same expected-value approximation
+      # as zero_metal_content above: the share of import value on the scoped
+      # products that takes the route. Applied before the country overrides,
+      # so a replace-mode override (UK deal) takes precedence on its rows —
+      # acceptable at these magnitudes (~1-2%). See docs/assumptions.md §18.
+      #
+      # us_origin_metal — Note 16(e): derivative articles where >=85% of the
+      # metal content is US-smelted/cast take the 10% TARGET-TOTAL headings
+      # (9903.82.06-.08/.15/.23/.24): "the sum of the column 1 duty rate and
+      # the additional ad valorem rate of duty will total 10 percent" —
+      # floor_post_mfn semantics, the same shape the annex_1c block above
+      # uses for its US-metal route (and the same config entry). Blend:
+      # share * pmin(rate, floor-route) + (1-share) * rate. Applied across
+      # annex 1a/1b/3 — an approximation; legally it is the derivative
+      # (c)-groups only, which the tier map does not distinguish within
+      # annex_1a.
+      usm_g_cfg <- annex_cfg$exemptions$us_origin_metal
+      usm_g_share <- as.numeric(usm_g_cfg$aggregate_share %||% 0)
+      if (!is.na(usm_g_share) && usm_g_share > 0) {
+        usm_g_rate <- as.numeric(usm_g_cfg$rate %||% 0.10)
+        usm_g_annexes <- paste0('annex_', unlist(usm_g_cfg$applies_to %||% c('1a', '1b', '3')))
+        rates <- rates %>%
+          mutate(
+            .usm_g_route = apply_rate_semantics(usm_g_rate, 'floor_post_mfn', base_rate),
+            rate_232 = if_else(
+              !(hts10 %in% heading_program_products) & s232_annex %in% usm_g_annexes,
+              usm_g_share * pmin(rate_232, .usm_g_route) + (1 - usm_g_share) * rate_232,
+              rate_232
+            )
+          ) %>%
+          select(-.usm_g_route)
+        message('  us_origin_metal route applied: share=', usm_g_share,
+                ', target-total=', usm_g_rate,
+                ', annexes=', paste(usm_g_annexes, collapse = ','))
+      }
+
+      # de_minimis_weight — articles whose covered-metal weight is below the
+      # threshold are EXEMPT; scale by (1 - share) on the applies_to annexes,
+      # excluding the primary metal chapters (a ch72 coil is never de minimis).
+      dmw_cfg <- annex_cfg$exemptions$de_minimis_weight
+      dmw_share <- as.numeric(dmw_cfg$aggregate_share %||% 0)
+      if (!is.na(dmw_share) && dmw_share > 0) {
+        dmw_annexes <- paste0('annex_', unlist(dmw_cfg$applies_to %||% c('1b', '3')))
+        dmw_excl <- as.character(unlist(dmw_cfg$excludes_chapters %||% character(0)))
+        rates <- rates %>%
+          mutate(rate_232 = if_else(
+            !(hts10 %in% heading_program_products) & s232_annex %in% dmw_annexes &
+              !(substr(hts10, 1, 2) %in% dmw_excl),
+            rate_232 * (1 - dmw_share),
+            rate_232
+          ))
+        message('  de_minimis_weight exemption applied: share=', dmw_share,
+                ', annexes=', paste(dmw_annexes, collapse = ','))
+      }
+
+      # motorcycle_parts — Note 16(g) (9903.82.13): motorcycle articles
+      # otherwise meeting the (c)(vi)-(viii)/(xi) criteria are EXEMPT; scale
+      # by (1 - share) on the applies_to annexes within the config chapters.
+      moto_cfg <- annex_cfg$exemptions$motorcycle_parts
+      moto_share <- as.numeric(moto_cfg$aggregate_share %||% 0)
+      if (!is.na(moto_share) && moto_share > 0) {
+        moto_annexes <- paste0('annex_', unlist(moto_cfg$applies_to %||% c('1b')))
+        moto_ch <- as.character(unlist(moto_cfg$chapters %||% c('84', '85', '87')))
+        rates <- rates %>%
+          mutate(rate_232 = if_else(
+            !(hts10 %in% heading_program_products) & s232_annex %in% moto_annexes &
+              substr(hts10, 1, 2) %in% moto_ch,
+            rate_232 * (1 - moto_share),
+            rate_232
+          ))
+        message('  motorcycle_parts exemption applied: share=', moto_share,
+                ', annexes=', paste(moto_annexes, collapse = ','))
+      }
+
       # UK annex deal + country surcharges: READ off the spec
       # (section_232$annex$country_overrides), applied in list order. mode 'replace'
       # = flat set (the UK annex deal: 1a/1b steel/alum -> uk_rate); mode 'max' =

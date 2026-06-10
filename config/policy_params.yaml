@@ -284,6 +284,13 @@ section_232_country_exemptions:
 section_232_annexes:
   effective_date: '2026-04-06'
   resource_file: 'resources/s232_annex_products.csv'
+  # Note 16(d): the UK reduced rates (9903.82.04 +25% on 1a, 9903.82.05 +15%
+  # on 1b) require >=95% of the metal to be UK melted-and-poured (steel) /
+  # smelted-or-cast (aluminum). This is the fraction of UK imports assumed to
+  # meet that test; the adapter blends q*uk_rate + (1-q)*annex_rate. 1.0 ==
+  # unconditional reduced rate (legacy behavior). SGEPT estimate: 0.30
+  # (shipped in config/scenarios/sgept_exemptions).
+  uk_content_qualifying_share: 1.0
   annexes:
     annex_1a:
       label: 'Core metals + close derivatives'
@@ -368,6 +375,14 @@ section_232_annexes:
       applies_to: ['annex_1a', 'annex_1b', 'annex_3']
       metal_types: ['aluminum']
       source: 'Proclamation 10522 (2023-02-24), retained by April 2026 proclamation'
+      # Clause (8): the surcharge also covers articles of ANY country in which
+      # primary aluminum was smelted (or most recently cast) in Russia.
+      # Origin-of-metal is unobservable in Census data; modeled as an
+      # expected-value share (surcharge * share pmax'd onto all third
+      # countries on the same product set). 0.0 = dormant — also the
+      # realistic post-2023 value (supply chains avoid Russian metal; CBP
+      # smelt-and-cast certifications). See docs/assumptions.md §18.
+      third_country_content_share: 0.0
 
 # --- Floor rate structure (EU, Japan, S. Korea, Switzerland, Liechtenstein) ---
 floor_rates:

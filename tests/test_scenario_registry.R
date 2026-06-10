@@ -289,6 +289,44 @@ run_test('counterfactual pp differs from baseline ONLY in disabled_authorities',
 })
 
 # =============================================================================
+# 6. sgept_exemptions scenario (2026-06-10): SGEPT-calibrated §232 annex knobs
+# =============================================================================
+message('\n--- sgept_exemptions overlay ---')
+
+run_test('sgept_exemptions registered as kind: scenario (not in alternatives selector)', {
+  reg <- list_scenarios()
+  row <- reg[reg$name == 'sgept_exemptions', ]
+  stopifnot(nrow(row) == 1, row$kind == 'scenario')
+  stopifnot(!'sgept_exemptions' %in% resolve_alternatives_selector('all'))
+})
+
+run_test('sgept_exemptions overlay deep-merges the four SGEPT knobs', {
+  pp_sg <- load_policy_params(scenario = 'sgept_exemptions')
+  ax <- pp_sg$S232_ANNEXES
+  stopifnot(
+    isTRUE(all.equal(as.numeric(ax$uk_content_qualifying_share), 0.30)),
+    isTRUE(all.equal(as.numeric(ax$exemptions$us_origin_metal$aggregate_share), 0.01)),
+    isTRUE(all.equal(as.numeric(ax$exemptions$de_minimis_weight$aggregate_share), 0.02)),
+    isTRUE(all.equal(as.numeric(ax$exemptions$motorcycle_parts$aggregate_share), 0.001))
+  )
+  # Field-wise merge: untouched siblings survive the overlay
+  stopifnot(
+    isTRUE(all.equal(as.numeric(ax$exemptions$us_origin_metal$rate), 0.10)),
+    isTRUE(all.equal(as.numeric(ax$annexes$annex_1a$uk_rate), 0.25))
+  )
+})
+
+run_test('baseline keeps the new knobs dormant (q = 1.0, shares 0)', {
+  ax <- pp_base$S232_ANNEXES
+  stopifnot(
+    isTRUE(all.equal(as.numeric(ax$uk_content_qualifying_share), 1.0)),
+    as.numeric(ax$exemptions$de_minimis_weight$aggregate_share) == 0,
+    as.numeric(ax$exemptions$motorcycle_parts$aggregate_share) == 0,
+    as.numeric(ax$country_surcharges[[1]]$third_country_content_share) == 0
+  )
+})
+
+# =============================================================================
 # Summary
 # =============================================================================
 message('\n', strrep('=', 70))

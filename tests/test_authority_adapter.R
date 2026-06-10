@@ -218,4 +218,87 @@ check(identical(specs_inv[['ieepa_reciprocal']]$active$until, as.Date('2026-02-2
 check(identical(specs_inv[['ieepa_fentanyl']]$active$until, as.Date('2026-02-24')),
       'fentanyl active.until = invalidation date')
 
+cat('\n--- Annex era: UK qualifying-content blend + third-country surcharge share ---\n')
+# Stubs for the annex branch (data_loaders not sourced here). Fixture products:
+#   7208100000 -> annex_1a steel (flat 0.50, uk_rate 0.25)
+#   7326908688 -> annex_1b steel (flat 0.25, uk_rate 0.15)
+#   7601103000 -> annex_1a aluminum (Russia surcharge product set)
+load_annex_products <- function(effective_date, path) tibble::tibble(hts_prefix = '72')
+load_232_derivative_products <- function(effective_date = NULL) NULL
+classify_s232_annex <- function(hts, annex_map, deriv, a1a_ch) {
+  c('7208100000' = 'annex_1a', '7326908688' = 'annex_1b',
+    '7601103000' = 'annex_1a')[hts]
+}
+get_country_constants <- function(pp) list(
+  CTY_CHINA = '5700', CTY_CANADA = '1220', CTY_MEXICO = '2010', CTY_UK = '4120',
+  STEEL_CHAPTERS = c('72', '73'), ALUM_CHAPTERS = '76', COPPER_CHAPTERS = '74',
+  ISO_TO_CENSUS = c('UK' = '4120', 'GB' = '4120', 'JP' = '5880', 'KR' = '5800',
+                    'CN' = '5700', 'CA' = '1220', 'MX' = '2010'),
+  EU27_CODES = character(0))
+
+pp_annex <- list(S232_ANNEXES = list(   # the parsed/derived key (policy_params.R:233)
+  effective_date = '2026-04-06',
+  uk_content_qualifying_share = 0.30,
+  annexes = list(
+    annex_1a = list(rate = 0.50, uk_rate = 0.25, chapters = list('72', '73', '76', '74')),
+    annex_1b = list(rate = 0.25, uk_rate = 0.15),
+    annex_1c = list(rate = 0.25),
+    annex_2  = list(rate = 0.0),
+    annex_3  = list(floor_rate = 0.15)),
+  country_surcharges = list(list(
+    countries = list('4621'), rate = 2.0,
+    applies_to = list('annex_1a', 'annex_1b', 'annex_3'),
+    metal_types = list('aluminum'),
+    third_country_content_share = 0.05))
+))
+
+annex_products <- data.frame(hts10 = c('7208100000', '7326908688', '7601103000'))
+specs_annex <- build_authority_specs(
+  products = annex_products, ch99_data = data.frame(),
+  ieepa_rates = ieepa, usmca = data.frame(),
+  countries = c('4120', '4621', '5700'),
+  revision_id = 'rev_annex', effective_date = as.Date('2026-05-01'),
+  s232_rates = s232, fentanyl_rates = fent, policy_params = pp_annex
+)
+ovs <- specs_annex[['section_232']]$annex$country_overrides
+check(length(ovs) == 3,
+      'three overrides: UK blend + Russia listed + Russia third-country')
+
+uk_ov <- ovs[[1]]
+check(identical(uk_ov$countries, '4120') && identical(uk_ov$mode, 'replace'),
+      'override 1 is the UK replace deal')
+check(isTRUE(all.equal(unname(uk_ov$rate_map['7208100000']), 0.30 * 0.25 + 0.70 * 0.50)),
+      'UK annex_1a blend: 0.3*0.25 + 0.7*0.50 = 0.425')
+check(isTRUE(all.equal(unname(uk_ov$rate_map['7326908688']), 0.30 * 0.15 + 0.70 * 0.25)),
+      'UK annex_1b blend: 0.3*0.15 + 0.7*0.25 = 0.22')
+
+ru_ov <- ovs[[2]]
+check(identical(ru_ov$countries, '4621') && identical(ru_ov$mode, 'max') &&
+        isTRUE(all.equal(unname(ru_ov$rate_map['7601103000']), 2.0)),
+      'Russia listed-country surcharge unchanged (2.0 on the aluminum product)')
+
+tc_ov <- ovs[[3]]
+check(setequal(tc_ov$countries, c('4120', '5700')) && identical(tc_ov$mode, 'max'),
+      'third-country override covers all non-listed countries, mode max')
+check(isTRUE(all.equal(unname(tc_ov$rate_map['7601103000']), 2.0 * 0.05)),
+      'third-country surcharge = rate * content share (0.10)')
+
+# Defaults: q omitted -> 1.0 (byte-identical legacy UK deal); share omitted -> no override
+pp_annex_default <- pp_annex
+pp_annex_default$S232_ANNEXES$uk_content_qualifying_share <- NULL
+pp_annex_default$S232_ANNEXES$country_surcharges[[1]]$third_country_content_share <- NULL
+specs_def <- build_authority_specs(
+  products = annex_products, ch99_data = data.frame(),
+  ieepa_rates = ieepa, usmca = data.frame(),
+  countries = c('4120', '4621', '5700'),
+  revision_id = 'rev_annex_def', effective_date = as.Date('2026-05-01'),
+  s232_rates = s232, fentanyl_rates = fent, policy_params = pp_annex_default
+)
+ovs_def <- specs_def[['section_232']]$annex$country_overrides
+check(length(ovs_def) == 2,
+      'defaults: no third-country override (share 0 dormant)')
+check(isTRUE(all.equal(unname(ovs_def[[1]]$rate_map['7208100000']), 0.25)) &&
+        isTRUE(all.equal(unname(ovs_def[[1]]$rate_map['7326908688']), 0.15)),
+      'defaults: UK rate_map = unconditional uk_rate (q = 1.0, legacy-identical)')
+
 cat(sprintf('\nALL %d AUTHORITY_ADAPTER ASSERTIONS PASSED\n', pass))

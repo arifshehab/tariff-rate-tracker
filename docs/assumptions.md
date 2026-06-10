@@ -294,3 +294,24 @@ Validity windows are read **per revision from each archive's own heading text** 
 **Source:** Heading text in each HTS revision's Chapter 99 (parsed); USTR exclusion FR notices. Found 2026-06-09 via the dropped-pairs instrumentation in `calculate_rates_fast()`.
 
 **Implementation:** `resources/s301_exclusion_headings.csv` (registry; regenerate via `scripts/build_s301_exclusion_headings.R`), step 6a-excl in `src/06_calculate_rates.R`, `extract_expiry_date_offset()` + NA-rate expiry gate in `filter_active_ch99()` (`src/rate_schema.R`), expiry boundary scan in `src/timeline.R`. Config-gated via `section_301_exclusions:` in `config/policy_params.yaml` (`section_301_exclusions: ~` in a scenario overlay disables).
+
+## 18. Section 232 Annex Conditioned Routes: Aggregate-Share Knobs (Dormant Baseline)
+
+**Assumption:** The April 2026 annex regime (U.S. note 16, rewritten by Annex IV of the proclamation) conditions several reduced-rate or exempt routes on facts not observable in Census trade data — metal origin, metal weight share, end use, and UK metal provenance. The tracker models each as an expected-value share applied to the scoped products, all **dormant (0 / legacy) in the baseline**; the `sgept_exemptions` scenario (`config/scenarios/sgept_exemptions/`) carries SGEPT's estimates for comparison, and any of them can be promoted to baseline by copying values into `config/policy_params.yaml`.
+
+| Route | Legal basis | Modeling | Baseline | SGEPT |
+|---|---|---|---|---|
+| UK 95% qualifying content | Note 16(d), 9903.82.04 (+25%)/.05 (+15%) | Adapter blends `q*uk_rate + (1-q)*annex_rate` (`uk_content_qualifying_share`) | 1.0 (unconditional reduced rate — legacy behavior) | 0.30 |
+| US-origin metal ≥85% | Note 16(e), 9903.82.06–.08/.15/.23/.24 — **10% target-total** ("sum of the column 1 duty rate and the additional rate will total 10 percent") | `floor_post_mfn(0.10)` route blended by `us_origin_metal.aggregate_share` across annex 1a/1b/3 (approximation: legally derivative (c)-groups only). The annex_1c block reuses the same config entry. | 0.0 | ~0.01 |
+| De minimis metal weight <15% | Note 16(c) intro — headings apply only where metal ≥15% of article weight (outside ch72/73/74/76) | `rate_232 *= (1 - share)` on annex 1b/3 excluding primary chapters | 0.0 | ~0.02 |
+| Motorcycle parts | Note 16(g), 9903.82.13 (end-use: US motorcycle manufacturing) | `rate_232 *= (1 - share)` on annex_1b within ch84/85/87 | 0.0 | ~0.001 |
+| Zero metal content | Note 16(a), 9903.82.01 | `rate_232 *= (1 - share)` (pre-existing, §17 of the scaffold commit) | 0.0 | n/a |
+| Russia clause (8) third-country content | Surcharge applies to articles of ANY country with Russian-smelted/cast primary aluminum | `surcharge * third_country_content_share` pmax'd onto non-listed countries on the same product set | 0.0 (**also the realistic value**: post-2023 supply chains avoid Russian metal; CBP smelt-and-cast certifications) | n/a |
+
+**Ordering note:** the share exemptions run before the country overrides, so the UK replace-mode deal takes precedence on UK rows; at these magnitudes (~1–2%) the interaction is negligible.
+
+**Not modeled** (quantity- or authorization-based, no observable allocation): note 16(h)/(i) limited-quantity CA/MX steel/aluminum (9903.82.18/.19, Commerce authorizations under PP 10984 cl. 13); note 16(k) annex_1c parts end-use routes (9903.82.23–.26); the pre-annex 9903.81.92 US-melted steel-derivative exemption (2025 window). See todo.md §232 for status.
+
+**Source:** Annex IV of the April 2, 2026 proclamation (note 16 text, `docs/s232/annexes_text.txt` + chapter99 notes); SGEPT shares from `docs/s232/s232_metals_update_note.pdf`.
+
+**Implementation:** `src/authority_adapter.R` (UK blend, third-country surcharge), `src/06_calculate_rates.R` step 5c exemption block, `config/policy_params.yaml::section_232_annexes`, `config/scenarios/sgept_exemptions/`. Validated: with all knobs at baseline values, the rev_9 snapshot is byte-identical to the pre-change build.

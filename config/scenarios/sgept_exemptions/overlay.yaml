@@ -1,0 +1,18 @@
+# SGEPT-calibrated §232 annex assumption package (todo.md §232 assessment #3).
+# Baseline keeps all of these dormant (share 0 / UK share 1.0 = unconditional
+# reduced rate); this scenario applies the SGEPT note's estimates so the eval
+# can compare. Promote to baseline by copying these values into
+# config/policy_params.yaml if the eval prefers them.
+# Source: docs/s232/s232_metals_update_note.pdf (SGEPT analysis).
+# Build: TARIFF_SCENARIO=sgept_exemptions Rscript src/00_build_timeseries.R ...
+# (kind: scenario — deliberately NOT in the --alternatives selector, which is
+# contractually pinned to the historical 7-variant set.)
+section_232_annexes:
+  uk_content_qualifying_share: 0.30
+  exemptions:
+    us_origin_metal:
+      aggregate_share: 0.01
+    de_minimis_weight:
+      aggregate_share: 0.02
+    motorcycle_parts:
+      aggregate_share: 0.001

@@ -639,15 +639,24 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       # baked into each rate_map here, so the calc just applies them (no config reads).
       .ovs <- list()
       # UK annex deal: tier 1a/1b on steel/aluminum chapters (72/73/76, NOT copper).
+      # Note 16(d) conditions the reduced rates (9903.82.04 +25%, 9903.82.05 +15%)
+      # on >=95% of the metal being UK melted-and-poured / smelted-and-cast.
+      # uk_content_qualifying_share = fraction of UK imports assumed to meet that
+      # test; effective rate = q*uk_rate + (1-q)*annex_rate. Default 1.0 ==
+      # the unconditional reduced rate (pre-knob behavior, byte-identical);
+      # SGEPT's estimate is 0.30 (config/scenarios/sgept_exemptions).
       uk_code <- cc$CTY_UK %||% '4120'
+      uk_q <- suppressWarnings(as.numeric(annex_cfg$uk_content_qualifying_share %||% 1.0))
+      if (length(uk_q) != 1L || !is.finite(uk_q)) uk_q <- 1.0
       uk_chap <- substr(hts, 1, 2) %in% c(cc$STEEL_CHAPTERS, cc$ALUM_CHAPTERS)
       uk_rate <- ifelse(tier == 'annex_1a' & uk_chap, as.numeric(annex_cfg$annexes$annex_1a$uk_rate),
                  ifelse(tier == 'annex_1b' & uk_chap, as.numeric(annex_cfg$annexes$annex_1b$uk_rate),
                         NA_real_))
-      ukk <- !is.na(uk_rate) & !duplicated(hts)
+      uk_eff <- uk_q * uk_rate + (1 - uk_q) * flat_rate
+      ukk <- !is.na(uk_eff) & !duplicated(hts)
       if (any(ukk)) .ovs[[length(.ovs) + 1L]] <- list(
         countries = uk_code, mode = 'replace',
-        rate_map  = setNames(as.numeric(uk_rate[ukk]), hts[ukk]))
+        rate_map  = setNames(as.numeric(uk_eff[ukk]), hts[ukk]))
       # Country surcharges (general; e.g. Russia aluminum across annex 1a/1b/3). Build
       # the metal-type product set (primary chapters + type-tagged derivative prefixes)
       # exactly as the calc did, then scope to the surcharge's annexes via the tier map.
@@ -671,6 +680,22 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
         .ovs[[length(.ovs) + 1L]] <- list(
           countries = as.character(sc$countries), mode = 'max',
           rate_map  = setNames(rep(rate_s, length(thts)), thts))
+        # Clause (8)-style content extension: the April 2026 proclamation applies
+        # the Russia aluminum surcharge to articles of ANY country in which the
+        # primary aluminum was smelted (or most recently cast) in Russia.
+        # Origin-of-metal != exporter country is unobservable in Census trade
+        # data, so model it as an expected-value share: surcharge *
+        # third_country_content_share, pmax'd onto every NON-listed country on
+        # the same product set. Dormant (0.0) by default — which is also the
+        # realistic post-2023 value (supply chains avoid Russian metal; CBP
+        # smelt-and-cast certs). See docs/assumptions.md.
+        tc_share <- suppressWarnings(as.numeric(sc$third_country_content_share %||% 0))
+        if (length(tc_share) == 1L && is.finite(tc_share) && tc_share > 0) {
+          tc_countries <- setdiff(as.character(countries), as.character(sc$countries))
+          if (length(tc_countries)) .ovs[[length(.ovs) + 1L]] <- list(
+            countries = tc_countries, mode = 'max',
+            rate_map  = setNames(rep(rate_s * tc_share, length(thts)), thts))
+        }
       }
 
       section_232$annex <- list(
