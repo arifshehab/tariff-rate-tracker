@@ -135,8 +135,9 @@ Remaining:
   2026-04-22 OOM class) — sanity invariants: `no_301` ETR ≤ baseline
   everywhere, `pre_2025` < baseline post-Jan-2025. (c) Fold sanity checks into
   `verify_build.R` (build-unification Phase 2) so a failed variant fails the
-  build instead of message(). (d) Wire `tests/test_scenario_registry.R` into
-  CI (`.github/workflows/ci.yml` smoke job) and the submit_plank harnesses.
+  build instead of message(). (d) ~~Wire `tests/test_scenario_registry.R` into
+  CI~~ (DONE in a3b88d3 — ci.yml smoke job, green); still pending: add it to
+  the submit_plank cluster harnesses.
 - [ ] **Migrate `SCENARIO_SPECS` in `build_usmca_scenarios.R`** (the standalone
   USMCA scenario builder) onto the registry, or retire that script if
   `--alternatives` covers its use.
