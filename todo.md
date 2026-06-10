@@ -38,27 +38,73 @@ products tibble, cached per revision in `data/timeseries/products_<rev>.rds` —
 so classification needs NO archive re-parsing. Neither column currently flows
 past the parse.
 
+**DISCOVERY (2026-06-10, plan pass): latent stale-sibling inheritance bug in
+`rate_stack`.** `parse_products()` (`src/04_parse_products.R:62`) only updates
+the inheritance stack when a line's rate is parseable/simple/"Free" — a
+COMPOUND-rated parent never updates the stack. So a statistical suffix under a
+compound legal line (e.g. children of `1901.10.16`, "$1.035/kg + 14.9%") walks
+the stack and can inherit an EARLIER SIBLING legal line's ad-valorem rate at
+the same indent — a wrong, nonzero base_rate, distinct from the known NA→0
+fill. Unquantified. Design consequence: the new type inheritance must NOT
+reuse `rate_stack`; build a parallel `type_stack` updated on EVERY non-empty
+`general` line (including compound), which gives correct type inheritance with
+zero change to rate numbers. Fixing the rate-side bug moves numbers → separate
+parity-gated change (see new item below).
+
+**Hard constraint for the implementation: zero rate-number changes.**
+Acceptance = single-revision rebuild (`scripts/rebuild_one_revision.R`, rev_5,
+unweighted): all rate columns byte-identical to the current snapshot, AND
+chapter exposure shares reproduce the diagnosis (HS04 ~47%, HS17 ~38%, HS21
+~31%, HS19 ~18%, machinery ~0%).
+
 - [ ] **Add `base_rate_type` to the panel** (values: `ad_valorem` / `free` /
-  `specific_or_compound` / `other`), derived in `04_parse_products.R`.
-  CRITICAL detail: statistical suffixes (≈59% of HTS10s, empty rate string)
-  must INHERIT the parent's type through the same legal-line rate stack that
-  base_rate inheritance uses — a suffix under a compound-rated parent IS
-  exposed; labeling suffixes "empty" would miss most of the exposure. Carry
-  the column into the rates grid in `06_calculate_rates.R`;
-  `enforce_rate_schema()` preserves extra columns (same lifecycle precedent
-  as `rate_s301fl`), so this is schema-non-breaking. NOTE for the parity
-  harness: snapshots gain a column — numeric-tolerance parity on rate columns
-  should be unaffected, but confirm the golden-diff comparator ignores new
-  metadata columns before the next parity run.
-- [ ] **Quality-report surface**: per-revision `pct_value/pairs with
-  base_rate_type == 'specific_or_compound'` in
-  `output/quality/revision_quality.csv`, plus a per-product side table
-  `output/quality/specific_duty_exposure_<rev>.csv` (hts10, base_rate_raw,
-  base_rate_type, description) built from the cached products rds.
-- [ ] **Flow the flag to consumers**: hts10-level `base_rate_type` column (or
-  companion CSV) in `generate_etrs_config.R`'s `statutory_rates.csv.gz` so
-  Tariff-ETRs / tariff-etr-adj can mask or specially treat exposed cells in η
-  calibration; document the scope decision in `docs/assumptions.md`.
+  `specific_or_compound` / `other`), derived in `04_parse_products.R` via a
+  new pure `classify_rate_type()` in `helpers.R` (next to `parse_rate()`) +
+  the parallel `type_stack` above for suffix inheritance (≈59% of HTS10s are
+  empty-string suffixes; a suffix under a compound parent IS exposed —
+  labeling suffixes "empty" would miss most of the exposure). Eyeball
+  whatever lands in `other` (expected ~empty) — verify, don't rationalize.
+  Carry into the rates grid at TWO verified insertion points in
+  `06_calculate_rates.R`: the base-rate join in `calculate_rates_fast()`
+  (~line 192) and `ensure_dense_grid()` (~line 907: add to the products
+  select AND to `EXPLICIT_SET_COLUMNS` — its column-accounting gate fails
+  loud if forgotten). The other base_rate re-joins (~1310, ~1925; floor/MFN
+  recomputes) don't need it. `enforce_rate_schema()` preserves extra columns
+  (same lifecycle precedent as `rate_s301fl`), so schema-non-breaking.
+  CACHE GUARD: existing `products_<rev>.rds` caches lack the column — fail
+  loud (or re-parse) when a cached products rds has no `base_rate_type`
+  (same hazard class as the stale rev_5 snapshot gotcha); regenerate locally
+  via `scripts/refresh_product_caches.R`. Footprint: character col ≈ 8B/row
+  → ~1.6GB at the 195M-row full-scale assemble; fine at 192GB. NOTE for the
+  parity harness: snapshots gain a column — numeric-tolerance parity on rate
+  columns should be unaffected, but confirm the `src/parity.R` comparator
+  ignores new metadata columns before the next parity run.
+- [ ] **Quality-report surface**: unweighted `pct_pairs_specific_or_compound`
+  in `compute_revision_quality()` (`src/quality_report.R:72` →
+  `output/quality/revision_quality.csv`, always available), plus a
+  per-revision side table `output/quality/specific_duty_exposure_<rev>.csv`
+  (hts10, base_rate_raw, base_rate_type, description) built from the cached
+  products rds. VALUE-WEIGHTED exposure share goes in `src/diagnostics.R`
+  alongside `report_universe_completeness()` (reuse its Census-weights loader
+  + graceful no-weights skip; numbers come from the next cluster build).
+- [ ] **Flow the flag to consumers**: add `base_rate_type` to the
+  `statutory_rates.csv.gz` select in `export_statutory_rates()`
+  (`src/generate_etrs_config.R`) — ETRs/tariff-etr-adj read the CSV directly,
+  extra column non-breaking — so they can mask or specially treat exposed
+  cells in η calibration; document the scope decision ("ad-valorem only;
+  exposed cells flagged, not converted") in `docs/assumptions.md`.
+- [ ] **Tests**: `classify_rate_type()` units (`Free`, `6.8%`,
+  `$1.035/kg + 14.9%`, `2.4¢/kg`, empty); fixture — compound parent → suffix
+  inherits `specific_or_compound`, and a simple sibling BEFORE a compound
+  parent does not leak its type; integration — snapshot carries the column,
+  constant across countries within hts10, `1901.10.16.00` flags as exposed.
+- [ ] **Quantify the stale-sibling rate inheritance bug (then decide fix).**
+  Byproduct diagnostic of the type_stack work: count suffixes whose
+  type-source line ≠ rate-source line, per revision, with value weights where
+  available. The fix (update `rate_stack` on compound parents too, storing NA
+  so children fall to NA→0 instead of a sibling's rate) MOVES NUMBERS —
+  parity-gated, do NOT bundle with the flag change. Log findings in
+  `tariff_tracker_investigated_issues` memory + here.
 
 ## Build unification plan (2026-06-09) — one build, three destinations, two backends
 
@@ -241,7 +287,7 @@ Presidential proclamation of 2 April 2026 replaces single-rate 232 with four pro
 Recommended order here: the rev_5 artifact sync / Russia fix has landed (active-priority #4, now DONE — `test_rate_calculation.R` green 92/0/0), so the release artifacts are in sync, and the re-dated rebuild has completed (2026-06-09 `release/` publish). Remaining: rebuild validation (active-priority #1) and the post-annex modeling/documentation items below.
 
 **Prioritized assessment (2026-06-10), by expected ETR materiality ÷ effort:**
-1. **Semi Phase-5 calibration** (below, §semiconductors) — the uncalibrated upper bound adds +0.57pp where realistic is ~0.05–0.20pp; the single largest known §232 distortion. `qualifying_share` ≈ 0 except 8471.80.4000.
+1. **Semi Phase-5 calibration** (below, §semiconductors) — CORRECTION 2026-06-10: the interim binary `qualifying_share` calibration ALREADY LANDED 2026-04-28 (`resources/semi_qualifying_shares.csv`: all 0 except 8471.80.4000 = 1), so the +0.57pp uncalibrated-upper-bound distortion is largely resolved. Remaining: `end_use_exemption_share` still 0.0 (uncalibrated) + empirical refinement of the binary shares.
 2. **UK 95% qualifying-content (9903.82.04/.05)** — entirely unmodeled (config mentions it only in comments); shape is a standard blend knob (`uk_content_qualifying_share`, SGEPT default 30%); modest UK metals trade but a real bias, and cheap now.
 3. **Dormant exemption shares with SGEPT numbers** (us_origin_metal ~1%, de_minimis ~2%, motorcycle ~0.1%) — one-line config edits; with the scenario registry these can ship as an `sgept_exemptions` alternative overlay first, promoted to baseline if the eval prefers it.
 4. **8471 annex_1b decision** — data-gated: wait for April+ 2026 Census collections (active-priority #2a); knobs already exist.
@@ -323,7 +369,7 @@ The existing note in `docs/revision_changelog.md:21` — "handled through the no
 
 ### Deferred (Phase 5, calibration)
 
-- [ ] **Calibrate `qualifying_share` per HTS10** — target Nvidia H200, AMD MI325X class accelerators only meet Note 39(b) TPP/DRAM gate. Primary source: 8471.80.4000 (discrete GPU/AI cards); most other 8471/8473 HTS10s should calibrate to ~0. Source: CBP trade data or SIA/SEMI industry estimates.
+- [x] **Calibrate `qualifying_share` per HTS10 — interim binary calibration DONE 2026-04-28** (`resources/semi_qualifying_shares.csv`): all lines 0 except 8471.80.4000 (discrete GPU/AI cards) = 1, per the Note 39(b) TPP/DRAM gate targeting H100/H200-class accelerators. Still flagged "upper bound" in the source notes — empirical refinement via CBP trade data or SIA/SEMI estimates remains optional follow-up.
 - [ ] **Calibrate `end_use_exemption_share`** — fraction of qualifying imports routed through 9903.79.03–.09 carve-outs (data centers, R&D, startups, consumer, industrial, public sector). Probably 0.3–0.5 based on AI/datacenter capex share.
 ### Section 122 × semi stacking (investigated 2026-04-21, no fix needed)
 
@@ -429,12 +475,12 @@ landed: `42c0cab` (blocking + required-changes), `0338405` (Phase C hardening).
 
 ## Pipeline
 
-Recommended order here: rerun the OOM-failed post-build alternatives (the USMCA refresh path is done), and leave generic pharma shares for later.
+Recommended order here: the counterfactual rerun now lives at Alternatives unification Step 5(b); leave generic pharma shares for later.
 
 - [ ] Generic pharma country-specific exemption shares (per TPC feedback; low priority)
   - Planning note: `docs/analysis/generic_pharma_exemption_share_plan_2026-03-24.md`
 - [x] USMCA 2026 monthly refresh — DONE; see "USMCA scenario and share-loading (2026-04-20)" above (section closed 2026-05-19).
-- [ ] **Rerun 6 OOM-failed post-build alternatives (2026-04-22).** Full rebuild via `--full --with-alternatives` completed the main timeseries (58.5 min) and the 6 rebuild alternatives (usmca_annual/monthly/2024/dec2025, metal_flat, dutyfree_nonzero) successfully, but the 6 post-build scenarios `no_ieepa`, `no_ieepa_recip`, `no_301`, `no_232`, `no_s122`, `pre_2025` all failed with `cannot allocate vector of size 705.6 Mb` on `filter(revision == 'rev_X')` — R ran out of memory after accumulating state across the ~5-hour run. The corresponding `output/alternative/*_{no_*,pre_2025}.csv` files are stale (dated Apr 15-20, pre-dating the semi tariff work). SUPERSEDED 2026-06-10 by the **Alternatives unification** (landed): the six counterfactuals are now `disabled_authorities` overlay scenarios; regenerate with `Rscript src/00_build_timeseries.R --alternatives counterfactuals --alternatives-only` on the cluster (= unification Step 5b). Fresh process per variant via `--parallel --alt-workers N` avoids the old OOM.
+- [x] ~~**Rerun 6 OOM-failed post-build alternatives (2026-04-22).**~~ DEDUPED 2026-06-10 — this is the same work as **Alternatives unification Step 5(b)** (the live checkbox; see that section). History: the 2026-04-22 `--full --with-alternatives` run completed the main timeseries + 6 rebuild alternatives but OOM'd on the 6 post-build scenarios (`cannot allocate vector of size 705.6 Mb`); `output/alternative/*_{no_*,pre_2025}.csv` are stale (Apr 15-20). The six counterfactuals are now `disabled_authorities` overlay scenarios; regenerate with `Rscript src/00_build_timeseries.R --alternatives counterfactuals --alternatives-only` on the cluster; fresh process per variant via `--parallel --alt-workers N` avoids the old OOM.
 
 ## More-granular preference share construction (2026-04-28)
 
