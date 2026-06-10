@@ -9,13 +9,56 @@
 5. **Finish the biggest post-annex modeling gaps**: Russia clause (8) full smelter/cast origin logic, UK 95% qualifying-content blending, Annex IV exception buckets, and product-condition exemptions like 9903.81.92 are still approximated or unmodeled. (9903.82.01 zero-metal-content is now scaffolded but dormant — calibration is its own line item below.)
 6. **Then clear secondary rebuild/calibration debt**: rerun the OOM-failed post-build alternatives, calibrate semi/annex/zmc assumptions, and tackle the remaining low-priority performance and cleanup items.
 
-## Specific-duty / compound-duty AVE gap (2026-06-08) — dominant driver of negative η in the food complex
+## Specific/compound-duty EXPOSURE flags (re-scoped 2026-06-10; was "AVE gap")
 
-- [ ] **The tracker drops specific & compound MFN duties to 0%; add an ad-valorem-equivalent (AVE) conversion.** `parse_rate()` (`src/helpers.R:67`) returns `NA` for any non-`%` rate ("compound or specific rates — return NA"). In `src/04_parse_products.R` that NA is only recovered by parent-inheritance when the rate string is *empty* (statistical suffixes), so a line carrying a non-empty specific/compound duty (e.g. `1901.10.16.00` = `$1.035/kg + 14.9%`) keeps `base_rate = NA`, which `enforce_rate_schema` NA-fills to **0**. There is **no specific-duty→AVE conversion anywhere in the pipeline**. Net: the *entire* rate string is dropped — a compound duty loses even its ad-valorem component (`X% + $Y/kg` → modeled 0%, not `X%`).
-  - **Evidence (rev_5 HTS, share of chapter leaf lines that are complex→0%):** HS04 47%, HS17 38%, HS21 31%, HS22 27%, HS20 23%, HS19 18% — vs HS84 0%, HS85 0%, HS90 1%. This is why the negative-η cluster splits cleanly: food chapters = specific-duty drop; machinery/electronics/instruments = AD/CVD + 232-derivative residual (separate item).
-  - **Outcome (compadj η, `tariff-etr-adj/results/tables/eta_by_product.csv`):** HS19 collected 6.4% vs modeled 4.4% → η **−0.54**; HS21 η −0.49; HS17 η −0.15. Magnitude tracks *value-weighted* exposure to the dropped lines, not raw complex-% (HS04 is 47% complex but η ≈ 0 because its simple lines already carry a high statutory rate; HS19's dropped lines are its high-value, high-duty `1901.x` dairy/infant-formula preps).
-  - **Fix.** Proper: specific-duty→AVE conversion using per-HTS10 unit value (customs value ÷ quantity from Census/DataWeb), gated to the snapshot's effective window. Cheap interim win: salvage the ad-valorem component of compound rates (parse `X% + $Y/kg`, keep `X%`) so compound lines aren't a total loss. Secondary: `1901.90` dairy preps are TRQ-structured (over-quota collects the high rate; no TRQ-utilization model — see `docs/trackermiss_phase3_implementation.md`).
-  - **Re-frames `docs/analysis/eta_compliance_gap_drivers.md` reason #3:** specific-duty conversion is listed there as a minor *residual* ("worth checking where 232/ADCVD don't explain it") — the chapter data shows it is the **dominant** driver for HS17/19/21, not a residual.
+**SCOPE DECISION (user, 2026-06-10): the tracker will NOT incorporate specific
+or compound duties — no AVE conversion, no salvaging the ad-valorem component.**
+The tracker models statutory ad-valorem rates; non-ad-valorem MFN duties are a
+documented modeling boundary. What the tracker SHOULD do is **identify the
+exposed product×country cells** so downstream consumers (tariff-etr-adj η
+calibration, the eval, quality reports) can see exactly which lines carry a
+duty the tracker models as 0%. Any AVE conversion / unit-value work, if ever
+wanted, lives on the eval side.
+
+Background (unchanged diagnosis): `parse_rate()` (`src/helpers.R:71-99`)
+returns NA for any non-`%` rate; `04_parse_products.R` only recovers NA via
+parent-inheritance for EMPTY strings, so non-empty specific/compound lines
+(e.g. `1901.10.16.00` = `$1.035/kg + 14.9%`) end at `base_rate = 0`. Chapter
+exposure (rev_5 leaf lines): HS04 47%, HS17 38%, HS21 31%, HS22 27%, HS20 23%,
+HS19 18% vs ~0% in machinery. This drives the food-complex negative η (HS19
+−0.54, HS21 −0.49) — magnitude tracks value-weighted exposure. TRQ structure
+(1901.90 dairy) is a sub-case. Re-frames
+`docs/analysis/eta_compliance_gap_drivers.md` reason #3 (dominant, not
+residual, for HS17/19/21).
+
+**Good news (scoped 2026-06-10): the flag is half-built already.**
+`parse_products()` retains `base_rate_raw` (the raw duty string) and a
+`has_complex_rate` flag (`!is_simple_rate(general) && general != ''`) in the
+products tibble, cached per revision in `data/timeseries/products_<rev>.rds` —
+so classification needs NO archive re-parsing. Neither column currently flows
+past the parse.
+
+- [ ] **Add `base_rate_type` to the panel** (values: `ad_valorem` / `free` /
+  `specific_or_compound` / `other`), derived in `04_parse_products.R`.
+  CRITICAL detail: statistical suffixes (≈59% of HTS10s, empty rate string)
+  must INHERIT the parent's type through the same legal-line rate stack that
+  base_rate inheritance uses — a suffix under a compound-rated parent IS
+  exposed; labeling suffixes "empty" would miss most of the exposure. Carry
+  the column into the rates grid in `06_calculate_rates.R`;
+  `enforce_rate_schema()` preserves extra columns (same lifecycle precedent
+  as `rate_s301fl`), so this is schema-non-breaking. NOTE for the parity
+  harness: snapshots gain a column — numeric-tolerance parity on rate columns
+  should be unaffected, but confirm the golden-diff comparator ignores new
+  metadata columns before the next parity run.
+- [ ] **Quality-report surface**: per-revision `pct_value/pairs with
+  base_rate_type == 'specific_or_compound'` in
+  `output/quality/revision_quality.csv`, plus a per-product side table
+  `output/quality/specific_duty_exposure_<rev>.csv` (hts10, base_rate_raw,
+  base_rate_type, description) built from the cached products rds.
+- [ ] **Flow the flag to consumers**: hts10-level `base_rate_type` column (or
+  companion CSV) in `generate_etrs_config.R`'s `statutory_rates.csv.gz` so
+  Tariff-ETRs / tariff-etr-adj can mask or specially treat exposed cells in η
+  calibration; document the scope decision in `docs/assumptions.md`.
 
 ## Build unification plan (2026-06-09) — one build, three destinations, two backends
 
@@ -150,6 +193,11 @@ Remaining:
   - **Evidence (rev_9 snapshot):** 221 of 8,052 product-ref pairs dropped (2.7%), touching 170 of 7,524 ch99-referencing HTS10 lines. Dominated by 9903.88.69 (141 pairs, the U.S. note 20(vvv) exclusion round, window Jun 15 2024 → Nov 9 2026) plus 9903.88.21–.28 and a few 9903.19.xx. Worked example: `0304725000` (frozen haddock) refs both 9903.88.03 (25%, kept) and 9903.88.69 (NA, dropped) → modeled 25% China §301 mid-exclusion-window. Grep confirms no other code path models these headings.
   - **Bounded:** China-only (§301), 170 lines, and only misstates rates inside each exclusion's validity window. Direction is always overstatement of statutory rates → contributes positive η on affected lines (opposite sign to the AVE gap).
   - **Scoping decisions before any fix:** (a) **partial-line coverage** — note 20(vvv) exclusions are product-*description* scoped and often cover only a slice of an HTS10 line, so whole-line `rate_301 = 0` overcorrects; needs a full-line vs claim-share decision like USMCA. (b) **validity windows** — per-heading effective/expiry dates are in the heading text itself ("on or after June 15, 2024 and through November 9, 2026") and the `effective_date_offset` machinery already exists; wire per heading. (c) cheap interim option: date-windowed full-line zeroing as an upper bound, flagged as such.
+  - **Fix design (scoped 2026-06-10, code paths verified).** Root-cause chain: `parse_ch99_rate()` (`src/rate_schema.R:176-196`) has no pattern for "The duty provided in the applicable subheading" → NA; `calculate_rates_fast()` drops NA-rate pairs at `src/06_calculate_rates.R:87` (instrumentation at :84-107); `classify_authority()` already routes 9903.88/.19 to section_301 correctly. Two pieces of machinery to extend, one to add:
+    1. **Expiry parsing**: `extract_effective_date_offset()` (`src/rate_schema.R:276-298`) extracts only "on or after" START dates; add "through [Month D, YYYY]" expiry extraction and an expiry gate in `filter_active_ch99()` (start-gate exists at :316-335, expiry gate does not). This generalizes beyond §301 (any windowed heading).
+    2. **Resource**: new `resources/s301_exclusion_headings.csv` (`ch99_code, validity_start, validity_end, coverage_share, source_note`) — windows from the heading text; nothing like it exists today (`s301_product_lists.csv` is `hts8, list, ch99_code` base coverage only).
+    3. **Calc hook**: pre-stacking step after the §301 blanket assignment (`06_calculate_rates.R:2568-2579` does `rate_301 = pmax(...)`) — for products whose ch99_refs include an active in-window exclusion heading, scale `rate_301 *= (1 - coverage_share)`. The `applicability_shares_file` mechanism on auto_parts (`06_calculate_rates.R:1614-1655`, longest-prefix, binary or fractional) is the direct template.
+    - **Phase 1** (small): expiry machinery + resource + full-line zeroing (`coverage_share = 1.0`) = the flagged UPPER BOUND on the correction. **Phase 2** (calibration): replace 1.0 with IMDB-realized exclusion claim shares — the eval side can measure entries filed under 9903.88.69 etc. vs total entries on the same HTS10×month (same pattern as the Annex II 9903.01.32 claim-share channel) — this resolves the partial-line problem empirically instead of by description-parsing.
 
 ## AD/CVD: strip from collected, defer the statutory layer (decided 2026-06-08)
 
@@ -192,9 +240,18 @@ Presidential proclamation of 2 April 2026 replaces single-rate 232 with four pro
 
 Recommended order here: the rev_5 artifact sync / Russia fix has landed (active-priority #4, now DONE — `test_rate_calculation.R` green 92/0/0), so the release artifacts are in sync, and the re-dated rebuild has completed (2026-06-09 `release/` publish). Remaining: rebuild validation (active-priority #1) and the post-annex modeling/documentation items below.
 
+**Prioritized assessment (2026-06-10), by expected ETR materiality ÷ effort:**
+1. **Semi Phase-5 calibration** (below, §semiconductors) — the uncalibrated upper bound adds +0.57pp where realistic is ~0.05–0.20pp; the single largest known §232 distortion. `qualifying_share` ≈ 0 except 8471.80.4000.
+2. **UK 95% qualifying-content (9903.82.04/.05)** — entirely unmodeled (config mentions it only in comments); shape is a standard blend knob (`uk_content_qualifying_share`, SGEPT default 30%); modest UK metals trade but a real bias, and cheap now.
+3. **Dormant exemption shares with SGEPT numbers** (us_origin_metal ~1%, de_minimis ~2%, motorcycle ~0.1%) — one-line config edits; with the scenario registry these can ship as an `sgept_exemptions` alternative overlay first, promoted to baseline if the eval prefers it.
+4. **8471 annex_1b decision** — data-gated: wait for April+ 2026 Census collections (active-priority #2a); knobs already exist.
+5. **Annex IV buckets + 9903.81.92 product-condition family** — needs a scoping pass against the proclamation text before any build; SGEPT note may carry usable shares.
+6. **Russia clause (8) smelter/cast origin** — origin-of-metal ≠ exporter country is unobservable in Census; correct treatment is a dormant `russian_content_share` knob on third-country aluminum, which is ≈0 in practice (post-2023 supply chains avoid Russian metal; CBP smelt-and-cast certs). Document-and-defer.
+7. **rev_6 USMCA limited-quantity carve-out (9903.82.18/.19)** — needs quantity tracking the engine doesn't have; defer unless the eval shows a CA/MX vehicle-parts gap.
+
 - [x] **Russia rev_5 release sync — DONE 2026-06-08** (same resolution as active-priority #4): the source fix landed (`section_232_annexes.country_surcharges` plus the post-annex `pmax()` path in step 5c) and the saved artifacts were re-synced; `tests/test_rate_calculation.R` passes 92/0/0 including Test 12 against the saved rev_5 artifact.
-- [ ] **Russia clause (8) is still only partially modeled.** The April 2, 2026 proclamation covers Annex I-A/I-B/III aluminum articles or derivatives that are the product of Russia **or** where any primary aluminum was smelted in Russia **or** the article was cast in Russia. Current logic only keys on exporter country (`country == '4621'`). See `docs/s232/russia_rev5_fix_plan.md`.
-- [ ] **Narrow Russia `section_232_country_exemptions` to aluminum-only (pre-annex correctness).** The Russia entry in `config/policy_params.yaml:227-231` uses `applies_to: ['steel','aluminum']` with `rate: 2.0`, but Proclamation 10522 (2023) was an **aluminum** action — applying 200% to Russian *steel* at step 4 is wrong on its own merits. In the annex era the annex override masks it for everything except (formerly) the shielded 7320 springs, but **pre-2026-04-06 snapshots carry Russian steel at 2.0**. Narrowing to `applies_to: ['aluminum']` is the principled root fix. **Out of scope for the rev_5 test fix** (the `mhd_products` blanket-chapter strip, landed 2026-06-08, already makes rev_5 correct). Before changing: verify against a pre-annex Russia-steel snapshot and confirm no annex-era regression. Full diagnosis in `docs/russia_surcharge_mhd_leak_fix_plan.md` §"Companion consideration".
+- [ ] **Russia clause (8) is still only partially modeled.** The April 2, 2026 proclamation covers Annex I-A/I-B/III aluminum articles or derivatives that are the product of Russia **or** where any primary aluminum was smelted in Russia **or** the article was cast in Russia. Current logic only keys on exporter country (`country == '4621'`). (NOTE: the previously-referenced `docs/s232/russia_rev5_fix_plan.md` does not exist; the related diagnosis lives in `docs/russia_surcharge_mhd_leak_fix_plan.md`.) Recommended treatment per assessment above: dormant share knob + document, don't build origin tracking.
+- [x] **Narrow Russia `section_232_country_exemptions` to aluminum-only — DONE 2026-06-08** (commit `2724bb3` "Fix tariff policy edge cases"): the Russia 4621 entry now reads `applies_to: ['aluminum']` (config/policy_params.yaml ~line 278), and the annex-era `country_surcharges` block is likewise `metal_types: ['aluminum']` across annex_1a/1b/3. The local-machine `test_rate_calculation.R` check "Russia steel does NOT get the aluminum-only surcharge" is the pin for this; it passes on cluster/CI (fails locally only against the stale gitignored rev_5 snapshot).
 - [x] **Document (or assign) `deriv_type` in annex-era revisions. DONE 2026-06-10** — comment approach, not sentinel. Block comment at the derivative-Ch99 gate in `apply_232_derivatives()` (`src/06_calculate_rates.R`) documents that the annex-era skip (deriv_type = NA, shares = 0 from rev_5 on) is the intended policy outcome, that `s232_annex` is the column downstream readers should use in the annex era, and WHY a sentinel must not be assigned: stacking gates per-type metal-share selection on `!is.na(deriv_type)`, and annex products are taxed full-value (`nonmetal_share = 0`), so a non-NA deriv_type would wrongly re-enable metal-content splitting. See `docs/s232/rev5_baseline_review.md` §§4-5.
 - [x] **Rebuild release artifacts from HEAD — DONE** (covered by the 2026-06-08 artifact sync and the full re-dated rebuild published 2026-06-09): published outputs match the current tree; Russia snapshot tests pass on saved artifacts.
 - [x] **Dynamic Ch99 parsing** in `load_annex_products()` / `extract_section232_rates()` — landed 2026-05-19 across 4 commits. `Rscript src/scrape_us_notes.R --annex` regenerates `resources/s232_annex_products.csv` by parsing Note 16(c)(i)–(x) from `data/us_notes/chapter99_<revision>.pdf` (initial parser `0d41a7b`; hardening `ed69eef` — auto-detects latest revision via `latest_local_chapter99_revision()`, derives effective_date from `policy_params.yaml::section_232_annexes.effective_date`, 25 tests in `tests/run_tests_annex_parser.R` wired into CI; methodology doc `59d2561` at `docs/s232/annex_parser.md`). Idempotent; curator entries (`source != 'us_note_16'`) win on prefix overlap so manual edge-case calls (annex_2 removals, (c)(ix) overrides) are preserved. Validated semantically against the curator baseline for rev_5 — 2652 codes assigned identically, 0 disagreements. Future Note 16 changes flow through automatically (rev_6's 9903.82.18/.19 USMCA carve-out reuses (c)(i)/(c)(iii) products that are already covered).
