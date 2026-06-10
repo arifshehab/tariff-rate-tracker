@@ -14,25 +14,49 @@
 # scratch after this succeeds. The repo working tree is never read or written.
 #
 # Env (set by scripts/submit_build_array.sh):
-#   TARIFF_SCRATCH          scratch holding snapshot_<rev>.rds + <name>/ (REQUIRED)
+#   TARIFF_SCRATCH          scratch holding snapshot_<rev>.rds + <name>/ (REQUIRED
+#                           unless --latest-only)
 #   TARIFF_VINTAGE          vintage id YYYY-MM-DD-HH (REQUIRED; shared by all series)
 #   TARIFF_MODEL_DATA_ROOT  interface root (optional; else local_paths.yaml default)
 #   TARIFF_UPDATE_LATEST    '0' to publish additively without moving `latest`
+#
+# Flags:
+#   --latest-only   skip the publish entirely; just repoint <root>/latest at
+#                   TARIFF_VINTAGE. Used by the verified finalize: publish with
+#                   TARIFF_UPDATE_LATEST=0, run verify_build.R on the vintage,
+#                   then repoint latest only after the gate passes.
 # =============================================================================
 
 suppressPackageStartupMessages(library(here))
 source(here('src', 'write_output.R'))   # write_build_output + SHARED_ROOT_DEFAULT
 
+latest_only <- '--latest-only' %in% commandArgs(trailingOnly = TRUE)
+
 scratch <- Sys.getenv('TARIFF_SCRATCH', unset = '')
 vintage <- Sys.getenv('TARIFF_VINTAGE', unset = '')
-if (!nzchar(scratch)) stop('TARIFF_SCRATCH not set', call. = FALSE)
 if (!nzchar(vintage)) stop('TARIFF_VINTAGE not set', call. = FALSE)
-if (!dir.exists(scratch)) stop('scratch dir does not exist: ', scratch, call. = FALSE)
+if (!latest_only) {
+  if (!nzchar(scratch)) stop('TARIFF_SCRATCH not set', call. = FALSE)
+  if (!dir.exists(scratch)) stop('scratch dir does not exist: ', scratch, call. = FALSE)
+}
 
 mdr <- Sys.getenv('TARIFF_MODEL_DATA_ROOT', unset = '')
 shared_root <- if (nzchar(mdr)) mdr else SHARED_ROOT_DEFAULT
 vintage_dir <- file.path(shared_root, vintage)
 update_latest <- !identical(Sys.getenv('TARIFF_UPDATE_LATEST', '1'), '0')
+
+if (latest_only) {
+  if (!dir.exists(vintage_dir)) {
+    stop('--latest-only: vintage dir does not exist: ', vintage_dir, call. = FALSE)
+  }
+  ok <- withCallingHandlers(
+    update_latest_symlink(shared_root, vintage),
+    warning = function(w) message('WARNING: ', conditionMessage(w))
+  )
+  if (!isTRUE(ok)) stop('--latest-only: failed to repoint latest', call. = FALSE)
+  message('Repointed ', file.path(shared_root, 'latest'), ' -> ', vintage)
+  quit(status = 0L)
+}
 
 message('Finalizing vintage ', vintage, ' (scratch ', scratch, ') -> ', vintage_dir)
 res <- write_build_output(

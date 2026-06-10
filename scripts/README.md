@@ -4,13 +4,27 @@
 
 | Script | What it does | Destination |
 |---|---|---|
-| `submit_build_verify.sh` | Serial full rebuild + test suite + Russia/rev_10 sanity checks, one reviewable Slurm job (192G/4h) | Repo-local (`data/timeseries/`, `output/actual/`) |
-| `submit_build_array.sh --config config/build/<name>.yaml` | Config-driven parallel build: Slurm array per revision, scenarios concurrent, gather + finalize | Shared model_data vintage (repo never written) |
+| `submit_build_verify.sh` | Serial full rebuild + verification gate (`verify_build.R`), one reviewable Slurm job (192G/4h) | Repo-local (`data/timeseries/`, `output/actual/`) |
+| `submit_build_array.sh --config config/build/<name>.yaml` | Config-driven parallel build: Slurm array per revision, scenarios concurrent, gather + verified finalize | Shared model_data vintage (repo never written) |
 
 Everything else under `scripts/` is supporting infrastructure (array task /
 gather / finalize components, parity and equivalence harnesses) or one-off
 diagnostics. See `todo.md` "Build unification plan" for where this is headed:
 one build product, destinations chosen by config, not by which wrapper you ran.
+
+## Shared verification gate (`verify_build.R`, unification Phase 2)
+
+`scripts/verify_build.R [--output-root <dir>] [--skip-tests]` runs the
+rate-calculation test suite plus the Russia rev_5, rev_10/Annex I-C, and
+panel NA-interval sanity checks. Layout-aware: an rds dir (repo
+`data/timeseries/` — the default — or an array scratch) or a published
+vintage (`<root>/actual/snapshots/valid_from=*/rates.parquet`). Every check
+is a gate: any failure exits 1. Both blessed entry points run it —
+`submit_build_verify.sh` after the serial build, and the array finalize when
+`verify: true` (the config default): publish without moving `latest`, verify
+the vintage, then `publish_vintage.R --latest-only` repoints `latest` and the
+scratch is removed. A verify failure keeps the vintage on disk, `latest` on
+the previous good vintage, and the scratch intact.
 
 ## Alternatives / counterfactuals (2026-06-10 unification)
 

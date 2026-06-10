@@ -131,10 +131,19 @@ default, serial = parity baseline), one config, one verification gate.**
   thin publishers reading one canonical build tree (publish_vintage exists;
   publish_git generalized to a source root; repo-mirror new). After this,
   verify-then-publish is ONE build.
-- [ ] **Phase 2 — shared verification gate:** lift the verify steps (test suite +
-  Russia/rev_10 sanity + NA-interval check) out of `submit_build_verify.sh` into
-  `scripts/verify_build.R --output-root <dir>`; `verify: true` in config; array
-  finalize requires it to pass before repointing `latest`.
+- [x] **Phase 2 — shared verification gate. DONE 2026-06-10:** verify steps
+  (test suite + Russia/rev_10 sanity + NA-interval check) lifted out of
+  `submit_build_verify.sh` into `scripts/verify_build.R --output-root <dir>`,
+  layout-aware (repo/scratch rds vs vintage parquet — opens the parquet files
+  explicitly to skip the metadata.rds sibling). Every check is now a GATE
+  (the old inline checks were print-only; exit code gated solely on the test
+  suite). `verify: true` in build config (default true); array finalize
+  publishes with `TARIFF_UPDATE_LATEST=0`, runs verify against the vintage,
+  then `publish_vintage.R --latest-only` (new flag) repoints `latest` and the
+  scratch is removed — verify failure keeps the vintage for inspection,
+  `latest` on the previous good vintage, and the scratch intact. Smoke-tested:
+  vintage layout 10/10 PASS vs `latest` (2026-06-09-18); rds layout pending
+  the in-flight serial rebuild (job 14603419).
 - [ ] **Phase 3 — parallel by default:** array = default backend for real work;
   serial = golden parity baseline (keep; that's its job). Do NOT finish the
   in-process Phase-3 revision-parallel stub (array supersedes it). Fold the

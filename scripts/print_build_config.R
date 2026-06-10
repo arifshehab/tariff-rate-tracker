@@ -7,7 +7,7 @@
 # SAME config exactly once. Usage (in submit_build_array.sh):
 #   eval "$(Rscript scripts/print_build_config.R config/build/production.yaml)"
 # Emits: MODEL_DATA_ROOT, POLICY_PARAMS_PATH, SCENARIOS (space-
-# separated, may be empty), USE_HTS_DATES/UPDATE_LATEST/ALLOW_PARTIAL (0|1),
+# separated, may be empty), USE_HTS_DATES/UPDATE_LATEST/ALLOW_PARTIAL/VERIFY (0|1),
 # WEIGHT_MODE. Errors (bad path / bad weight_mode) go to stderr and exit non-zero.
 # =============================================================================
 
@@ -31,5 +31,6 @@ cat(
   'USE_HTS_DATES=',      b01(cfg$use_hts_dates),      '\n',
   'UPDATE_LATEST=',      b01(cfg$update_latest),      '\n',
   'ALLOW_PARTIAL=',      b01(cfg$allow_partial),      '\n',
+  'VERIFY=',             b01(cfg$verify),             '\n',
   sep = ''
 )

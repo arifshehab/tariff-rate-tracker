@@ -150,19 +150,37 @@ done
 # Splits the scratch snapshots into <vintage>/{actual,scenarios/<name>}/snapshots
 # parquet, inventories the daily/quality the gather already wrote into the vintage,
 # writes the manifest, repoints `latest`, then removes the scratch on success.
+#
+# With verify: true (config default) the finalize is GATED: publish WITHOUT
+# moving `latest`, run scripts/verify_build.R against the vintage (test suite +
+# sanity checks), and only repoint `latest` + remove the scratch if it passes.
+# A verify failure leaves the vintage on disk for inspection, `latest` on the
+# previous good vintage, and the scratch intact.
+if [ "${VERIFY:-1}" = "1" ]; then
+  FIN_CMD="$MODLOAD; TARIFF_UPDATE_LATEST=0 Rscript scripts/publish_vintage.R"
+  FIN_CMD+=" && Rscript scripts/verify_build.R --output-root '$VINTAGE_DIR'"
+  if [ "${UPDATE_LATEST:-1}" = "1" ]; then
+    FIN_CMD+=" && Rscript scripts/publish_vintage.R --latest-only"
+  fi
+else
+  FIN_CMD="$MODLOAD; Rscript scripts/publish_vintage.R"
+fi
+FIN_CMD+=" && rm -rf '$SCRATCH' && echo 'removed scratch $SCRATCH'"
+
 DEP=$(IFS=:; echo "${GATHER_JOBS[*]}")
-echo "--- finalize vintage $VINTAGE (afterok:$DEP) ---"
+echo "--- finalize vintage $VINTAGE (afterok:$DEP, verify=${VERIFY:-1}) ---"
 FIN_JOB=$(TARIFF_SCRATCH="$SCRATCH" TARIFF_VINTAGE="$VINTAGE" TARIFF_MODEL_DATA_ROOT="$MODEL_DATA_ROOT" \
   TARIFF_UPDATE_LATEST="${UPDATE_LATEST:-1}" \
   sbatch --parsable --dependency=afterok:"$DEP" --job-name="finalize-$VINTAGE" \
-    --time=00:40:00 --nodes=1 --ntasks=1 --cpus-per-task=4 --mem=48G \
+    --time=01:00:00 --nodes=1 --ntasks=1 --cpus-per-task=4 --mem=48G \
     --output="$HOME/slurm-logs/finalize-$VINTAGE-%j.out" --error="$HOME/slurm-logs/finalize-$VINTAGE-%j.err" \
     --chdir="$REPO" \
-    --wrap="$MODLOAD; Rscript scripts/publish_vintage.R && rm -rf '$SCRATCH' && echo 'removed scratch $SCRATCH'")
+    --wrap="$FIN_CMD")
 
 echo "=========================================================="
 echo "Submitted. finalize=$FIN_JOB"
 echo "Watch:   squeue -u $USER"
 echo "Result:  $VINTAGE_DIR/{actual,scenarios/<name>}/  (latest -> $VINTAGE on success)"
-echo "Scratch $SCRATCH is removed only if finalize succeeds (kept for debug otherwise)."
+echo "Verify:  ${VERIFY:-1} (verify_build.R gates the latest repoint when 1)"
+echo "Scratch $SCRATCH is removed only if finalize (incl. verify) succeeds (kept for debug otherwise)."
 echo "=========================================================="

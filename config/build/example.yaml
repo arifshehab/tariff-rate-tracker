@@ -25,3 +25,6 @@ use_hts_dates: false        # false -> policy effective dates (default)
 weight_mode: required       # required | unweighted
 update_latest: true         # repoint <model_data_root>/latest at this vintage
 allow_partial: false        # false -> fail loud if any expected revision snapshot is missing
+verify: true                # finalize runs scripts/verify_build.R (test suite + sanity
+                            # gates) against the vintage; latest is repointed and the
+                            # scratch removed only if it passes

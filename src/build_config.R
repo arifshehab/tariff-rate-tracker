@@ -19,6 +19,8 @@
 #   weight_mode:        'required' | 'unweighted' (default 'required')
 #   update_latest:      bool (default true → repoint <root>/latest)
 #   allow_partial:      bool (default false → fail on a missing revision snapshot)
+#   verify:             bool (default true → finalize runs scripts/verify_build.R
+#                       against the vintage and repoints `latest` only on pass)
 # =============================================================================
 
 suppressPackageStartupMessages(library(yaml))
@@ -58,7 +60,8 @@ load_build_config <- function(path, repo_root = here::here()) {
     use_hts_dates      = isTRUE(cfg$use_hts_dates),
     weight_mode        = wm,
     update_latest      = if (is.null(cfg$update_latest)) TRUE else isTRUE(cfg$update_latest),
-    allow_partial      = isTRUE(cfg$allow_partial)
+    allow_partial      = isTRUE(cfg$allow_partial),
+    verify             = if (is.null(cfg$verify)) TRUE else isTRUE(cfg$verify)
   )
 }
 
