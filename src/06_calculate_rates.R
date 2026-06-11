@@ -2825,6 +2825,44 @@ calculate_rates_for_revision <- function(
         group_by(hts10) %>%
         summarise(excl_coverage = max(coverage_share), .groups = 'drop')
 
+      # Optional per-HTS10 refinement (Phase-2 calibration): when
+      # section_301_exclusions.line_coverage_file is configured, lines present
+      # in the file use their measured coverage_share instead of the heading
+      # value; affected lines absent from the file keep the heading value.
+      # Scope is unchanged — the file only ever OVERRIDES coverage for lines
+      # that already reference an in-window heading, so out-of-window dates
+      # are untouched. Absent config key = dormant (heading-level only).
+      # Provenance: src/calibrate_s301_exclusions.R,
+      # docs/s301_exclusion_calibration.md.
+      if (!is.null(excl_cfg$line_coverage_file)) {
+        line_cov_path <- here(excl_cfg$line_coverage_file)
+        if (!file.exists(line_cov_path)) {
+          stop('section_301_exclusions.line_coverage_file configured but ',
+               'not found: ', line_cov_path)
+        }
+        line_cov <- suppressMessages(read_csv(line_cov_path, col_types = cols(
+          hts10 = col_character(), coverage_share = col_double(),
+          .default = col_character()
+        ))) %>%
+          select(hts10, line_coverage = coverage_share)
+        if (any(is.na(line_cov$line_coverage)) ||
+            any(line_cov$line_coverage < 0) || any(line_cov$line_coverage > 1)) {
+          stop('line_coverage_file has coverage_share outside [0, 1] or NA: ',
+               line_cov_path)
+        }
+        if (any(duplicated(line_cov$hts10))) {
+          stop('line_coverage_file has duplicated hts10 rows: ', line_cov_path)
+        }
+        n_overridden <- sum(excl_shares$hts10 %in% line_cov$hts10)
+        excl_shares <- excl_shares %>%
+          left_join(line_cov, by = 'hts10', relationship = 'one-to-one') %>%
+          mutate(excl_coverage = coalesce(line_coverage, excl_coverage)) %>%
+          select(-line_coverage)
+        message('  Section 301 exclusions: per-line coverage overrides for ',
+                n_overridden, ' of ', nrow(excl_shares), ' affected lines (',
+                basename(line_cov_path), ')')
+      }
+
       if (nrow(excl_shares) > 0) {
         n_pairs_before <- sum(rates$rate_301 > 0)
         rates <- rates %>%

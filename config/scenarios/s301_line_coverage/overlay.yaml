@@ -1,0 +1,14 @@
+# §301 exclusion per-HTS10 coverage refinement (Phase-2 calibration).
+# Baseline applies the per-heading registry coverage_share (9903.88.69 = 0.35,
+# .70 = 0.20, calibrated 2026-06-11). This scenario additionally applies the
+# per-line measured shares from the realized-rate inversion (stable window
+# 2025-09..2026-03) — lines present in the file use their own share, affected
+# lines absent from it keep the heading value. Line-level dispersion is wide
+# (IQR 0.15-0.73), so this is the higher-fidelity mode.
+# Promote to baseline by uncommenting line_coverage_file in
+# config/policy_params.yaml once parity-reviewed on a full build.
+# Source: src/calibrate_s301_exclusions.R, docs/s301_exclusion_calibration.md.
+# Build: TARIFF_SCENARIO=s301_line_coverage Rscript src/00_build_timeseries.R ...
+section_301_exclusions:
+  headings_file: 'resources/s301_exclusion_headings.csv'
+  line_coverage_file: 'resources/s301_exclusion_line_coverage.csv'

@@ -30,15 +30,26 @@ the old treatment (full §301, overstatement → positive-eta contribution) and
 the new one (0%, likely overstatement of the correction → negative-eta
 contribution on the same lines).
 
-**Measure:** per affected HTS10 × month, the share of entries (value and
-count) filed under 9903.88.69/.70 vs all entries on the same HTS10 × China —
-exactly the Annex II 9903.01.32 claim-share pattern. The IMDB line-level
-ch99 filings carry this directly.
+**Measure:** ~~per affected HTS10 × month, the share of entries filed under
+9903.88.69/.70 — "the IMDB line-level ch99 filings carry this directly"~~
+**CORRECTION 2026-06-11: they do not.** The public IMDB contains NO 9903
+commodity records (ch99 filings are reported under the underlying HTS10;
+`rate_prov` is a 2-digit aggregate), and DataWeb commodity queries on 9903
+codes return nothing. Direct filing shares exist only in CBP confidential
+data. The tracker now measures this itself by **realized-rate inversion**
+(`claim_share = (stat_other + full_301 − cal_dut/con_val) / full_301`) —
+module `src/calibrate_s301_exclusions.R`, design + caveats in
+`docs/s301_exclusion_calibration.md`. **What the eval can still add:** an
+independent check of the inversion on its own IMDB panel (same `cal_dut`
+field), and judgment on how much of the residual on these 144 lines is
+non-exclusion compliance gap (de minimis pre-Aug-2025, AD/CVD in
+collections) — that part is genuinely eval-side expertise.
 
 **Feeds:** `coverage_share` column of
-`resources/s301_exclusion_headings.csv` (per-heading; a per-HTS10 extension
-is easy if the data supports it). The affected-lines list is derivable from
-the tracker parse: products whose `ch99_refs` include 9903.88.69/.70.
+`resources/s301_exclusion_headings.csv` (per-heading, curator-promoted from
+`resources/s301_exclusion_claim_shares_by_heading.csv`); per-HTS10 shares in
+`resources/s301_exclusion_claim_shares.csv`. Affected lines:
+`resources/s301_exclusion_lines.csv`.
 
 ## 2. Semiconductor end-use share — one division, data already in hand
 

@@ -512,13 +512,24 @@ section_301_rates:
 # windows are read PER REVISION from each archive's own heading text
 # (effective_date_offset / expiry_date_offset — USTR extends windows over
 # time), with the CSV's validity_start/validity_end as curator overrides.
-# coverage_share = 1.0 full-line zeroes rate_301 (Phase-1 UPPER BOUND on the
-# correction; exclusions are product-description-scoped and usually cover a
-# slice of an HTS10 line); Phase 2 replaces it with IMDB-realized claim
-# shares. Delete this block (`section_301_exclusions: ~` in an overlay) to
-# disable the hook.
+# coverage_share scales rate_301 by (1 - coverage): 1.0 = full-line zeroing
+# (the Phase-1 UPPER BOUND; exclusions are product-description-scoped and
+# usually cover a slice of an HTS10 line). Phase-2 calibration (2026-06-11)
+# promoted measured per-heading values into the registry (9903.88.69 = 0.35,
+# .70 = 0.20; realized-rate inversion, stable window 2025Q3-2026Q1 — see
+# docs/s301_exclusion_calibration.md and src/calibrate_s301_exclusions.R).
+# Delete this block (`section_301_exclusions: ~` in an overlay) to disable
+# the hook.
+#
+# line_coverage_file (OPTIONAL, dormant by default): per-HTS10 measured
+# coverage shares overriding the heading value for lines present in the file
+# (affected lines absent from the file keep the heading value; scope is
+# unchanged — only lines referencing an in-window heading are ever scaled).
+# Enable by uncommenting; line-level dispersion is wide (IQR 0.15-0.73 in the
+# stable window), so this is the higher-fidelity mode once parity-reviewed.
 section_301_exclusions:
   headings_file: 'resources/s301_exclusion_headings.csv'
+  # line_coverage_file: 'resources/s301_exclusion_line_coverage.csv'
 
 # --- Weighted ETR reporting and comparison defaults ---
 # These are reporting-time convenience parameters, not tariff policy logic.

@@ -1120,22 +1120,28 @@ run_test('s301 exclusion registry: schema + safety invariants', {
   # not USTR product exclusions — they must never be full-line zeroed.
   zgg <- reg %>% filter(ch99_code %in% sprintf('9903.88.%02d', 21:28))
   stopifnot(nrow(zgg) == 8, all(zgg$coverage_share == 0))
-  # The live exclusion round must be registered at the Phase-1 upper bound.
-  stopifnot(reg$coverage_share[reg$ch99_code == '9903.88.69'] == 1)
+  # The live exclusion rounds carry the Phase-2 calibrated coverage
+  # (2026-06-11, realized-rate inversion, stable window 2025Q3-2026Q1 —
+  # docs/s301_exclusion_calibration.md; was 1.0 Phase-1 upper bound).
+  stopifnot(reg$coverage_share[reg$ch99_code == '9903.88.69'] == 0.35)
+  stopifnot(reg$coverage_share[reg$ch99_code == '9903.88.70'] == 0.20)
+  stopifnot(all(reg$source[reg$ch99_code %in%
+                             c('9903.88.69', '9903.88.70')] == 'curator'))
 })
 
-run_test('rev_9 snapshot: §301 exclusion zeroes China rate_301 on 9903.88.69 refs', {
+run_test('rev_9 snapshot: §301 exclusion scales China rate_301 on 9903.88.69 refs', {
   # Worked example from the bug report: 0304725000 (frozen haddock) refs both
   # 9903.88.03 (25%, kept) and 9903.88.69 (exclusion, in force through
-  # 2026-11-09). Pre-fix snapshots model 25% China §301 mid-exclusion-window.
-  # Snapshot-based: skips when missing; FAILS against a pre-fix stale
-  # artifact (same lifecycle as Test 12 — rebuild rev_9 to re-sync).
+  # 2026-11-09). Pre-fix snapshots model 25% China §301 mid-exclusion-window;
+  # Phase-1 zeroed it; Phase-2 calibration (coverage 0.35) scales it to
+  # 0.25 x 0.65 = 0.1625. Snapshot-based: skips when missing; FAILS against
+  # a stale artifact (same lifecycle as Test 12 — rebuild rev_9 to re-sync).
   snap_path <- here('data', 'timeseries', 'snapshot_2026_rev_9.rds')
   if (!file.exists(snap_path)) skip_test('snapshot_2026_rev_9.rds missing')
   s <- readRDS(snap_path)
   haddock <- s %>% filter(hts10 == '0304725000', country == '5700')
   if (nrow(haddock) == 0) skip_test('0304725000 x China not in snapshot')
-  stopifnot(abs(haddock$rate_301) < 1e-10)
+  stopifnot(abs(haddock$rate_301 - 0.25 * (1 - 0.35)) < 1e-10)
 })
 
 run_test('parse_chapter99 populates effective_date_offset from JSON', {

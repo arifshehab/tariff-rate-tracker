@@ -1,0 +1,3 @@
+kind: scenario
+description: '§301 exclusion per-HTS10 measured coverage shares (overrides the per-heading registry values for measured lines)'
+publish: false

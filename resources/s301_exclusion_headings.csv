@@ -55,5 +55,5 @@ ch99_code,validity_start,validity_end,coverage_share,source,source_note
 9903.88.66,NA,NA,1,heading_text,USTR exclusion; window read per-revision from heading text (latest seen: 2021-12-01 to 2023-05-31; in 42 revisions). Phase-1 full-line upper bound.
 9903.88.67,NA,NA,1,heading_text,USTR exclusion; window read per-revision from heading text (latest seen: 2021-10-12 to 2024-06-14; in 42 revisions). Phase-1 full-line upper bound.
 9903.88.68,NA,NA,1,heading_text,USTR exclusion; window read per-revision from heading text (latest seen: 2023-06-01 to 2024-06-14; in 42 revisions). Phase-1 full-line upper bound.
-9903.88.69,NA,NA,1,heading_text,USTR exclusion; window read per-revision from heading text (latest seen: 2024-06-15 to 2026-11-09; in 42 revisions). Phase-1 full-line upper bound.
-9903.88.70,NA,NA,1,heading_text,USTR exclusion; window read per-revision from heading text (latest seen: 2024-01-01 to 2026-11-09; in 42 revisions). Phase-1 full-line upper bound.
+9903.88.69,NA,NA,0.35,curator,USTR exclusion; window read per-revision from heading text (latest seen: 2024-06-15 to 2026-11-09; in 42 revisions). Phase-2 calibrated 2026-06-11: realized-rate inversion stable window 2025Q3-2026Q1 (docs/s301_exclusion_calibration.md); was 1.0 Phase-1 upper bound.
+9903.88.70,NA,NA,0.2,curator,USTR exclusion; window read per-revision from heading text (latest seen: 2024-01-01 to 2026-11-09; in 42 revisions). Phase-2 calibrated 2026-06-11: realized-rate inversion stable window 2025Q3-2026Q1 (docs/s301_exclusion_calibration.md); was 1.0 Phase-1 upper bound.
