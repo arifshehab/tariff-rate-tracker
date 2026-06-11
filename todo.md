@@ -241,6 +241,23 @@ Remaining:
   `--alternatives` covers its use.
 - [ ] **`publish_git`/`publish_vintage` read `meta.publish`** to decide which
   scenario outputs ship (today: publish behavior unchanged).
+- [ ] **Collapse the kind taxonomy: fold `alternative` into `scenario`, keep
+  `counterfactual`** (assessed 2026-06-10). Audit result: NOTHING in the
+  build/gather/publish/manifest layers branches on alternative-vs-
+  counterfactual — the array flow builds both identically as full series via
+  `TARIFF_SCENARIO` (proven by the 2026-06-10-22 counterfactuals+USMCA
+  vintage). The split is load-bearing in exactly two places, both selector
+  plumbing in `resolve_alternatives_selector()`: the `alternatives` keyword,
+  and legacy `--with-alternatives` which is *defined* as kind==alternative
+  (the blog pipeline's 7-variant set). `counterfactual` stays a kind: it has
+  the machine-checkable invariant (pp differs from baseline ONLY via
+  `disabled_authorities`, enforced in test_scenario_registry.R) that licenses
+  the decomposition reading (actual − no_X = contribution of X); the
+  alternative/scenario boundary is editorial only (robustness variant vs
+  hypothetical world — a description line covers it). Prereqs/sequencing: do
+  this WITH the Step-5 legacy-alias deletion, and pin the blog pipeline's set
+  as an explicit name list (or `meta.publish` group) BEFORE merging kinds —
+  otherwise its `--with-alternatives` set silently changes.
 
 ## §301 exclusion headings dropped silently — full §301 charged on excluded lines (found 2026-06-09)
 

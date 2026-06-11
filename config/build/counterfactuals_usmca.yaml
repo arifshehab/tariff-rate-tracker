@@ -1,0 +1,31 @@
+# Build-run config: all counterfactuals + the USMCA alternatives.
+#   bash scripts/submit_build_array.sh --config config/build/counterfactuals_usmca.yaml
+#
+# Produces ONE timestamped vintage under model_data_root containing `actual`
+# plus scenarios/<name>/ for each series below. Verified finalize gates the
+# `latest` repoint on scripts/verify_build.R.
+
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker
+
+policy_params_path: config/policy_params.yaml
+
+# `actual` is ALWAYS built; do not list it here.
+scenarios:
+  # counterfactuals (all kind=counterfactual in config/scenarios/)
+  - no_232
+  - no_301
+  - no_ieepa
+  - no_ieepa_recip
+  - no_s122
+  - pre_2025
+  # USMCA alternatives
+  - usmca_2024
+  - usmca_annual
+  - usmca_monthly
+  - usmca_dec2025
+
+use_hts_dates: false
+weight_mode: required
+update_latest: true
+allow_partial: false
+verify: true
