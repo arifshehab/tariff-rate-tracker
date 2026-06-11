@@ -1326,6 +1326,61 @@ run_test('flat 100 derivative keeps full 232 rate through derivative scaling and
   stopifnot(abs(stacked$total_additional - 0.50) < 1e-10)
 })
 
+run_test('BEA-unmatched derivative falls back to aggregate share, not zero', {
+  # 8483.90.50.20 is tagged as an aluminum derivative but has no exact HTS10
+  # row in the BEA shares file, so load_metal_content() gives it the flat
+  # aggregate fallback (0.50) with zero-filled per-type shares. The per-type
+  # scaling and nonmetal_share paths must fall back to the aggregate share —
+  # multiplying by the zero type share wiped the duty entirely.
+  rates <- tibble(
+    hts10 = '8483905020',
+    country = '5880',
+    base_rate = 0,
+    rate_232 = 0,
+    statutory_rate_232 = 0,
+    rate_ieepa_recip = 0.15,
+    rate_ieepa_fent = 0,
+    rate_301 = 0,
+    rate_s122 = 0,
+    rate_section_201 = 0,
+    rate_other = 0,
+    total_additional = 0,
+    total_rate = 0
+  )
+  products <- tibble(hts10 = '8483905020', base_rate = 0)
+  ch99_data <- tibble(ch99_code = '9903.85.08')
+  s232_rates <- list(
+    has_232 = TRUE,
+    aluminum_derivative_exempt = character(0),
+    aluminum_derivative_rate = 0.25,
+    steel_derivative_exempt = character(0),
+    steel_derivative_rate = 0.50
+  )
+  pp_bea <- load_policy_params()
+  pp_bea$metal_content$method <- 'bea'
+
+  scaled <- apply_232_derivatives(
+    rates,
+    products,
+    ch99_data,
+    s232_rates,
+    countries = '5880',
+    heading_products = character(0),
+    policy_params = pp_bea,
+    effective_date = as.Date('2025-08-18')
+  )
+  row <- scaled$rates %>% filter(hts10 == '8483905020')
+  stopifnot(nrow(row) == 1)
+  # Confirm the fixture premise: BEA-unmatched -> flat aggregate, zero type share
+  stopifnot(abs(row$metal_share - 0.50) < 1e-10)
+  stopifnot(row$aluminum_share == 0)
+  # Regression: rate scales by the aggregate share, not the zero type share
+  stopifnot(abs(row$rate_232 - 0.25 * 0.50) < 1e-10)
+  # Stacking sees the aggregate non-metal fraction for content-split layers
+  stacked <- apply_stacking_rules(row, cty_china = '5700')
+  stopifnot(abs(stacked$total_additional - (0.25 * 0.50 + 0.15 * 0.50)) < 1e-10)
+})
+
 run_test('heading-overlap reset safe without per-type columns', {
   # Simulate flat/CBO mode: metal_share exists but no per-type columns
   rates <- tibble(

@@ -552,7 +552,7 @@ build_manifest <- function(vintage, vintage_dir, repo_root,
     schema_version = '2.0',                 # 2.0 = per-interval snapshot layout (1.x = single rate_timeseries.parquet)
     rate_unit = 'fraction',
     interval_end = 'inclusive',             # valid_until = next effective_date - 1 (last active day)
-    country_code_vocabulary = 'ISO-3166-1 alpha-3 (column: country)',
+    country_code_vocabulary = 'U.S. Census Bureau country codes, see resources/census_codes.csv (column: country)',
     vintage = vintage,
     build_started_at = if (is.null(build_started_at)) NA_character_ else format(build_started_at, '%Y-%m-%dT%H:%M:%S%z'),
     published_at = format(Sys.time(), '%Y-%m-%dT%H:%M:%S%z'),

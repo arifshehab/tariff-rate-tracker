@@ -259,6 +259,58 @@ Remaining:
   as an explicit name list (or `meta.publish` group) BEFORE merging kinds —
   otherwise its `--with-alternatives` set silently changes.
 
+## 232/Annex-II corrections pass (2026-06-11) — exempt-list prune + per-type share fallback + manifest
+
+Origin: eval-side ranked review 2026-06-11 (items #1/#3 + manifest cleanup authorized; the
+session that started this died on a usage limit mid-verification — state recovered from its
+transcript, see auto-memory `s232_corrections_pass`).
+
+- [x] **#1 IEEPA exempt-list prune. DONE 2026-06-11 (data correction, not a stacking fix).**
+  adj #6's "derivative gate zeroes the reciprocal" diagnosis was WRONG twice over: the engine
+  already stacks `recip × (1 − metal_share)` (Japan 8429.52 proves it), and the full-line zeroing
+  on 8479.89.95/8419.50/8483.90/8428.90 was Annex-II *list membership*. Verified directly against
+  the chapter-99 PDF text (rev_19 + 2026_rev_9, `data/us_notes/`, untracked): none of those lines
+  appear in the printed note 2(v)(iii)(a) enumeration — their only mentions are civil-aircraft
+  country carve-outs and §232 lists. They entered via the `df1bf3b` Tariff-ETRs yaml merge and the
+  `01e8e76` rebuild expansion. `scripts/prune_ieepa_exempt_untraceable.R` (decision record in
+  header; user-approved scope + outright deletion) drops **1,822 rows / ~$380B 2024 imports** in
+  three buckets: untraceable residue (1,242 / $196B), §232-program members double-exempted on top
+  of stacking displacement (514 / $163B — EO 14257 §3(b) is modeled via `nonmetal_share`, not the
+  list), ch88 aircraft (66 / $21B — country-conditional, already in `floor_exempt_products.csv`).
+  Keeps 3,230: printed-enumeration traceable (2,635), note 2(v)(iii)(b) particular articles (50),
+  ch98 note (v)(i) (499), ch97/49 Berman (46). Dropped codes logged to
+  `output/diagnostics/ieepa_exempt_pruned_2026-06-11.csv`. Integrity re-check during
+  classification: all 552 rows matching removed prefixes (copper/wood/EO 14346) carry their end
+  dates — the June-4 date-windowing is intact.
+- [x] **#3 Per-type metal-share zero bug. DONE 2026-06-11.** BEA-unmatched derivative lines (e.g.
+  `8483905020`) get flat aggregate `metal_share = 0.5` with ZERO-FILLED type shares
+  (`load_metal_content`), and the per-type paths multiplied the 232 rate (and `nonmetal_share`)
+  to zero. Fixed in both sites — `apply_232_derivatives()` scaling and `compute_nonmetal_share()`
+  — to fall back to the aggregate share when the active type share is 0/NA on a tagged line.
+  Regression test added (fails pre-fix): `run_tests_daily_series.R` "BEA-unmatched derivative
+  falls back to aggregate share". Also catches 17 BEA-matched degenerate rows (aggregate 1.0,
+  all type shares 0).
+- [x] **Manifest vocabulary. DONE 2026-06-11.** `write_output.R` manifest said ISO-3166-1 alpha-3;
+  column is Census country codes (`resources/census_codes.csv`).
+- [x] **Validation: hook-on/off single-revision diff. DONE 2026-06-11** (rev_25 + 2026_rev_9,
+  baseline worktree at `2a1763c` vs fixed tree; build job `scripts/submit_fix_validation.sh`,
+  key-joined diff `~/trk_validation/diff_fix_validation.R` — both OOM the 5 GB interactive cap,
+  ran as Slurm jobs). **rev_25: PASS** — 355,644 changed rows confined to the expected channels
+  (rate_ieepa_recip restored on 1,595 hts10 × 238 countries; fix #3 un-zeroes 8483.90.50
+  rate_232 0→0.25; ch88 0→country recip via floor path; no other columns moved).
+  **2026_rev_9: zero changed cells** — correct (IEEPA recip off in the §122 regime; annex-era
+  232 bypasses per-type shares). Pins from eval collections (8479.89.95 Japan 3.6%→~18.6% vs
+  19.0% collected; 8419.50 5.4%→~20.4% vs 21.2%): observed 8479.89.95 → 15.5–16.3%, 8419.50 →
+  18.8–19.1% — ~2–3pp under the back-of-envelope pins because the engine applies
+  recip × (1 − metal_share) on these derivative lines (Japan recip lands at 13.1%/11.8–15.0%,
+  not flat 15%); that displacement is the intended EO 14257 §3(b) stacking, and the residual
+  vs collected goes to the adj recalibration below.
+- [ ] **Batched vintage**: land this + the promoted .69/.70 §301 coverage shares in ONE published
+  rebuild; then eval re-pull (~35 min) + MANDATORY adj recalibration (current negative etas absorb
+  the statutory omissions; fixing statutory without recalibrating double-counts). adj side must
+  also correct the mechanism section in `deal_partner_negative_eta_diagnosis.md` / open_questions
+  #6 (attribution changes; the negative-eta arithmetic survives).
+
 ## §301 exclusion headings dropped silently — full §301 charged on excluded lines (found 2026-06-09)
 
 - [x] **Phase 1 LANDED 2026-06-10: date-windowed full-line zeroing (flagged UPPER BOUND).** Exclusion headings parse to `rate = NA` ("the duty provided in the applicable subheading"), `calculate_rates_fast()` drops NA-rate pairs from the rate join, so the engine charged full §301 on China mid-exclusion (evidence: rev_9, 221/8,052 pairs dropped, 170 HTS10 lines, dominated by 9903.88.69 = note 20(vvv), e.g. `0304725000` frozen haddock at 25% in-window). What landed:

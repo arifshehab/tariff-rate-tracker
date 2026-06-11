@@ -735,9 +735,14 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
       # Per-type scaling: aluminum derivatives by aluminum_share, steel by steel_share
       rates <- rates %>%
         mutate(
+          # A type share of 0/NA on a tagged line is uninformative, not "zero
+          # metal": BEA-unmatched derivatives get the flat aggregate fallback
+          # with zero-filled type shares (load_metal_content), so scaling by
+          # the type share would zero the duty entirely (e.g. 8483.90.50.20).
+          # Fall back to the aggregate share instead.
           .scale_share = case_when(
-            hts10 %in% deriv_only & deriv_type == 'steel'    ~ steel_share,
-            hts10 %in% deriv_only & deriv_type == 'aluminum' ~ aluminum_share,
+            hts10 %in% deriv_only & deriv_type == 'steel'    & steel_share    > 0 ~ steel_share,
+            hts10 %in% deriv_only & deriv_type == 'aluminum' & aluminum_share > 0 ~ aluminum_share,
             hts10 %in% deriv_only                            ~ metal_share,  # fallback
             TRUE ~ 1.0
           ),

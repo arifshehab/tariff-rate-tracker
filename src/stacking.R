@@ -82,8 +82,13 @@ compute_nonmetal_share <- function(df) {
           rate_232 > 0 & .ch2 %in% c('72', '73')              ~ steel_share,
           rate_232 > 0 & .ch2 == '76'                          ~ aluminum_share,
           rate_232 > 0 & has_copper_flag & is_copper_heading   ~ copper_share,
-          rate_232 > 0 & has_deriv_type & deriv_type == 'steel'    ~ steel_share,
-          rate_232 > 0 & has_deriv_type & deriv_type == 'aluminum' ~ aluminum_share,
+          rate_232 > 0 & has_deriv_type & deriv_type == 'steel'    & steel_share    > 0 ~ steel_share,
+          rate_232 > 0 & has_deriv_type & deriv_type == 'aluminum' & aluminum_share > 0 ~ aluminum_share,
+          # Tagged derivative with an uninformative (0/NA) type share: use the
+          # aggregate share, mirroring the rate-scaling fallback in
+          # apply_232_derivatives() (BEA-unmatched lines carry flat metal_share
+          # with zero-filled type shares).
+          rate_232 > 0 & has_deriv_type & !is.na(deriv_type)   ~ metal_share,
           rate_232 > 0 & metal_share < 1.0                     ~ aluminum_share,  # fallback
           TRUE ~ 0
         ),
