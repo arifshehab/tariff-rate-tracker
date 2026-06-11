@@ -20,7 +20,8 @@
 #   2. For each series in [actual, <scenarios…>]: list-revs (sbatch --wait, to size
 #      the array) -> array build (rds caches into the scratch) -> gather (daily/
 #      quality written DIRECTLY into the vintage). afterok-chained; series concurrent.
-#   3. ONE finalize job (afterok all gathers): scripts/publish_vintage.R ->
+#   3. ONE finalize job (afterok the last gather; all gathers re-checked via
+#      sacct inside the job -- see await_jobs_ok.sh): scripts/publish_vintage.R ->
 #      write_build_output() splits the scratch snapshots into the vintage's
 #      actual/snapshots parquet, inventories the in-place daily/quality, writes
 #      the manifest, repoints `latest`, and removes the scratch.
@@ -146,28 +147,38 @@ for series in "${SERIES_LIST[@]}"; do
   GATHER_JOBS+=("$GJOB")
 done
 
-# ---- single finalize, afterok ALL series' gathers ---------------------------
+# ---- single finalize, gated on ALL series' gathers ---------------------------
 # Splits the scratch snapshots into <vintage>/{actual,scenarios/<name>}/snapshots
 # parquet, inventories the daily/quality the gather already wrote into the vintage,
 # writes the manifest, repoints `latest`, then removes the scratch on success.
+#
+# The scheduler dependency covers only the LAST gather: with many series the
+# loop above outlasts MinJobAge (5 min), so earlier gathers are purged from the
+# controller by now and an afterok on their IDs is rejected at submission
+# ("Job dependency problem" -- this silently killed the 2026-06-10-22 finalize).
+# The last gather was submitted milliseconds ago, so its ID is always valid;
+# scripts/await_jobs_ok.sh re-checks ALL gathers via sacct inside the finalize
+# job before anything is published.
 #
 # With verify: true (config default) the finalize is GATED: publish WITHOUT
 # moving `latest`, run scripts/verify_build.R against the vintage (test suite +
 # sanity checks), and only repoint `latest` + remove the scratch if it passes.
 # A verify failure leaves the vintage on disk for inspection, `latest` on the
 # previous good vintage, and the scratch intact.
+GUARD="bash scripts/await_jobs_ok.sh ${GATHER_JOBS[*]}"
 if [ "${VERIFY:-1}" = "1" ]; then
-  FIN_CMD="$MODLOAD; TARIFF_UPDATE_LATEST=0 Rscript scripts/publish_vintage.R"
+  FIN_CMD="$MODLOAD; $GUARD"
+  FIN_CMD+=" && TARIFF_UPDATE_LATEST=0 Rscript scripts/publish_vintage.R"
   FIN_CMD+=" && Rscript scripts/verify_build.R --output-root '$VINTAGE_DIR'"
   if [ "${UPDATE_LATEST:-1}" = "1" ]; then
     FIN_CMD+=" && Rscript scripts/publish_vintage.R --latest-only"
   fi
 else
-  FIN_CMD="$MODLOAD; Rscript scripts/publish_vintage.R"
+  FIN_CMD="$MODLOAD; $GUARD && Rscript scripts/publish_vintage.R"
 fi
 FIN_CMD+=" && rm -rf '$SCRATCH' && echo 'removed scratch $SCRATCH'"
 
-DEP=$(IFS=:; echo "${GATHER_JOBS[*]}")
+DEP="${GATHER_JOBS[-1]}"
 echo "--- finalize vintage $VINTAGE (afterok:$DEP, verify=${VERIFY:-1}) ---"
 FIN_JOB=$(TARIFF_SCRATCH="$SCRATCH" TARIFF_VINTAGE="$VINTAGE" TARIFF_MODEL_DATA_ROOT="$MODEL_DATA_ROOT" \
   TARIFF_UPDATE_LATEST="${UPDATE_LATEST:-1}" \
