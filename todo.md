@@ -311,6 +311,51 @@ transcript, see auto-memory `s232_corrections_pass`).
   also correct the mechanism section in `deal_partner_negative_eta_diagnosis.md` / open_questions
   #6 (attribution changes; the negative-eta arithmetic survives).
 
+## Prune audit + TPC pair-level cross-check (2026-06-12) — prune corroborated; (b)-list fix batch
+
+Aggressive 3-agent review of the 552693d prune against vintage 2026-06-11-17, plus a pair-level
+comparison against the re-uploaded TPC flow file (`data/tpc/tariff_by_flow_day.csv`, private
+channel, gitignored). Full detail in auto-memory `s232_corrections_pass`.
+
+**Verdict: the prune is sound.** Independent pdftools re-extraction of note 2(v)(iii)(a) across
+all 36 chapter-99 revisions: ZERO false drops. 232 bucket: no double-charge, no timing gaps
+(recomputed contributions == stored totals exactly). Magnitude reconciles to 0.00pp gap at both
+2025-04-15 (+2.88pp) and 2025-12-31 (+1.26pp); pure prune effect is +2.76pp peak / +0.84pp Dec-31
+(rest = fix #3 ch30 pharma 232 +0.31pp and §301 claim shares +0.13pp; the +0.14pp on 2026-06-11 is
+entirely §301). TPC corroboration on dropped pairs (excl. CA/MX): within-2pp agreement Apr-17
+53.5% new vs 3.8% old, Nov-17 65.8% vs 36.9%, bias → ~0 by Oct/Nov; Mar-17 pre-recip control
+new==old. TPC's independent rules engine charges recip on these lines — they were never Annex II.
+
+- [x] **(b)-list fix (THIS BATCH).** The hardcoded note 2(v)(iii)(b) list in
+  `scripts/prune_ieepa_exempt_untraceable.R` had 9 of the 11 printed items — missing (b)(9)
+  2009.90.40 (coconut water blends) and (b)(11) 3301.29.51 (religious essential oils) → 25 false
+  drops ($487M 2024 imports; exposure window 2025-11-13→2026-02-20 only, ≈+0.001pp ETR). Restored
+  to `resources/ieepa_exempt_products.csv` with start 2025-11-13; pruner re-run is a clean no-op
+  (3,256 kept / 0 dropped; (b) bucket 75).
+- [x] **8542.39.00.60 stat-suffix gap (THIS BATCH).** Exempt list had every other 8542.39 suffix;
+  the -60 line ($0.17B, China) paid 125% at peak. Added with NA dates to match siblings (8542 is
+  a printed 4-digit (iii)(a) entry, so it survives the pruner via the annex file).
+- [ ] **floor_exempt_products.csv has NO date conditioning** (`06_calculate_rates.R` applies
+  `floor_exempt ~ 0` unconditionally). EU (1,580 hts8) / Swiss / Korea carve-outs are exempt back
+  to Apr-2025, months before the deals existed. TPC splits the mechanism exactly: Germany dropped
+  pairs ON the list bias −9.1pp pre-deal, OFF the list 0.00. Netting out lines already Annex-II
+  exempt (binding test vs Norway): EU $71.3B + KR + CH ≈ **0.12pp overall ETR under-charge
+  Apr–Sep 2025** — largest known error in the published series. Fix = add date columns keyed to
+  each deal's effective date (EU ~Sep-1, KR/CH 2025-11-14) + handle the Swiss
+  exempt→charged→exempt flip (9903.02.85 adapter override, Nov-21→Dec-31 intervals).
+- [ ] **Japan deal annex likely missing.** The 8 "japan civil_aircraft" floor-exempt rows are
+  rail/steel codes (7216/7301/7302, 9802.00.60) under 9903.96.02 — not aircraft. TPC charges
+  ~3.5% on 1,019 dropped-code Japan pairs at Oct/Nov where we charge ~18%. Needs the Japan
+  agreement annex text to adjudicate (TPC may also over-exempt; their flat 50% metal share is a
+  known divergence).
+- [ ] **`data/census_imports_2024.csv` holds only Canada+Mexico** — if it's meant to be the full
+  Census pull it's truncated (build weights `data/weights/hs10_by_country_gtap_2024_con.rds` are
+  complete and unaffected). Check provenance before anything new consumes it.
+- [ ] Cosmetic: annex builder truncates the one printed 10-digit entry "8505.11.0070" to
+  85051100 (over-inclusive keep, harmless). §122-scope question: 22 lines that lost 232 at the
+  2026-04-06 annex restructure pay zero additional in the §122 era (e.g. 9403.20 furniture) —
+  pre-existing, not prune-related.
+
 ## §301 exclusion headings dropped silently — full §301 charged on excluded lines (found 2026-06-09)
 
 - [x] **Phase 1 LANDED 2026-06-10: date-windowed full-line zeroing (flagged UPPER BOUND).** Exclusion headings parse to `rate = NA` ("the duty provided in the applicable subheading"), `calculate_rates_fast()` drops NA-rate pairs from the rate join, so the engine charged full §301 on China mid-exclusion (evidence: rev_9, 221/8,052 pairs dropped, 170 HTS10 lines, dominated by 9903.88.69 = note 20(vvv), e.g. `0304725000` frozen haddock at 25% in-window). What landed:

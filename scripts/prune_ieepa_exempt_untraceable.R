@@ -56,11 +56,16 @@ annex <- read_csv(here('resources', 'annex_ii_first_appearance.csv'),
                   col_types = cols(prefix = col_character(),
                                    .default = col_character()))
 
-# Note 2(v)(iii)(b) "particular articles" subheadings (HTSUS rev_9 2026 text;
-# stable across printings — Etrogs, religious bakery items, acai, etc.)
+# Note 2(v)(iii)(b) "particular articles" subheadings (printed list has 11
+# items in every revision carrying it, rev_29 → 2026_rev_10 — Etrogs,
+# religious bakery items, acai, coconut water blends, religious essential
+# oils, etc.). 2026-06-12 audit: this list originally omitted (b)(9)
+# 2009.90.40 and (b)(11) 3301.29.51, falsely dropping 25 codes (restored to
+# the exempt list with effective_date_start 2025-11-13, the rev_29 date).
 viiib_subheadings <- c(
   '08059001', '08119080', '14049090', '19059010', '19059090',
-  '20089921', '20093160', '20098970', '21069099'
+  '20089921', '20093160', '20098970', '20099040', '21069099',
+  '33012951'
 )
 
 matches_any_prefix <- function(codes, prefixes) {
