@@ -30,6 +30,10 @@ data/timeseries_p8/
 data/tpc/*.csv
 data/tpc/*.png
 data/us_notes/*.pdf
+# pdftotext extractions: derived from the PDFs above (build reads PDFs directly,
+# not these). A few rev_5/6/7/10 .txt remain tracked as line-number citation
+# anchors; new extractions stay local only.
+data/us_notes/chapter99_*.txt
 data/cbp/
 data/dataweb/
 data/spim/
