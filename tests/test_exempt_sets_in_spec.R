@@ -39,7 +39,7 @@ is_232_exempt            <- function(census_code, exempt_list) isTRUE(census_cod
 # wires THIS object onto the spec rather than re-testing the loader.
 FLOOR_SENTINEL <- tibble(hts8 = c('72081000', '76069100'),
                          country_group = c('eu', 'japan'))
-load_revision_floor_exemptions <- function(revision_id) FLOOR_SENTINEL
+load_revision_floor_exemptions <- function(revision_id, effective_date = NULL) FLOOR_SENTINEL
 source(here('src', 'authority_adapter.R'))
 
 pass <- 0L

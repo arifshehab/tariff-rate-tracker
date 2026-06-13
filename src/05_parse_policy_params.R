@@ -530,6 +530,23 @@ extract_ieepa_fentanyl_rates <- function(hts_raw, country_lookup, effective_date
 
     rate <- as.numeric(surcharge_match[1, 2]) / 100
 
+    # Skip transshipment-evasion penalty headings (e.g. 9903.01.16, Canada
+    # +40%). They apply only to goods CBP individually determines were
+    # "transshipped to evade" the duties — a conditional enforcement rate,
+    # not a statutory rate on any product class. Their description ALSO
+    # opens with "Except for products described in", so without this guard
+    # they classify as a second 'general' entry and the adapter's
+    # max-per-census collapse silently replaces the true general rate
+    # (Canada 35% -> 40% on every line from rev_17 / 2025-08-01, found via
+    # the eval residual deep-dive 2026-06-12 item 5a). The reciprocal side
+    # already excludes its analog the same way (ieepa_phase2_range starts
+    # at 9903.02.02, skipping the 9903.02.01 transshipment heading).
+    if (grepl('transshipped to evade', description, ignore.case = TRUE)) {
+      message('    Skipping transshipment-evasion heading ', ch99_code,
+              ' (+', round(rate * 100), '% conditional penalty, not a general rate)')
+      return(NULL)
+    }
+
     # Detect general vs carveout: general entries say "Except for products described in"
     is_general <- grepl('Except for products described in', description, ignore.case = TRUE)
 

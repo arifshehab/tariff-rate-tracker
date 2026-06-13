@@ -40,6 +40,59 @@ load_232_derivative_products <- function(path = here('resources', 's232_derivati
 }
 
 
+#' Load the Section 232 steel/aluminum within-chapter product scope
+#'
+#' The chapter-99 US notes enumerate which chapter-72/73/76 provisions the
+#' steel and aluminum 232 programs actually cover (note 16(b)/(m) steel,
+#' note 19(b)/(j) aluminum in the 2025 editions). Pig iron (7201),
+#' ferroalloys (7202), scrap (7204, 7602), cast-iron tubes (7303) etc. are
+#' on NO list in any revision — treating chapters 72/73/76 as blanket
+#' coverage over-applies the metals rate to them (eval residual deep-dive
+#' 2026-06-12 item 2). Membership is date-gated: the 2018 article lists plus
+#' Proc 9980 derivatives are always active; the Proc 10895/10896 derivative
+#' expansions activate 2025-03-12; the BIS inclusions 2025-08-18.
+#'
+#' Annex-era revisions (April 2026 restructure) do NOT use this file — the
+#' in-chapter scope there comes from s232_annex_products.csv (note 16(c)).
+#'
+#' @param path Path to s232_metal_chapter_products.csv
+#' @param effective_date Revision (policy-swapped) date; rows with
+#'   effective_date > this date are dropped, blank rows always kept
+#' @return Tibble with hts_prefix, metal_type, kind columns, or NULL if the
+#'   file is missing (caller decides whether that is fatal)
+load_232_metal_chapter_products <- function(
+  path = here('resources', 's232_metal_chapter_products.csv'),
+  effective_date = NULL
+) {
+  if (!file.exists(path)) {
+    message('  232 metal-chapter scope file not found: ', path)
+    return(NULL)
+  }
+
+  scope <- read_csv(path, comment = '#', col_types = cols(
+    hts_prefix = col_character(),
+    metal_type = col_character(),
+    kind = col_character(),
+    effective_date = col_date(format = ''),
+    source = col_character()
+  ))
+
+  if (!is.null(effective_date)) {
+    n_before <- nrow(scope)
+    scope <- scope %>%
+      filter(is.na(effective_date) | effective_date <= !!effective_date)
+    n_filtered <- n_before - nrow(scope)
+    if (n_filtered > 0) {
+      message('  Filtered out ', n_filtered,
+              ' metal-chapter scope entries not yet effective at ', effective_date)
+    }
+  }
+
+  message('  Loaded ', nrow(scope), ' Section 232 steel/aluminum scope prefixes')
+  scope %>% select(hts_prefix, metal_type, kind)
+}
+
+
 #' Load the Taiwan civil-aircraft Section 232 exemption product list
 #'
 #' Products exempt from the Section 232 metals annex under U.S. note 35(c) /
@@ -103,8 +156,18 @@ load_232_aircraft_exempt_floor_groups <- function(
 #' US Notes to Chapter 99 by scrape_us_notes.R --floor-exemptions.
 #'
 #' @param path Path to floor_exempt_products.csv
+#' @param effective_date Optional revision (policy-swapped) date. The static
+#'   file reflects the LATE-2025/2026 state of the deal carve-outs; rows carry
+#'   effective_date_start = the text-publication date of each country group's
+#'   floor structure (eu rev_24 2025-09-25, japan rev_23 2025-09-16, korea
+#'   rev_32 2025-12-05, swiss 2026_basic 2026-01-01; retro windows not
+#'   modeled, matching revision_dates.csv convention). Without this filter the
+#'   static fallback exempted EU/Swiss/Korea carve-out products from the
+#'   reciprocal tariff back to April 2025, months before any deal existed
+#'   (~0.12pp overall ETR Apr-Sep 2025, TPC-corroborated).
 #' @return Tibble with hts8, category, country_group, ch99_code; or empty tibble if missing
-load_floor_exempt_products <- function(path = here('resources', 'floor_exempt_products.csv')) {
+load_floor_exempt_products <- function(path = here('resources', 'floor_exempt_products.csv'),
+                                       effective_date = NULL) {
   if (!file.exists(path)) {
     message('  Floor exempt products file not found: ', path)
     return(tibble(hts8 = character(), category = character(),
@@ -112,6 +175,19 @@ load_floor_exempt_products <- function(path = here('resources', 'floor_exempt_pr
   }
 
   products <- read_csv(path, col_types = cols(.default = col_character()))
+
+  if (!is.null(effective_date) && 'effective_date_start' %in% names(products)) {
+    n_before <- nrow(products)
+    products <- products %>%
+      filter(is.na(effective_date_start) |
+               as.Date(effective_date_start) <= as.Date(effective_date))
+    n_filtered <- n_before - nrow(products)
+    if (n_filtered > 0) {
+      message('  Filtered out ', n_filtered,
+              ' floor exemptions not yet effective at ', effective_date)
+    }
+  }
+
   message('  Loaded ', nrow(products), ' floor exempt products (',
           n_distinct(products$hts8), ' unique HTS8)')
   return(products)
@@ -121,11 +197,16 @@ load_floor_exempt_products <- function(path = here('resources', 'floor_exempt_pr
 #' Load revision-specific floor country product exemptions
 #'
 #' Tries per-revision file first (data/us_notes/floor_exempt_{revision}.csv),
-#' then falls back to the static resources/floor_exempt_products.csv.
+#' then falls back to the static resources/floor_exempt_products.csv
+#' (date-filtered when effective_date is supplied — see
+#' load_floor_exempt_products()).
 #'
 #' @param revision_id Character revision ID (e.g., 'rev_18', '2026_basic')
+#' @param effective_date Optional revision (policy-swapped) date for the
+#'   static-fallback date filter. Per-revision files are already
+#'   revision-correct and are not filtered.
 #' @return Tibble with hts8, category, country_group, ch99_code; or empty tibble
-load_revision_floor_exemptions <- function(revision_id) {
+load_revision_floor_exemptions <- function(revision_id, effective_date = NULL) {
   # Try per-revision file first
   revision_path <- here('data', 'us_notes', paste0('floor_exempt_', revision_id, '.csv'))
   if (file.exists(revision_path)) {
@@ -138,7 +219,7 @@ load_revision_floor_exemptions <- function(revision_id) {
   # Fall back to static file
   message('  No per-revision floor exemptions for ', revision_id,
           '; using static fallback')
-  return(load_floor_exempt_products())
+  return(load_floor_exempt_products(effective_date = effective_date))
 }
 
 
@@ -594,24 +675,30 @@ load_annex_products <- function(effective_date = NULL,
 #' relocated into the spec — by the adapter (authority_adapter.R). Keeping ONE
 #' implementation guarantees the calc and the spec can never drift on this logic.
 #'
-#' Reproduces the original inline calculator logic EXACTLY:
+#' Two arms:
 #'   1. longest-prefix-first, first-match-wins against the (already date-gated)
 #'      annex prefix map, then
-#'   2. inference for products the CSV did not match: primary chapters
-#'      (72/73/76/74) -> annex_1a; otherwise §232 derivatives -> annex_1b.
+#'   2. inference for products the CSV did not match: pre-annex §232
+#'      derivatives -> annex_1b.
 #'
-#' ARM ORDER IS LOAD-BEARING: chapter inference runs BEFORE derivative inference,
-#' so a chapter-76 product that is ALSO a derivative (e.g. 7616109030) resolves
-#' to annex_1a, NOT annex_1b. Do not reorder. Likewise the longest-prefix-first
-#' sort + is.na() guard implement first-match-wins; do not reorder.
+#' There is deliberately NO chapter-based inference. The annex CSV is complete
+#' for the metal chapters (every note-16(c) article/derivative heading is in
+#' it, source us_note_16), so a chapter-72/73/74/76 product the CSV does not
+#' match is OUT of §232 scope — pig iron (7201), ferroalloys (7202), scrap
+#' (7204/7602), refined copper cathodes (7402/7403). The former
+#' `annex_1a_chapters` inference arm charged all of those 50% (verified in
+#' vintage 2026-06-11-17: 7204 and 7403 annex_1a at 0.499 mean rate), the
+#' annex-era continuation of the pre-annex blanket-chapter over-application
+#' (eval residual deep-dive 2026-06-12 item 2).
+#'
+#' The longest-prefix-first sort + is.na() guard implement first-match-wins;
+#' do not reorder.
 #'
 #' @param hts10            HTS10 codes to classify (any order; deduped internally)
 #' @param annex_map        load_annex_products() output (hts_prefix, s232_annex)
 #' @param deriv_products   §232 derivative products tibble (hts_prefix col) or NULL
-#' @param annex_1a_chapters 2-digit chapters inferred as annex_1a
 #' @return character vector of annex tiers aligned to `hts10` (NA = unclassified)
-classify_s232_annex <- function(hts10, annex_map, deriv_products = NULL,
-                                annex_1a_chapters = c('72', '73', '76', '74')) {
+classify_s232_annex <- function(hts10, annex_map, deriv_products = NULL) {
   keys <- unique(as.character(hts10))
   tier <- rep(NA_character_, length(keys))
 
@@ -627,7 +714,7 @@ classify_s232_annex <- function(hts10, annex_map, deriv_products = NULL,
     }
   }
 
-  # 2. inference for unmatched products (chapter BEFORE derivative — see above).
+  # 2. inference for unmatched pre-annex derivatives.
   deriv_prefixes <- tryCatch(
     if (!is.null(deriv_products)) deriv_products$hts_prefix else character(0),
     error = function(e) character(0)
@@ -637,10 +724,9 @@ classify_s232_annex <- function(hts10, annex_map, deriv_products = NULL,
   } else rep(FALSE, length(keys))
 
   tier <- dplyr::case_when(
-    !is.na(tier)                              ~ tier,
-    substr(keys, 1, 2) %in% annex_1a_chapters ~ 'annex_1a',
-    deriv_hit                                 ~ 'annex_1b',
-    TRUE                                      ~ tier
+    !is.na(tier) ~ tier,
+    deriv_hit    ~ 'annex_1b',
+    TRUE         ~ tier
   )
 
   tier[match(as.character(hts10), keys)]

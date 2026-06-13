@@ -181,6 +181,14 @@ make_fentanyl_fixture <- function() {
     make_hts_item('9903.01.02',
                   description = 'Donations for relief of victims of natural disaster',
                   general = 'Free'),
+    # Transshipment-evasion penalty (real rev_17+ heading; conditional on a
+    # CBP determination, must NOT become a competing Canada general rate)
+    make_hts_item('9903.01.16',
+                  description = paste('Except for products described in 9903.01.11, 9903.01.12, and',
+                                      '9903.01.14, articles the product of Canada as provided for in',
+                                      'subdivision (m) to note 2 to this subchapter and determined by',
+                                      'CBP to have been transshipped to evade applicable duties'),
+                  general = '+40%'),
     # Non-fentanyl item (should be ignored)
     make_hts_item('9903.01.50',
                   description = 'Something else',
@@ -198,6 +206,16 @@ run_test('extracts general fentanyl rates by country', {
   stopifnot(nrow(cn) > 0)
   stopifnot(abs(mx$rate[1] - 0.25) < 1e-10)
   stopifnot(abs(cn$rate[1] - 0.20) < 1e-10)
+})
+
+run_test('skips transshipment-evasion penalty headings (9903.01.16)', {
+  result <- extract_ieepa_fentanyl_rates(make_fentanyl_fixture(), test_country_lookup)
+  # The +40% conditional penalty must not appear at all...
+  stopifnot(!any(result$ch99_code == '9903.01.16'))
+  # ...and in particular must not outrank the true Canada general (+25% here);
+  # the adapter max-per-census collapse would otherwise take the 40%.
+  ca <- result %>% filter(census_code == '1220', entry_type == 'general')
+  stopifnot(all(abs(ca$rate - 0.25) < 1e-10))
 })
 
 run_test('extracts carveout entries', {
@@ -1541,6 +1559,77 @@ run_test('semi-listed 8471 codes keep their true semi statutory (no shadow clobb
   # The semiconductors heading governs these: 0.25, not the auto-parts shadow
   stopifnot(all(abs(rows$rate_232 - 0.25) < 1e-10))
   stopifnot(all(abs(rows$statutory_rate_232 - 0.25) < 1e-10))
+})
+
+
+# =============================================================================
+# Test 15: Section 232 steel/aluminum product scope (note-derived, not blanket)
+# =============================================================================
+#
+# The metals 232 programs cover the chapter-99 note 16/19 enumerations, not
+# blanket chapters 72/73/76. Pig iron (7201), ferroalloys (7202), scrap
+# (7204/7602) and cast-iron tubes (7303) are on no list in any revision;
+# the Proc 10895/10896 within-chapter derivative expansion activates
+# 2025-03-12; refined copper cathodes (7402/7403) are outside the copper
+# scope and must not be inferred annex_1a in the annex era.
+
+message('\n--- Test 15: 232 steel/aluminum product scope ---')
+
+run_test('metal-chapter scope loader date-gates the Proc 10896 expansion', {
+  scope_jan <- load_232_metal_chapter_products(effective_date = as.Date('2025-01-01'))
+  scope_jun <- load_232_metal_chapter_products(effective_date = as.Date('2025-06-04'))
+  if (is.null(scope_jan)) skip_test('s232_metal_chapter_products.csv missing')
+  # never-listed upstream/scrap headings absent at every date
+  for (bad in c('7201', '7202', '7203', '7204', '7205', '7303', '7602', '7603')) {
+    stopifnot(!any(startsWith(scope_jan$hts_prefix, bad)),
+              !any(startsWith(scope_jun$hts_prefix, bad)))
+  }
+  # mill list constant; fasteners (7318) only from 2025-03-12
+  stopifnot('7208' %in% scope_jan$hts_prefix,
+            !any(startsWith(scope_jan$hts_prefix, '7318')),
+            any(startsWith(scope_jun$hts_prefix, '7318')))
+})
+
+run_test('classify_s232_annex does NOT chapter-infer scrap/cathodes into annex_1a', {
+  annex_path <- here('resources', 's232_annex_products.csv')
+  if (!file.exists(annex_path)) skip_test('s232_annex_products.csv missing')
+  annex_map <- load_annex_products(as.Date('2026-04-06'), annex_path)
+  tiers <- classify_s232_annex(
+    c('7204410000', '7403110000', '7201100000', '7602000010',  # out of scope
+      '7208100000', '7601103000', '7406100000'),               # in scope (1a)
+    annex_map, deriv_products = NULL)
+  stopifnot(all(is.na(tiers[1:4])))
+  stopifnot(all(tiers[5:7] == 'annex_1a'))
+})
+
+run_test('pre-annex snapshot: scrap/pig-iron/ferroalloys carry no 232 rate (rev_14)', {
+  snap_path <- here('data', 'timeseries', 'snapshot_rev_14.rds')
+  if (!file.exists(snap_path)) skip_test('snapshot_rev_14.rds missing')
+  s <- readRDS(snap_path)
+  out_rows <- s %>% filter(substr(hts10, 1, 4) %in% c('7201', '7202', '7204', '7303', '7602'))
+  if (nrow(out_rows) == 0) skip_test('no out-of-scope metal rows in rev_14')
+  if (any(out_rows$rate_232 > 0)) {
+    stop('out-of-scope upstream/scrap lines carry 232: snapshot predates the ',
+         'scope fix — rebuild snapshot_rev_14.rds')
+  }
+  # mill products keep the 50% rate (Proc 10947, eff 2025-06-04)
+  mill <- s %>% filter(substr(hts10, 1, 4) == '7208', country == '1220')
+  stopifnot(nrow(mill) > 0, all(abs(mill$rate_232 - 0.50) < 1e-10))
+})
+
+run_test('annex-era snapshot: scrap and copper cathodes are unclassified, 0 rate (2026_rev_5)', {
+  snap_path <- here('data', 'timeseries', 'snapshot_2026_rev_5.rds')
+  if (!file.exists(snap_path)) skip_test('snapshot_2026_rev_5.rds missing')
+  s <- readRDS(snap_path)
+  out_rows <- s %>%
+    filter(substr(hts10, 1, 4) %in% c('7201', '7202', '7204', '7403', '7602'))
+  if (nrow(out_rows) == 0) skip_test('no out-of-scope metal rows in 2026_rev_5')
+  if (any(!is.na(out_rows$s232_annex)) || any(out_rows$rate_232 > 0)) {
+    stop('out-of-scope upstream/scrap/cathode lines annex-classified or rated: ',
+         'snapshot predates the chapter-inference fix — rebuild snapshot_2026_rev_5.rds')
+  }
+  mill <- s %>% filter(substr(hts10, 1, 4) == '7208')
+  stopifnot(nrow(mill) > 0, all(mill$s232_annex == 'annex_1a', na.rm = TRUE))
 })
 
 

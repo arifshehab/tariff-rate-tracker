@@ -620,11 +620,13 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
         stop('Section 232 annex mapping is empty for annex-era revision ', revision_id,
              ' (effective ', effective_date, '). Expected non-empty mapping at ', annex_path)
       }
-      a1a_ch <- annex_cfg$annexes$annex_1a$chapters %||%
-        c(cc$STEEL_CHAPTERS, cc$ALUM_CHAPTERS, cc$COPPER_CHAPTERS)
+      # No chapter-based annex_1a inference: the annex CSV enumerates the full
+      # note-16(c) metal-chapter scope, so unmatched chapter-72/73/74/76 lines
+      # (pig iron, ferroalloys, scrap, copper cathodes) are OUT of scope, not
+      # annex_1a. See classify_s232_annex().
       deriv  <- load_232_derivative_products(effective_date = effective_date)
       hts    <- as.character(products$hts10)
-      tier   <- classify_s232_annex(hts, annex_map, deriv, a1a_ch)
+      tier   <- classify_s232_annex(hts, annex_map, deriv)
       flat   <- c(annex_1a = as.numeric(annex_cfg$annexes$annex_1a$rate),
                   annex_1b = as.numeric(annex_cfg$annexes$annex_1b$rate),
                   annex_1c = as.numeric(annex_cfg$annexes$annex_1c$rate),
@@ -753,7 +755,7 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   ieepa_reciprocal$programs[[1]]$exempt_products <- list(
     universal  = .resolve_ieepa_exempt_products(effective_date),
     country_eo = .resolve_country_eo_exempt(effective_date),
-    floor      = load_revision_floor_exemptions(revision_id)
+    floor      = load_revision_floor_exemptions(revision_id, effective_date)
   )
 
   # --- ieepa_fentanyl — content_split except China (additive), as data ------

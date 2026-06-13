@@ -90,9 +90,14 @@ authority_ranges:
     start: '9903.02.02'
     end:   '9903.02.91'   # Extended from .81 to .91 to cover Swiss/Liechtenstein framework entries
 
-# --- Section 232 covered product prefixes ---
-# Prefix matching: '72' matches all HTS10 starting with 72, '8703' matches 8703xxxx, etc.
-# Products are also captured via footnote mechanism; this is the blanket backup.
+# --- Section 232 metal-chapter map (per-type share selection ONLY) ---
+# This maps chapters to metal types for stacking/type-share selection. It is
+# NOT product coverage: steel/aluminum PRODUCT membership is enumerated by
+# resources/s232_metal_chapter_products.csv (chapter-99 notes 16/19, date-
+# gated) pre-annex-era and by resources/s232_annex_products.csv (note 16(c))
+# from 2026-04-06. Treating these chapters as blanket coverage swept pig
+# iron (7201), ferroalloys (7202) and scrap (7204/7602) into the 50% rate —
+# they are on no product list in any revision.
 section_232_chapters:
   steel: ['72', '73']
   aluminum: ['76']
@@ -295,7 +300,9 @@ section_232_annexes:
     annex_1a:
       label: 'Core metals + close derivatives'
       rate: 0.50
-      chapters: ['72', '73', '76', '74']
+      # NB: no `chapters` inference key. Annex membership comes ONLY from the
+      # resource_file enumeration (note 16(c)); unmatched chapter-72/73/74/76
+      # lines (pig iron, ferroalloys, scrap, copper cathodes) are out of scope.
       uk_rate: 0.25
       uk_applies_to: ['steel', 'aluminum']  # not copper
     annex_1b:
@@ -694,6 +701,22 @@ auto_parts_subdivision_r:
     EU: 0.0   # always 0; no EU-specific FTA covers subdivision (r)
     JP: 0.0   # uncalibrated; SPI=JP signal suggests near-zero in 2025
     KR: 0.0   # uncalibrated; SPI=KR signal suggests up to ~0.86 in 2025
+
+# --- Chapter 98 value-basis shares (9802 exception codes) ---
+# The ch98 paragraphs in every authority note keep 9802.00.40/.50/.60/.80
+# dutiable, but only on the repair/alteration/processing value (.40/.50/.60)
+# or the assembled-abroad value less US content (.80) — never the full
+# customs value the tracker prices against. dutiable_value_share converts the
+# printed rate to an effective rate on full customs value. The 0.10 for
+# repairs follows the eval residual deep-dive 2026-06-12 item 4 (9802.00.50.60
+# China: 25% statutory vs 2.9% collected => repair value ~ 1/10 of full
+# value); 9802.00.80 stays 1.0 (uncalibrated — US-content share TBD).
+ch98_value_basis:
+  dutiable_value_shares:
+    '98020040': 0.10
+    '98020050': 0.10
+    '98020060': 0.10
+    '98020080': 1.00
 
 # --- Fentanyl product carve-outs ---
 # Product-specific fentanyl rate carve-outs for CA/MX.

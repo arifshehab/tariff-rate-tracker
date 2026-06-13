@@ -2,6 +2,12 @@
 
 This document is an appendix to [methodology.md](methodology.md). It catalogs methodological assumptions derived from non-official sources — i.e., choices and data inputs that are **not** directly from HTS JSON, Federal Register text, or statutory language. Each entry notes the assumption, its source, and where it is implemented.
 
+> **See also [statutory_deviations.md](statutory_deviations.md)** — the
+> scannable registry of every implemented and proposed deviation from pure
+> statutory interpretation (value-basis conversions, utilization/claim
+> shares, applicability scoping, timing conventions), with calibration
+> status. New shares/knobs must be logged there.
+
 ---
 
 ## 1. Tariff Stacking: Mutual Exclusion vs. Additive

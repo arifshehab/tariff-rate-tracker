@@ -311,6 +311,67 @@ transcript, see auto-memory `s232_corrections_pass`).
   also correct the mechanism section in `deal_partner_negative_eta_diagnosis.md` / open_questions
   #6 (attribution changes; the negative-eta arithmetic survives).
 
+## Phase-1 statutory corrections off the eval residual deep-dive (2026-06-12)
+
+Source: tariff-etr-eval `docs/residual_gap_deep_dive_2026-06-12.md` (items
+1–6); plan = statutory fixes first (this batch, vintage N+1), then eval
+re-pull + adj recalibration, THEN the Phase-2 applicability/claim shares
+(pharma 232, Nairobi 9817.00.96, Japan offsets) calibrated against the
+re-baselined residual. Registry of all deviations:
+`docs/statutory_deviations.md` (NEW — log every share/knob there).
+
+**Landed in this batch (all CI suites green; Slurm-validated on 14 sentinel
+revisions via `~/trk_validation/p1final`):**
+- **1a. §232 steel/alu product scope** (item 2, $2.5B LATE): blanket
+  `['72','73']/['76']` replaced by note-derived dated lists
+  (`resources/s232_metal_chapter_products.csv`, 240 prefixes; loader
+  `load_232_metal_chapter_products()`); 7201/7202/7203/7204/7205/7303/7602/
+  7603/7611 + excepted 7216.61/.69/.91 etc. lose the metals rate in every
+  era; ch73/ch76 derivative expansion correctly date-gated (2025-03-12 /
+  2025-08-18). Annex era reads in-chapter scope from the annex CSV (charging
+  tiers only). **NEW FINDING: `classify_s232_annex` chapter-inference arm
+  charged unmatched ch72/73/74/76 lines annex_1a 50% — incl. refined copper
+  cathodes 7402–7405 from 2026-04-06** (bigger $ than scrap; invisible to the
+  eval doc whose window ends Q1-2026). Inference arm removed; annex CSV is
+  complete (us_note_16). Deliberately KEPT the annex_1b derivative-inference
+  arm (registry S3) — flag for the next collections audit.
+- **1b. Ch98 on all authorities** (item 4, $1.1B): consolidated step 6b3
+  zeroes 301/301cs/s301fl/s301br/s122/201/other on the ch98 secondary-
+  classification set (the v(i) ch98 subset of `ieepa_exempt_products.csv`).
+  **Tripling diagnosed: §122's 10% blanket charged ~115k ch98 pairs from
+  2026_rev_4 (2026-02-24)** — its note 2(aa)(i) has the standard ch98
+  exemption paragraph. Plus 9802 value-basis conversion
+  (`ch98_value_basis.dutiable_value_shares`: .40/.50/.60 = 0.10 repair-value;
+  .80 = 1.0 UNCALIBRATED — registry B3, needs US-content share).
+- **1c. Canada 40% (item 5a) root cause: 9903.01.16 transshipment-evasion
+  penalty (+40%, CBP-determination-contingent) misparsed as a second Canada
+  GENERAL fentanyl rate from rev_17 (2025-08-01)** — max-per-census collapse
+  put statutory 40% (not 35%) on ALL ~19k Canada lines; electricity only
+  showed it unscaled (usmca_share=0). Extractor now skips "transshipped to
+  evade" headings (mirrors `ieepa_phase1_range` starting at 9903.02.02).
+  2716 stays OFF the energy carve-out (the 9903.01.13 list is the EO 14156
+  §8(a) enumeration — no electricity); collected≈0 is structural no-entry
+  (eval item 5b entry-coverage flag, Phase 3).
+- **1d. Korea autos** (item 6): floor deals are MFN-inclusive totals (note
+  33(s) "ordinary customs duty treatment"); step 6f now recomputes §232
+  auto/wood deal floors against the post-FTA base (tag `s232_deal_floor`),
+  so Korea 8703 total = 15.0% exactly (was 12.56% = floor−statutory-MFN +
+  KORUS-scaled base). Same machinery covers Japan/EU floors (no-ops there,
+  SPI≈0).
+- **1e. Floor-exempt date conditioning**: `floor_exempt_products.csv` gains
+  `effective_date_start` per group (eu 2025-09-25, japan 2025-09-16, korea
+  2025-12-05, swiss 2026-01-01; publication-date convention) — kills the
+  ~0.12pp Apr–Sep-2025 pre-deal exemption + the Swiss Nov–Dec aircraft flip.
+  **Dropped the 8 bogus `japan civil_aircraft` rows (mislabeled rail/steel
+  7216.61/.69/.91, 7301.10, 7302.x, 9802.00.60)** — the Japan aircraft annex
+  was never parsed; fold into the Phase-2c Japan-agreement review.
+
+**Follow-ups created by this batch:** (i) every publish-forcing change here
+requires the eval re-pull + MANDATORY adj recalibration (still pending from
+552693d too); (ii) registry items B3 (9802.00.80 share), S3 (annex_1b
+inference), S4 (2018-era out-of-chapter stampings 8708.10.30/.29.21 not
+modeled pre-Mar-2025), F1–F7 (Phase 2/3).
+
 ## Prune audit + TPC pair-level cross-check (2026-06-12) — prune corroborated; (b)-list fix batch
 
 Aggressive 3-agent review of the 552693d prune against vintage 2026-06-11-17, plus a pair-level

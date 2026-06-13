@@ -875,6 +875,11 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
   # in normal production pipelines.
   SAFE_NA_COLUMNS <- c('ieepa_type', 's232_annex', 's232_usmca_eligible',
                        'deriv_type',
+                       # s232_deal_floor — transient step-4c tag (deal floor
+                       # target rate) consumed by the 6f post-MFN recompute and
+                       # dropped before output; NA is correct for MFN-only
+                       # pairs (no deal floor applies).
+                       's232_deal_floor',
                        'metal_share', 'steel_share', 'aluminum_share',
                        'copper_share', 'other_metal_share', 'is_copper_heading',
                        'total_additional', 'total_rate',
@@ -1538,13 +1543,50 @@ calculate_rates_for_revision <- function(
 
   if (s232_rates$has_232) {
     # --- Identify covered products by prefix matching ---
-    # Chapter-level: steel (72-73), aluminum (76)
-    steel_products <- products %>%
-      filter(substr(hts10, 1, 2) %in% STEEL_CHAPTERS) %>%
-      pull(hts10)
-    aluminum_products <- products %>%
-      filter(substr(hts10, 1, 2) %in% ALUM_CHAPTERS) %>%
-      pull(hts10)
+    # Steel/aluminum membership within chapters 72/73/76 is ENUMERATED by the
+    # chapter-99 US notes, not blanket: pig iron (7201), ferroalloys (7202),
+    # scrap (7204/7602), cast-iron tubes (7303) and the 7216.61/.69/.91
+    # angle subheadings are on no product list in any revision, and CBP
+    # collections show ~0% on them while listed headings collect near the
+    # full rate (eval residual deep-dive 2026-06-12 item 2). Membership is
+    # date-gated (2018 article lists -> Proc 10895/10896 derivative
+    # expansion 2025-03-12 -> BIS inclusions 2025-08-18). Annex-era
+    # revisions read the in-chapter scope from the annex classification
+    # instead (same source step 5c rates from), restricted to the charging
+    # tiers — without this, products the annex never enumerates would keep
+    # phantom blanket rates (annex_2 'removed' lines are rated 0 by step 5c
+    # so they are excluded here too).
+    annex_cfg_scope <- if (!is.null(pp)) pp$S232_ANNEXES else NULL
+    in_annex_era <- !is.null(annex_cfg_scope) &&
+      as.Date(effective_date) >= as.Date(annex_cfg_scope$effective_date)
+    if (in_annex_era) {
+      annex_res <- annex_cfg_scope$resource_file %||%
+        file.path('resources', 's232_annex_products.csv')
+      annex_path <- if (grepl('^(/|[A-Za-z]:)', annex_res)) annex_res else here(annex_res)
+      annex_scope <- load_annex_products(effective_date, annex_path) %>%
+        filter(s232_annex %in% c('annex_1a', 'annex_1b', 'annex_1c', 'annex_3'))
+      steel_scope_prefixes <- annex_scope$hts_prefix[
+        substr(annex_scope$hts_prefix, 1, 2) %in% STEEL_CHAPTERS]
+      alum_scope_prefixes <- annex_scope$hts_prefix[
+        substr(annex_scope$hts_prefix, 1, 2) %in% ALUM_CHAPTERS]
+    } else {
+      metal_scope <- load_232_metal_chapter_products(effective_date = effective_date)
+      if (is.null(metal_scope) || nrow(metal_scope) == 0) {
+        stop('resources/s232_metal_chapter_products.csv is missing or empty. ',
+             'Steel/aluminum 232 product scope is enumerated by the chapter-99 ',
+             'US notes; refusing to fall back to blanket chapter coverage ',
+             '(it over-applies the metals rate to pig iron/ferroalloys/scrap).')
+      }
+      steel_scope_prefixes <- metal_scope$hts_prefix[metal_scope$metal_type == 'steel']
+      alum_scope_prefixes  <- metal_scope$hts_prefix[metal_scope$metal_type == 'aluminum']
+    }
+    match_scope <- function(prefixes) {
+      if (length(prefixes) == 0) return(character(0))
+      pattern <- paste0('^(', paste(prefixes, collapse = '|'), ')')
+      products %>% filter(grepl(pattern, hts10)) %>% pull(hts10)
+    }
+    steel_products <- match_scope(steel_scope_prefixes)
+    aluminum_products <- match_scope(alum_scope_prefixes)
 
     # Heading-level: autos, copper, etc.
     auto_products <- character(0)
@@ -1715,15 +1757,18 @@ calculate_rates_for_revision <- function(
       }
     }
 
-    # Exclude blanket chapter products from heading lists — a Ch73 steel spring
-    # that matches auto_parts prefixes is still a steel product (gets blanket 232
-    # rate, not auto rebate/USMCA auto content share).
-    blanket_chapters <- c(STEEL_CHAPTERS, ALUM_CHAPTERS)
+    # Exclude steel/aluminum-program products from heading lists — a Ch73 steel
+    # spring that matches auto_parts prefixes is still a steel product (gets the
+    # metals 232 rate, not auto rebate/USMCA auto content share). Membership is
+    # the note-derived scope above, NOT chapter membership: a ch72/73/76 line
+    # outside the metals scope that matches a heading prefix legitimately takes
+    # the heading program.
+    metal_program_products <- c(steel_products, aluminum_products)
     n_auto_pre <- length(auto_products)
-    auto_products <- auto_products[!substr(auto_products, 1, 2) %in% blanket_chapters]
+    auto_products <- auto_products[!auto_products %in% metal_program_products]
     if (length(auto_products) < n_auto_pre) {
       message('  Excluded ', n_auto_pre - length(auto_products),
-              ' blanket chapter products from auto_products')
+              ' steel/aluminum-program products from auto_products')
     }
     # Same exclusion for MHD parts: a Ch72/73/76 steel/aluminum line that matches
     # an MHD-parts prefix (e.g. 7320.x automotive springs) is still a metal
@@ -1732,10 +1777,10 @@ calculate_rates_for_revision <- function(
     # heading_program_products and the annex override (below) preserves their
     # prior 232 rate instead of applying the annex_1a/1b rate.
     n_mhd_pre <- length(mhd_products)
-    mhd_products <- mhd_products[!substr(mhd_products, 1, 2) %in% blanket_chapters]
+    mhd_products <- mhd_products[!mhd_products %in% metal_program_products]
     if (length(mhd_products) < n_mhd_pre) {
       message('  Excluded ', n_mhd_pre - length(mhd_products),
-              ' blanket chapter products from mhd_products')
+              ' steel/aluminum-program products from mhd_products')
     }
 
     # Keep parts_products a clean subset of the surviving auto/MHD lines (after
@@ -1885,7 +1930,6 @@ calculate_rates_for_revision <- function(
         relationship = 'many-to-one'
       ) %>%
       mutate(
-        chapter = substr(hts10, 1, 2),
         # Heading-level 232 rate (auto/MHD/copper/wood). USMCA share-based
         # reduction for CA/MX applied later in step 7, not zeroed here.
         heading_rate_adj = case_when(
@@ -1893,20 +1937,20 @@ calculate_rates_for_revision <- function(
           TRUE ~ heading_232_rate
         ),
         blanket_232 = case_when(
-          chapter %in% STEEL_CHAPTERS ~ coalesce(steel_rate_232, 0),
-          chapter %in% ALUM_CHAPTERS ~ coalesce(alum_rate_232, 0),
+          hts10 %in% steel_products ~ coalesce(steel_rate_232, 0),
+          hts10 %in% aluminum_products ~ coalesce(alum_rate_232, 0),
           heading_rate_adj > 0 ~ heading_rate_adj,
           TRUE ~ 0
         ),
         rate_232 = pmax(rate_232, blanket_232),
         # Track which products have USMCA-eligible 232 headings (for step 7).
-        # Only when the heading rate is actually used — blanket chapter products
-        # (steel/aluminum) get their rate from the blanket, not the heading,
+        # Only when the heading rate is actually used — steel/aluminum-program
+        # products get their rate from the metals program, not the heading,
         # so they should NOT inherit the heading's USMCA eligibility.
         s232_usmca_eligible = coalesce(heading_usmca_exempt, FALSE) & heading_rate_adj > 0 &
-          !(chapter %in% c(STEEL_CHAPTERS, ALUM_CHAPTERS))
+          !(hts10 %in% metal_program_products)
       ) %>%
-      select(-steel_rate_232, -alum_rate_232, -chapter, -blanket_232,
+      select(-steel_rate_232, -alum_rate_232, -blanket_232,
              -heading_232_rate, -heading_usmca_exempt, -heading_rate_adj)
 
     # --- Add rows for 232-covered products NOT yet in rates ---
@@ -1948,24 +1992,23 @@ calculate_rates_for_revision <- function(
         relationship = 'many-to-one'
       ) %>%
       mutate(
-        chapter = substr(hts10, 1, 2),
         heading_rate_adj = case_when(
           is.na(heading_232_rate) | heading_232_rate == 0 ~ 0,
           TRUE ~ heading_232_rate
         ),
         rate_232 = case_when(
-          chapter %in% STEEL_CHAPTERS ~ coalesce(steel_rate_232, 0),
-          chapter %in% ALUM_CHAPTERS ~ coalesce(alum_rate_232, 0),
+          hts10 %in% steel_products ~ coalesce(steel_rate_232, 0),
+          hts10 %in% aluminum_products ~ coalesce(alum_rate_232, 0),
           heading_rate_adj > 0 ~ heading_rate_adj,
           TRUE ~ 0
         ),
         s232_usmca_eligible = coalesce(heading_usmca_exempt, FALSE) & heading_rate_adj > 0 &
-          !(chapter %in% c(STEEL_CHAPTERS, ALUM_CHAPTERS)),
+          !(hts10 %in% metal_program_products),
         rate_301 = 0, rate_301_cs = 0, rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_s122 = 0,
         rate_section_201 = 0, rate_other = 0
       ) %>%
       filter(rate_232 > 0) %>%
-      select(-steel_rate_232, -alum_rate_232, -chapter,
+      select(-steel_rate_232, -alum_rate_232,
              -heading_232_rate, -heading_usmca_exempt, -heading_rate_adj)
 
     if (nrow(new_232_pairs) > 0) {
@@ -2070,14 +2113,24 @@ calculate_rates_for_revision <- function(
       }
 
       if (deal$rate_type == 'floor') {
+        # Floor deals are MFN-INCLUSIVE totals ("15%", no '+', sets forth the
+        # ordinary customs duty treatment): total duty must land on deal$rate.
+        # Tag the floor target so step 6f can recompute against the post-FTA
+        # base_rate — the MFN-exemption scaling (step 6c) shrinks base_rate
+        # AFTER this step (KORUS autos: 2.5% statutory -> ~0.06% effective),
+        # and without the recompute the total lands at deal − statutory_base +
+        # effective_base (Korea autos 12.56% vs CBP's steady 15.0% collected;
+        # eval residual deep-dive 2026-06-12 item 6).
+        if (!'s232_deal_floor' %in% names(rates)) {
+          rates$s232_deal_floor <- NA_real_
+        }
         rates <- rates %>%
           mutate(
-            rate_232 = if_else(
-              hts10 %in% deal_products & country %in% census_codes,
-              pmax(deal$rate - base_rate, 0),
-              rate_232
-            )
-          )
+            .hit = hts10 %in% deal_products & country %in% census_codes,
+            rate_232 = if_else(.hit, pmax(deal$rate - base_rate, 0), rate_232),
+            s232_deal_floor = if_else(.hit, deal$rate, s232_deal_floor)
+          ) %>%
+          select(-.hit)
       } else {
         # surcharge: flat additional rate
         rates <- rates %>%
@@ -2123,14 +2176,18 @@ calculate_rates_for_revision <- function(
 
       # Wood deals apply to all wood products (softwood + furniture/cabinets)
       if (deal$rate_type == 'floor') {
+        # Same MFN-inclusive floor semantics as auto deals: tag for the step-6f
+        # recompute against the post-FTA base_rate.
+        if (!'s232_deal_floor' %in% names(rates)) {
+          rates$s232_deal_floor <- NA_real_
+        }
         rates <- rates %>%
           mutate(
-            rate_232 = if_else(
-              hts10 %in% all_wood_products & country %in% census_codes,
-              pmax(deal$rate - base_rate, 0),
-              rate_232
-            )
-          )
+            .hit = hts10 %in% all_wood_products & country %in% census_codes,
+            rate_232 = if_else(.hit, pmax(deal$rate - base_rate, 0), rate_232),
+            s232_deal_floor = if_else(.hit, deal$rate, s232_deal_floor)
+          ) %>%
+          select(-.hit)
       } else {
         rates <- rates %>%
           mutate(
@@ -3082,6 +3139,66 @@ calculate_rates_for_revision <- function(
   #      statutory_rate_* = 0 naturally from the zero authority columns.
   rates <- ensure_dense_grid(rates, products, countries, context = 'MFN-only')
 
+  # 6b3. Chapter 98 secondary-classification treatment, ALL authorities.
+  # Every additional-duty authority's chapter-99 note carries the same ch98
+  # paragraph ("The additional duty imposed by this heading shall not apply to
+  # goods for which entry is properly claimed under a provision of chapter
+  # 98..., except for goods entered under heading 9802.00.80 and subheadings
+  # 9802.00.40, 9802.00.50 and 9802.00.60", which attach to the
+  # repair/alteration/processing or assembly VALUE only) — verified for §122
+  # note 2(aa)(i) (2026_rev_4) and §301 note 20; the fentanyl, reciprocal and
+  # country-EO paths already implement it at their own sites via the ch98
+  # subset of ieepa_exempt_products. §301/§122/201/other had NO ch98 handling:
+  # §122's 10% blanket charged ~115k ch98 pairs from 2026-02-24 — the "Q1-2026
+  # ch98 statutory tripling" in the eval residual deep-dive 2026-06-12 item 4.
+  # Runs BEFORE the statutory_rate_* save: this is a statutory exemption, not
+  # a compliance haircut, so both layers carry it.
+  ch98_secondary <- ieepa_exempt_products[
+    substr(ieepa_exempt_products, 1, 2) == '98']
+  if (length(ch98_secondary) > 0) {
+    ch98_m <- rates$hts10 %in% ch98_secondary
+    ch98_cols <- c('rate_301', 'rate_301_cs', 'rate_s301fl', 'rate_s301br',
+                   'rate_s122', 'rate_section_201', 'rate_other')
+    ch98_cols <- intersect(ch98_cols, names(rates))
+    # coalesce: grid-expanded pairs can carry NA in rate columns at this point
+    n_zeroed <- sum(ch98_m & Reduce(`|`, lapply(
+      ch98_cols, function(cc) coalesce(rates[[cc]], 0) > 0)))
+    if (n_zeroed > 0) {
+      for (cc in ch98_cols) rates[[cc]][ch98_m & !is.na(rates[[cc]])] <- 0
+      message('  Ch98 exemption (all authorities): zeroed ', n_zeroed,
+              ' product-country pairs across ', length(ch98_cols), ' columns')
+    }
+  }
+
+  # 9802 exception codes: additional duties attach to the repair/alteration/
+  # processing value, not the full customs value. Convert to an effective rate
+  # on full value via configured dutiable-value shares (statutory basis
+  # conversion — the printed rate never legally applied to the full value).
+  # 9802.00.80 (assembly value = full less US content) stays at 1.0 until
+  # calibrated. rate_232 deliberately excluded (the 232 notes assess
+  # 9802.00.60 on FULL value; 232 does not otherwise attach to ch98 lines).
+  ch98_vb <- pp$ch98_value_basis$dutiable_value_shares
+  if (!is.null(ch98_vb)) {
+    vb_cols <- intersect(
+      c('rate_301', 'rate_301_cs', 'rate_s301fl', 'rate_s301br', 'rate_s122',
+        'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_other'),
+      names(rates))
+    n_vb <- 0L
+    for (code in names(ch98_vb)) {
+      share <- as.numeric(ch98_vb[[code]])
+      if (share >= 1) next
+      vb_m <- startsWith(rates$hts10, code)
+      if (!any(vb_m)) next
+      n_vb <- n_vb + sum(vb_m & Reduce(`|`, lapply(
+        vb_cols, function(cc) coalesce(rates[[cc]], 0) > 0)))
+      for (cc in vb_cols) rates[[cc]][vb_m] <- rates[[cc]][vb_m] * share
+    }
+    if (n_vb > 0) {
+      message('  Ch98 value-basis conversion: scaled ', n_vb,
+              ' product-country pairs (repair-value share)')
+    }
+  }
+
   # Save statutory rates for all non-232 authorities (pre-USMCA, pre-stacking).
   # 232 statutory rates are already saved as statutory_rate_232 in apply_232_derivatives().
   rates <- rates %>%
@@ -3187,9 +3304,32 @@ calculate_rates_for_revision <- function(
       }
     }
 
+    # 6f. Recompute §232 deal floors against post-MFN base_rate (same logic as
+    # 6d/6e). Floor-type deals (Korea/Japan/EU autos "15%", wood floors) are
+    # MFN-INCLUSIVE totals: note 33(s) headings "set forth the ordinary customs
+    # duty treatment", and CBP collects the flat floor (Korea autos steady
+    # 15.0%). Step 4c computed pmax(floor - statutory_base, 0); after 6c the
+    # FTA-utilization scaling shrinks base_rate (KORUS autos 2.5% -> ~0.06%),
+    # so without this the total under-lands by the claimed preference
+    # (12.56% vs 15.0% — eval residual deep-dive 2026-06-12 item 6).
+    if ('s232_deal_floor' %in% names(rates)) {
+      deal_floor_mask <- !is.na(rates$s232_deal_floor) &
+                         rates$base_rate < rates$statutory_base_rate
+      if (any(deal_floor_mask)) {
+        rates$rate_232[deal_floor_mask] <- pmax(
+          rates$s232_deal_floor[deal_floor_mask] - rates$base_rate[deal_floor_mask], 0)
+        message('  232 deal floor recomputation: updated ', sum(deal_floor_mask),
+                ' pairs (against post-MFN base_rate)')
+      }
+    }
+
     # Drop transient ieepa_type column — not part of production output
     rates$ieepa_type <- NULL
   }
+
+  # Transient deal-floor tag (set in step 4c, consumed in 6f) — drop
+  # unconditionally so it never reaches the output schema.
+  rates$s232_deal_floor <- NULL
 
   # 7. Apply USMCA exemptions
   # TPC methodology: rate * (1 - usmca_share) for each CA/MX product.
