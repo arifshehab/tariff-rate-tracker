@@ -258,6 +258,152 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     return(row)
   }
 
+  # by_country_authority: the country x authority cross-tab (one row per country
+  # per revision; wide authority columns). Independent of compute_agg_country and
+  # compute_agg_authority — it reuses the SAME building blocks so its numbers
+  # reconcile with both:
+  #   - mean_<auth>      : per-country unweighted mean of each authority's net
+  #                        contribution (grouped form of compute_agg_authority's
+  #                        mean_<auth>).
+  #   - etr_<auth>       : per-country import-weighted contribution, denominator =
+  #                        that country's TOTAL 2024 imports (same denominator as
+  #                        compute_agg_country's weighted_etr), so the authority
+  #                        ETRs are additive within the country.
+  #   - etr_base         : residual (weighted_etr - sum authority ETRs), mirroring
+  #                        the by_authority etr_base residual, so
+  #                        etr_base + all etr_<auth> == weighted_etr exactly.
+  #   - weighted_etr     : per-country total ETR, computed via the identical
+  #                        apply_stacking_rules + total_rate path as
+  #                        compute_agg_country, so it matches daily_by_country.
+  compute_agg_country_authority <- function(revision, valid_from, valid_until, sub_start = valid_from) {
+    rev_data <- ts %>% filter(revision == !!revision)
+    rev_data <- apply_expiry_zeroing(rev_data, sub_start, policy_params)
+
+    net_data <- compute_net_authority_contributions(rev_data, cty_china = CTY_CHINA,
+                                                     stacking_method = stacking_method)
+    if (!'net_301_cs' %in% names(net_data)) net_data$net_301_cs <- 0
+
+    # --- Section 232 sub-program split (only when split_232 snapshots are read) ---
+    # Each split snapshot carries rate_232_<sub> columns that decompose rate_232.
+    # Split the post-stacking net_232 across sub-programs in the SAME proportions,
+    # so the sub-columns sum exactly to mean_232 / etr_232.
+    S232_SUB <- c('steel', 'aluminum', 'copper', 'autos', 'auto_parts',
+                  'mhd_vehicles', 'mhd_parts', 'buses', 'softwood', 'wood_furniture',
+                  'kitchen_cabinets', 'semiconductors', 'pharmaceuticals',
+                  'metals_unspecified', 'other')
+    split_cols <- paste0('rate_232_', S232_SUB)
+    has_split <- all(split_cols %in% names(net_data))
+    add_net232_split <- function(df) {
+      if (!all(split_cols %in% names(df))) return(df)
+      den <- ifelse(df$rate_232 > 0, df$rate_232, NA_real_)
+      for (sp in S232_SUB) {
+        df[[paste0('net_232_', sp)]] <- ifelse(is.na(den), 0,
+          df$net_232 * df[[paste0('rate_232_', sp)]] / den)
+      }
+      df
+    }
+    net_data <- add_net232_split(net_data)
+
+    # Unweighted per-country means (net_301_cs reported under Section 301).
+    row <- net_data %>%
+      group_by(country) %>%
+      summarise(
+        mean_232 = mean(net_232),
+        mean_301 = mean(net_301 + net_301_cs),
+        mean_ieepa = mean(net_ieepa),
+        mean_fentanyl = mean(net_fentanyl),
+        mean_s122 = mean(net_s122),
+        mean_section_201 = mean(net_section_201),
+        mean_other = mean(net_other),
+        .groups = 'drop'
+      ) %>%
+      mutate(revision = revision, valid_from = valid_from, valid_until = valid_until)
+
+    # Per-country unweighted means for each 232 sub-program (sums to mean_232).
+    if (has_split) {
+      mean_exprs <- setNames(
+        lapply(S232_SUB, function(sp) rlang::expr(mean(.data[[!!paste0('net_232_', sp)]]))),
+        paste0('mean_232_', S232_SUB))
+      mean_split <- net_data %>% group_by(country) %>%
+        summarise(!!!mean_exprs, .groups = 'drop')
+      row <- row %>% left_join(mean_split, by = 'country')
+    }
+
+    if (has_weights) {
+      wt_data <- ts_weighted %>% filter(revision == !!revision)
+      wt_data <- apply_expiry_zeroing(wt_data, sub_start, policy_params)
+      country_total_imp <- imports %>%
+        group_by(cty_code) %>%
+        summarise(country_total_imports = sum(imports), .groups = 'drop') %>%
+        rename(country = cty_code)
+      if (nrow(wt_data) > 0) {
+        # Per-country total (identical methodology to compute_agg_country).
+        wt_tot <- apply_stacking_rules(wt_data, stacking_method = stacking_method) %>%
+          group_by(country) %>%
+          summarise(
+            tariffed_imports = sum(imports),
+            weighted_numerator = sum(total_rate * imports),
+            .groups = 'drop'
+          )
+        # Per-country authority numerators (identical decomposition to
+        # compute_agg_authority, grouped by country).
+        wt_net <- compute_net_authority_contributions(wt_data, cty_china = CTY_CHINA,
+                                                      stacking_method = stacking_method)
+        if (!'net_301_cs' %in% names(wt_net)) wt_net$net_301_cs <- 0
+        wt_net <- add_net232_split(wt_net)
+        wt_auth <- wt_net %>%
+          group_by(country) %>%
+          summarise(
+            num_232 = sum(net_232 * imports),
+            num_301 = sum((net_301 + net_301_cs) * imports),
+            num_ieepa = sum(net_ieepa * imports),
+            num_fentanyl = sum(net_fentanyl * imports),
+            num_s122 = sum(net_s122 * imports),
+            num_section_201 = sum(net_section_201 * imports),
+            num_other = sum(net_other * imports),
+            .groups = 'drop'
+          )
+        wt_country <- wt_tot %>%
+          left_join(wt_auth, by = 'country') %>%
+          left_join(country_total_imp, by = 'country') %>%
+          mutate(
+            country_total_imports = coalesce(country_total_imports, tariffed_imports),
+            etr_232 = num_232 / country_total_imports,
+            etr_301 = num_301 / country_total_imports,
+            etr_ieepa = num_ieepa / country_total_imports,
+            etr_fentanyl = num_fentanyl / country_total_imports,
+            etr_s122 = num_s122 / country_total_imports,
+            etr_section_201 = num_section_201 / country_total_imports,
+            etr_other = num_other / country_total_imports,
+            weighted_etr = weighted_numerator / country_total_imports,
+            etr_base = weighted_etr - (etr_232 + etr_301 + etr_ieepa + etr_fentanyl +
+                                        etr_s122 + etr_section_201 + etr_other)
+          ) %>%
+          select(country, etr_232, etr_301, etr_ieepa, etr_fentanyl, etr_s122,
+                 etr_section_201, etr_other, etr_base, weighted_etr)
+        # Per-country weighted ETR for each 232 sub-program (sums to etr_232).
+        if (has_split) {
+          num_exprs <- setNames(
+            lapply(S232_SUB, function(sp) rlang::expr(sum(.data[[!!paste0('net_232_', sp)]] * imports))),
+            paste0('num_232_', S232_SUB))
+          etr_split <- wt_net %>% group_by(country) %>%
+            summarise(!!!num_exprs, .groups = 'drop') %>%
+            left_join(country_total_imp, by = 'country') %>%
+            left_join(wt_tot %>% select(country, tariffed_imports), by = 'country') %>%
+            mutate(country_total_imports = coalesce(country_total_imports, tariffed_imports))
+          for (sp in S232_SUB) {
+            etr_split[[paste0('etr_232_', sp)]] <-
+              etr_split[[paste0('num_232_', sp)]] / etr_split$country_total_imports
+          }
+          etr_split <- etr_split %>% select(country, all_of(paste0('etr_232_', S232_SUB)))
+          wt_country <- wt_country %>% left_join(etr_split, by = 'country')
+        }
+        row <- row %>% left_join(wt_country, by = 'country')
+      }
+    }
+    return(row)
+  }
+
   compute_agg_category <- function(revision, valid_from, valid_until, sub_start = valid_from) {
     rev_data <- ts %>%
       filter(revision == !!revision) %>%
@@ -343,6 +489,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   agg_overall <- split_and_aggregate(compute_agg_overall)
   agg_by_country <- split_and_aggregate(compute_agg_country)
   agg_by_authority <- split_and_aggregate(compute_agg_authority)
+  agg_by_country_authority <- split_and_aggregate(compute_agg_country_authority)
   agg_by_category <- if (has_categories) split_and_aggregate(compute_agg_category) else tibble()
 
   # Add etr_base to authority decomposition so parts sum to weighted_etr.
@@ -387,11 +534,13 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   daily_overall <- expand_intervals(agg_overall)
   daily_by_country <- expand_intervals(agg_by_country)
   daily_by_authority <- expand_intervals(agg_by_authority)
+  daily_by_country_authority <- expand_intervals(agg_by_country_authority)
   daily_by_category <- if (nrow(agg_by_category) > 0) expand_intervals(agg_by_category) else tibble()
 
   message('  Daily overall rows: ', nrow(daily_overall))
   message('  Daily by-country rows: ', nrow(daily_by_country))
   message('  Daily by-authority rows: ', nrow(daily_by_authority))
+  message('  Daily by-country-authority rows: ', nrow(daily_by_country_authority))
   if (has_categories) {
     message('  Daily by-category rows: ', nrow(daily_by_category))
   }
@@ -400,10 +549,12 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     daily_overall = daily_overall,
     daily_by_country = daily_by_country,
     daily_by_authority = daily_by_authority,
+    daily_by_country_authority = daily_by_country_authority,
     daily_by_category = daily_by_category,
     agg_overall = agg_overall,
     agg_by_country = agg_by_country,
     agg_by_authority = agg_by_authority,
+    agg_by_country_authority = agg_by_country_authority,
     agg_by_category = agg_by_category
   ))
 }
@@ -816,6 +967,21 @@ save_daily_outputs <- function(daily, out_dir = series_section_dir('daily')) {
   }
   write_csv(daily$daily_by_country, file.path(out_dir, 'daily_by_country.csv'))
   write_csv(daily$daily_by_authority, file.path(out_dir, 'daily_by_authority.csv'))
+
+  # by_country_authority: attach country names (same enrichment as by_country).
+  has_country_authority <- !is.null(daily$daily_by_country_authority) &&
+    nrow(daily$daily_by_country_authority) > 0
+  if (has_country_authority) {
+    if (exists('census_codes')) {
+      daily$daily_by_country_authority <- daily$daily_by_country_authority %>%
+        left_join(census_codes, by = 'country') %>%
+        relocate(country_name, .after = country) %>%
+        relocate(any_of('country_abbr'), .after = country_name)
+    }
+    write_csv(daily$daily_by_country_authority,
+              file.path(out_dir, 'daily_by_country_authority.csv'))
+  }
+
   has_category <- !is.null(daily$daily_by_category) && nrow(daily$daily_by_category) > 0
   if (has_category) {
     write_csv(daily$daily_by_category, file.path(out_dir, 'daily_by_category.csv'))
@@ -827,6 +993,10 @@ save_daily_outputs <- function(daily, out_dir = series_section_dir('daily')) {
   write_parquet_if_arrow(daily$daily_overall,    file.path(out_dir, 'daily_overall.csv'))
   write_parquet_if_arrow(daily$daily_by_country, file.path(out_dir, 'daily_by_country.csv'))
   write_parquet_if_arrow(daily$daily_by_authority, file.path(out_dir, 'daily_by_authority.csv'))
+  if (has_country_authority) {
+    write_parquet_if_arrow(daily$daily_by_country_authority,
+                           file.path(out_dir, 'daily_by_country_authority.csv'))
+  }
   if (has_category) {
     write_parquet_if_arrow(daily$daily_by_category, file.path(out_dir, 'daily_by_category.csv'))
   }
@@ -841,6 +1011,10 @@ save_daily_outputs <- function(daily, out_dir = series_section_dir('daily')) {
   message('  daily_overall.csv: ', nrow(daily$daily_overall), ' rows')
   message('  daily_by_country.csv: ', nrow(daily$daily_by_country), ' rows')
   message('  daily_by_authority.csv: ', nrow(daily$daily_by_authority), ' rows')
+  if (has_country_authority) {
+    message('  daily_by_country_authority.csv: ',
+            nrow(daily$daily_by_country_authority), ' rows')
+  }
   if (has_category) {
     message('  daily_by_category.csv: ', nrow(daily$daily_by_category), ' rows')
   }
@@ -912,6 +1086,7 @@ write_daily_part_for_snapshot <- function(snapshot, revision, valid_from, valid_
     daily_overall = daily$daily_overall,
     daily_by_country = daily$daily_by_country,
     daily_by_authority = daily$daily_by_authority,
+    daily_by_country_authority = daily$daily_by_country_authority,
     daily_by_category = daily$daily_by_category
   )
   path <- daily_part_path(output_dir, revision)
@@ -967,10 +1142,11 @@ load_daily_parts_if_complete <- function(snapshot_dir, rev_dates,
 
   message('Using ', length(parts), ' precomputed daily aggregate part(s) from ', snapshot_dir)
   list(
-    daily_overall      = bind_rows(lapply(parts, `[[`, 'daily_overall')),
-    daily_by_country   = bind_rows(lapply(parts, `[[`, 'daily_by_country')),
-    daily_by_authority = bind_rows(lapply(parts, `[[`, 'daily_by_authority')),
-    daily_by_category  = bind_rows(lapply(parts, `[[`, 'daily_by_category'))
+    daily_overall              = bind_rows(lapply(parts, `[[`, 'daily_overall')),
+    daily_by_country           = bind_rows(lapply(parts, `[[`, 'daily_by_country')),
+    daily_by_authority         = bind_rows(lapply(parts, `[[`, 'daily_by_authority')),
+    daily_by_country_authority = bind_rows(lapply(parts, `[[`, 'daily_by_country_authority')),
+    daily_by_category          = bind_rows(lapply(parts, `[[`, 'daily_by_category'))
   )
 }
 
@@ -1059,10 +1235,11 @@ build_daily_aggregates_streaming <- function(snapshot_dir, rev_dates,
   }
 
   list(
-    daily_overall      = bind_rows(lapply(results, `[[`, 'daily_overall')),
-    daily_by_country   = bind_rows(lapply(results, `[[`, 'daily_by_country')),
-    daily_by_authority = bind_rows(lapply(results, `[[`, 'daily_by_authority')),
-    daily_by_category  = bind_rows(lapply(results, `[[`, 'daily_by_category'))
+    daily_overall              = bind_rows(lapply(results, `[[`, 'daily_overall')),
+    daily_by_country           = bind_rows(lapply(results, `[[`, 'daily_by_country')),
+    daily_by_authority         = bind_rows(lapply(results, `[[`, 'daily_by_authority')),
+    daily_by_country_authority = bind_rows(lapply(results, `[[`, 'daily_by_country_authority')),
+    daily_by_category          = bind_rows(lapply(results, `[[`, 'daily_by_category'))
   )
 }
 

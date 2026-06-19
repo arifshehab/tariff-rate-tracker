@@ -1,0 +1,46 @@
+gtap_code,sector_name
+pdr,Paddy rice
+wht,Wheat
+gro,Cereal grains nec
+v_f,"Vegetables, fruit, nuts"
+osd,Oil seeds
+c_b,"Sugar cane, sugar beet"
+pfb,Plant-based fibers
+ocr,Crops nec
+ctl,"Bovine cattle, sheep and goats, horses"
+oap,Animal products nec
+wol,"Wool, silk-worm cocoons"
+frs,Forestry
+fsh,Fishing
+coa,Coal
+oil,Oil
+gas,Gas
+oxt,Other mining and extraction
+cmt,"Bovine meat products"
+omt,Meat products nec
+vol,Vegetable oils and fats
+mil,Dairy products
+pcr,Processed rice
+sgr,Sugar
+ofd,Food products nec
+b_t,Beverages and tobacco products
+tex,Textiles
+wap,Wearing apparel
+lea,Leather products
+lum,Wood products
+ppp,"Paper products, publishing"
+p_c,"Petroleum, coal products"
+chm,Chemical products
+bph,Basic pharmaceutical products
+rpp,Rubber and plastic products
+nmm,Mineral products nec
+i_s,Ferrous metals
+nfm,Metals nec
+fmp,Metal products
+ele,"Computer, electronic and optical products"
+eeq,Electrical equipment
+ome,Machinery and equipment nec
+mvh,Motor vehicles and parts
+otn,Transport equipment nec
+omf,Manufactures nec
+ely,Electricity

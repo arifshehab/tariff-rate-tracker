@@ -95,3 +95,4 @@ data/us_notes/*.csv
 
 # Parity golden reference (large build artifacts; capture locally)
 tests/golden/
+.Rapp.history

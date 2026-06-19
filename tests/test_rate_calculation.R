@@ -1478,7 +1478,7 @@ run_test('pharma 232 target-total and share scaling matches Tariff-ETRs treatmen
     country_rates = list(CTY_UK = 0.10),
     target_total = list(default = 1.00, CTY_JAPAN = 0.15, eu = 0.15, CTY_UK = 0),
     generic_share = list(CTY_CHINA = 0.95, default = 0.20),
-    exempt_share = list(eu = 0.75, CTY_UK = 0.75, CTY_JAPAN = 0.75, default = 0.40)
+    company_deal_share = list(eu = 0.75, CTY_UK = 0.75, CTY_JAPAN = 0.75, default = 0.40)
   )
   pp <- list(
     country_codes = list(CTY_UK = '4120', CTY_JAPAN = '5880', CTY_CHINA = '5700'),
@@ -1500,6 +1500,48 @@ run_test('pharma 232 target-total and share scaling matches Tariff-ETRs treatmen
   stopifnot(abs(got['4120'] - (0.10 * 0.80 * 0.25)) < 1e-12)
   # China/default target: 100% total-duty floor, high generic share.
   stopifnot(abs(got['5700'] - ((1.00 - 0.02) * 0.05 * 0.60)) < 1e-12)
+})
+
+
+run_test('pharma 232 two-pass: zero_only reaches pure-pharma (NA/0), leaves rated rows alone', {
+  # Regression guard for the gate fix: §232 pharma is a standalone duty, applied
+  # in two passes. The post-dense-grid pass (zero_only = TRUE) must reach
+  # pure-pharma rows that no other 232 touched — which carry rate_232 = NA at
+  # that point (schema coalesces NA -> 0 only later), the exact case that let
+  # pure-pharma trade escape before the coalesce() gate. It must also LEAVE
+  # already-rated rows untouched. The default pass (zero_only = FALSE) is the
+  # mirror: it only acts on rate_232 > 0 rows.
+  countries <- c('4280', '5700')
+  cfg <- list(
+    default_rate = 0.0001,
+    country_rates = list(CTY_UK = 0.10),
+    target_total = list(default = 1.00, eu = 0.15),
+    generic_share = list(CTY_CHINA = 0.95, default = 0.20),
+    company_deal_share = list(eu = 0.75, default = 0.40)
+  )
+  pp <- list(
+    country_codes = list(CTY_UK = '4120', CTY_JAPAN = '5880', CTY_CHINA = '5700'),
+    EU27_CODES = c('4280')
+  )
+  ph <- '2922190900'   # a chapter-29 pure-pharma code (the kind that escaped)
+  rates <- tibble(
+    hts10     = rep(ph, 3),
+    country   = c('4280', '5700', '4280'),
+    base_rate = c(0.02, 0.02, 0.02),
+    rate_232  = c(NA_real_, 0, 0.25)   # NA (real bug), exact 0, and a rated overlap
+  )
+
+  # Post-grid pass: tariff the NA and 0 rows; leave the 0.25 overlap untouched.
+  out2 <- apply_pharma_232_adjustments(rates, ph, cfg, countries, pp, zero_only = TRUE)
+  stopifnot(abs(out2$rate_232[1] - ((0.15 - 0.02) * 0.80 * 0.25)) < 1e-12)  # EU, was NA
+  stopifnot(abs(out2$rate_232[2] - ((1.00 - 0.02) * 0.05 * 0.60)) < 1e-12)  # China, was 0
+  stopifnot(abs(out2$rate_232[3] - 0.25) < 1e-12)                            # overlap untouched
+
+  # Default (step-4) pass: must NOT touch NA/0 rows; DOES act on the overlap row.
+  out1 <- apply_pharma_232_adjustments(rates, ph, cfg, countries, pp, zero_only = FALSE)
+  stopifnot(is.na(out1$rate_232[1]))                # NA stays NA
+  stopifnot(abs(out1$rate_232[2] - 0) < 1e-12)      # 0 stays 0
+  stopifnot(out1$rate_232[3] > 0)                   # overlap gets pharma
 })
 
 

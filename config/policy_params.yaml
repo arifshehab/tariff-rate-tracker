@@ -211,7 +211,12 @@ section_232_headings:
       CTY_CHINA: 0.95
       '5330': 0.95
       default: 0.20
-    exempt_share:
+    # company_deal_share (formerly exempt_share): proxy for the §232 EO's
+    # company-level deals — the share of a country's patented-pharma exports from
+    # firms with MFN-pricing (0%) / onshoring deals, hence exempt. This is the
+    # "company carveout" in Tariff-ETRs' stacking_pharma_sensitivity scenario;
+    # distinct from generic_share (the generic carveout).
+    company_deal_share:
       eu: 0.75
       CTY_UK: 0.75
       CTY_JAPAN: 0.75
@@ -561,7 +566,6 @@ weighted_etr:
     "cote d'ivoire": '7480'
     "côte d`ivoire": '7480'
     "curaçao": '2777'
-    curacao: '2777'
     "czechia (czech republic)": '4351'
     "democratic republic of the congo": '7660'
     "eswatini (swaziland)": '7950'

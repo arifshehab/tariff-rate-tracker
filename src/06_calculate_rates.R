@@ -389,26 +389,41 @@ resolve_policy_country_values <- function(config, countries, pp, default = NULL)
   out
 }
 
-apply_pharma_232_adjustments <- function(rates, pharma_products, cfg, countries, pp) {
+apply_pharma_232_adjustments <- function(rates, pharma_products, cfg, countries, pp,
+                                         zero_only = FALSE) {
   if (!length(pharma_products) || is.null(cfg)) return(rates)
 
   country_rate <- resolve_policy_country_values(cfg$country_rates, countries, pp, default = cfg$default_rate %||% 0)
   target_total <- resolve_policy_country_values(cfg$target_total, countries, pp, default = NA_real_)
   generic      <- resolve_policy_country_values(cfg$generic_share, countries, pp, default = 0)
-  exempt       <- resolve_policy_country_values(cfg$exempt_share, countries, pp, default = 0)
+  company_deal <- resolve_policy_country_values(cfg$company_deal_share, countries, pp, default = 0)
 
   adj <- tibble(
     country = names(country_rate),
     pharma_country_rate = as.numeric(country_rate),
     pharma_target_total = as.numeric(target_total),
     pharma_generic_share = pmin(pmax(as.numeric(generic), 0), 1),
-    pharma_exempt_share = pmin(pmax(as.numeric(exempt), 0), 1)
+    pharma_company_deal_share = pmin(pmax(as.numeric(company_deal), 0), 1)
   )
 
   rates %>%
     left_join(adj, by = 'country', relationship = 'many-to-one') %>%
     mutate(
-      .pharma_hit = hts10 %in% pharma_products & rate_232 > 0,
+      # Pharma §232 is a STANDALONE duty on the patented-pharma product list, but
+      # it is applied in TWO passes (see calculate_rates_for_revision) because the
+      # pure-pharma products are not surfaced in `rates` until ensure_dense_grid:
+      #   - default (zero_only = FALSE): the step-4 pass, for pharma items that
+      #     already carry a 232 from another program (rate_232 > 0).
+      #   - zero_only = TRUE: a post-dense-grid pass for the pure-pharma products
+      #     (rate_232 == 0) that had no row at step 4, so the duty reaches the
+      #     FULL product list (the gate bug let pure-pharma trade escape entirely).
+      # Activation is date-gated upstream (pharma_products is empty before the
+      # effective date), so scope + the pass condition are the only gates here.
+      # coalesce: pure-pharma rows that no 232 step touched carry rate_232 = NA at
+      # the post-dense-grid pass (schema coalesces NA -> 0 only at the very end),
+      # so the zero_only gate must treat NA as 0 to reach them.
+      .pharma_hit = hts10 %in% pharma_products &
+        (if (zero_only) coalesce(rate_232, 0) == 0 else coalesce(rate_232, 0) > 0),
       .pharma_base = coalesce(pharma_country_rate, 0),
       .pharma_floor = if_else(
         !is.na(pharma_target_total),
@@ -419,12 +434,12 @@ apply_pharma_232_adjustments <- function(rates, pharma_products, cfg, countries,
         .pharma_hit,
         pmax(.pharma_base, .pharma_floor) *
           (1 - coalesce(pharma_generic_share, 0)) *
-          (1 - coalesce(pharma_exempt_share, 0)),
+          (1 - coalesce(pharma_company_deal_share, 0)),
         rate_232
       )
     ) %>%
     select(-pharma_country_rate, -pharma_target_total,
-           -pharma_generic_share, -pharma_exempt_share,
+           -pharma_generic_share, -pharma_company_deal_share,
            -.pharma_hit, -.pharma_base, -.pharma_floor)
 }
 
@@ -3138,6 +3153,21 @@ calculate_rates_for_revision <- function(
   #      dropped. Placed before the statutory_rate_* save so new pairs pick up
   #      statutory_rate_* = 0 naturally from the zero authority columns.
   rates <- ensure_dense_grid(rates, products, countries, context = 'MFN-only')
+
+  # Pharma §232, pass 2: the dense grid just surfaced pure-pharma product-country
+  # pairs (rate_232 == 0) that had no row at the step-4 pharma pass. Apply the
+  # pharma duty to those now, so the §232 pharma tariff covers the full product
+  # list rather than only items that happened to carry another 232. zero_only =
+  # TRUE means every already-rated row (incl. the step-4 overlap items, now
+  # metal-scaled) is left untouched — so this pass only adds the missing pairs.
+  # Runs before MFN exemption / USMCA / stacking, matching the step-4 pass's
+  # pre-exemption base_rate basis.
+  if (length(pharma_products) > 0) {
+    rates <- apply_pharma_232_adjustments(
+      rates, pharma_products, s232_headings$pharmaceuticals,
+      countries, pp, zero_only = TRUE
+    )
+  }
 
   # 6b3. Chapter 98 secondary-classification treatment, ALL authorities.
   # Every additional-duty authority's chapter-99 note carries the same ch98
