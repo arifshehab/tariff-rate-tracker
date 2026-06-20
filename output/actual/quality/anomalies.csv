@@ -1,0 +1,9 @@
+revision,effective_date,anomaly_type,detail
+rev_7,2025-04-05,rate_level_jump,Mean additional rate changed by 8.5pp
+bnd_2026-02-20,2026-02-20,rate_level_jump,Mean additional rate changed by -10pp
+2026_rev_4,2026-02-24,rate_level_jump,Mean additional rate changed by 7.5pp
+bnd_2026-09-29,2026-09-29,rate_level_jump,Mean additional rate changed by -5.9pp
+bnd_2026-02-20,2026-02-20,authority_missing,ieepa_recip expected active but pct = 0% (Liberation Day (10% universal baseline persists through Phase 1 suspension))
+bnd_2026-02-20,2026-02-20,authority_missing,ieepa_fent expected active but pct = 0% (China fentanyl +10%)
+bnd_2026-09-29,2026-09-29,authority_missing,s122 expected active but pct = 0% (Section 122 Phase 3)
+bnd_2026-11-10,2026-11-10,authority_missing,s122 expected active but pct = 0% (Section 122 Phase 3)
