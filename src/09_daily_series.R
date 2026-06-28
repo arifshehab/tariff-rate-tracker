@@ -289,8 +289,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     # so the sub-columns sum exactly to mean_232 / etr_232.
     S232_SUB <- c('steel', 'aluminum', 'copper', 'autos', 'auto_parts',
                   'mhd_vehicles', 'mhd_parts', 'buses', 'softwood', 'wood_furniture',
-                  'kitchen_cabinets', 'semiconductors', 'pharmaceuticals',
-                  'metals_unspecified', 'other')
+                  'kitchen_cabinets', 'semiconductors', 'pharmaceuticals')
     split_cols <- paste0('rate_232_', S232_SUB)
     has_split <- all(split_cols %in% names(net_data))
     add_net232_split <- function(df) {

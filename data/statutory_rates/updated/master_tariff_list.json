@@ -1,0 +1,2336 @@
+[
+  {
+    "tariff_authority": "s232",
+    "tariff_name": "steel",
+    "effective_date": [
+      {
+        "base_date": "2018-03-23",
+        "base_rate": 0.25,
+        "source": "https://www.federalregister.gov/documents/2018/03/15/2018-05478/adjusting-imports-of-steel-into-the-united-states"
+      },
+      {
+        "base_date": "2025-06-04",
+        "base_rate": 0.5,
+        "source": "https://www.federalregister.gov/documents/2025/06/09/2025-10524/adjusting-imports-of-aluminum-and-steel-into-the-united-states"
+      },
+      {
+        "country_name": "United Kingdom",
+        "census_code": "4120",
+        "adjust_date": "2025-06-04",
+        "adjust_rate": 0.25,
+        "source": "https://www.federalregister.gov/documents/2025/06/09/2025-10524/adjusting-imports-of-aluminum-and-steel-into-the-united-states"
+      }
+    ]
+  },
+  {
+    "tariff_authority": "s232",
+    "tariff_name": "aluminum",
+    "effective_date": [
+      {
+        "base_date": "2018-03-23",
+        "base_rate": 0.1,
+        "source": "https://www.federalregister.gov/documents/2018/03/15/2018-05477/adjusting-imports-of-aluminum-into-the-united-states"
+      },
+      {
+        "country_name": "Russia",
+        "census_code": "4621",
+        "adjust_date": "2023-03-10",
+        "adjust_rate": 2,
+        "source": "https://www.federalregister.gov/documents/2023/03/02/2023-04470/adjusting-imports-of-aluminum-into-the-united-states"
+      },
+      {
+        "base_date": "2025-03-07",
+        "base_rate": 0.25,
+        "source": "https://www.federalregister.gov/documents/2025/02/18/2025-02832/adjusting-imports-of-aluminum-into-the-united-states"
+      },
+      {
+        "base_date": "2025-06-04",
+        "base_rate": 0.5,
+        "source": "https://www.federalregister.gov/documents/2025/06/09/2025-10524/adjusting-imports-of-aluminum-and-steel-into-the-united-states"
+      },
+      {
+        "country_name": "United Kingdom",
+        "census_code": "4120",
+        "adjust_date": "2025-06-04",
+        "adjust_rate": 0.25,
+        "source": "https://www.federalregister.gov/documents/2025/06/09/2025-10524/adjusting-imports-of-aluminum-and-steel-into-the-united-states"
+      }
+    ]
+  },
+  {
+    "tariff_authority": "s301",
+    "tariff_name": "china_301",
+    "effective_date": [
+      {
+        "country_name": "China",
+        "census_code": "5700",
+        "adjust_date": "2024-09-27",
+        "adjust_rate": 1,
+        "source": "https://www.federalregister.gov/documents/2024/09/18/2024-21217/notice-of-modification-chinas-acts-policies-and-practices-related-to-technology-transfer"
+      }
+    ]
+  },
+  {
+    "tariff_authority": "ieepa",
+    "tariff_name": "fentanyl",
+    "effective_date": [
+      {
+        "country_name": "China",
+        "census_code": "5700",
+        "adjust_date": "2025-02-04",
+        "adjust_rate": 0.1,
+        "source": "https://www.federalregister.gov/documents/2025/02/07/2025-02408/imposing-duties-to-address-the-synthetic-opioid-supply-chain-in-the-peoples-republic-of-china"
+      },
+      {
+        "country_name": "Hong Kong",
+        "census_code": "5820",
+        "adjust_date": "2025-02-04",
+        "adjust_rate": 0.1,
+        "source": "https://www.federalregister.gov/documents/2025/02/07/2025-02408/imposing-duties-to-address-the-synthetic-opioid-supply-chain-in-the-peoples-republic-of-china"
+      },
+      {
+        "country_name": "Canada",
+        "census_code": "1220",
+        "adjust_date": "2025-03-04",
+        "adjust_rate": 0.25,
+        "source": "https://www.federalregister.gov/documents/2025/03/06/2025-03664/notice-of-implementation-of-additional-duties-on-products-of-canada-pursuant-to-the-presidents"
+      },
+      {
+        "country_name": "Mexico",
+        "census_code": "2010",
+        "adjust_date": "2025-03-04",
+        "adjust_rate": 0.25,
+        "source": "https://www.federalregister.gov/documents/2025/03/06/2025-03665/notice-of-implementation-of-additional-duties-on-products-of-mexico-pursuant-to-the-presidents"
+      },
+      {
+        "country_name": "China",
+        "census_code": "5700",
+        "adjust_date": "2025-03-04",
+        "adjust_rate": 0.2,
+        "source": "https://www.federalregister.gov/documents/2025/03/07/2025-03775/further-amendment-to-duties-addressing-the-synthetic-opioid-supply-chain-in-the-peoples-republic-of"
+      },
+      {
+        "country_name": "Hong Kong",
+        "census_code": "5820",
+        "adjust_date": "2025-03-04",
+        "adjust_rate": 0.2,
+        "source": "https://www.federalregister.gov/documents/2025/03/07/2025-03775/further-amendment-to-duties-addressing-the-synthetic-opioid-supply-chain-in-the-peoples-republic-of"
+      },
+      {
+        "country_name": "Canada",
+        "census_code": "1220",
+        "adjust_date": "2025-08-01",
+        "adjust_rate": 0.35,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-14999/amendment-to-duties-to-address-the-flow-of-illicit-drugs-across-our-northern-border"
+      },
+      {
+        "country_name": "China",
+        "census_code": "5700",
+        "adjust_date": "2025-11-09",
+        "adjust_rate": 0.1,
+        "source": "https://www.federalregister.gov/documents/2025/11/07/2025-19825/modifying-duties-addressing-the-synthetic-opioid-supply-chain-in-the-peoples-republic-of-china"
+      },
+      {
+        "country_name": "Hong Kong",
+        "census_code": "5820",
+        "adjust_date": "2025-11-09",
+        "adjust_rate": 0.1,
+        "source": "https://www.federalregister.gov/documents/2025/11/07/2025-19825/modifying-duties-addressing-the-synthetic-opioid-supply-chain-in-the-peoples-republic-of-china"
+      }
+    ]
+  },
+  {
+    "tariff_authority": "s232",
+    "tariff_name": "autos",
+    "effective_date": [
+      {
+        "base_date": "2025-04-03",
+        "base_rate": 0.25,
+        "source": "https://www.federalregister.gov/documents/2025/04/03/2025-05930/adjusting-imports-of-automobiles-and-automobile-parts-into-the-united-states"
+      },
+      {
+        "country_name": "United Kingdom",
+        "census_code": "4120",
+        "adjust_date": "2025-07-01",
+        "adjust_rate": 0.1,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/06/implementing-the-general-terms-of-the-united-states-of-america-united-kingdom-economic-prosperity-deal/"
+      },
+      {
+        "country_name": "Japan",
+        "census_code": "5880",
+        "adjust_date": "2025-09-16",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/16/2025-17908/implementing-certain-tariff-related-elements-of-the-united-states-japan-agreement"
+      },
+      {
+        "country_name": "Sweden",
+        "census_code": "4010",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Finland",
+        "census_code": "4050",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Denmark, except Greenland",
+        "census_code": "4099",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Ireland",
+        "census_code": "4190",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Netherlands",
+        "census_code": "4210",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Belgium",
+        "census_code": "4231",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Luxembourg",
+        "census_code": "4239",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "France",
+        "census_code": "4279",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Germany (Federal Republic of Germany)",
+        "census_code": "4280",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Austria",
+        "census_code": "4330",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Czech Republic",
+        "census_code": "4351",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Slovakia",
+        "census_code": "4359",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Hungary",
+        "census_code": "4370",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Estonia",
+        "census_code": "4470",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Latvia",
+        "census_code": "4490",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Lithuania",
+        "census_code": "4510",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Poland",
+        "census_code": "4550",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Spain",
+        "census_code": "4700",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Portugal",
+        "census_code": "4710",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Malta",
+        "census_code": "4730",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Italy",
+        "census_code": "4759",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Croatia",
+        "census_code": "4791",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Slovenia",
+        "census_code": "4792",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Greece",
+        "census_code": "4840",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Romania",
+        "census_code": "4850",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Bulgaria",
+        "census_code": "4870",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Cyprus",
+        "census_code": "4910",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "South Korea (Republic of Korea)",
+        "census_code": "5800",
+        "adjust_date": "2025-12-05",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/12/04/2025-21940/implementing-certain-tariff-related-elements-of-the-us-korea-strategic-trade-and-investment-deal"
+      }
+    ]
+  },
+  {
+    "tariff_authority": "ieepa",
+    "tariff_name": "reciprocal",
+    "effective_date": [
+      {
+        "base_date": "2025-04-05",
+        "base_rate": 0.1,
+        "source": "https://www.federalregister.gov/documents/2025/04/07/2025-06063/regulating-imports-with-a-reciprocal-tariff-to-rectify-trade-practices-that-contribute-to-large-and"
+      },
+      {
+        "country_name": "Macao",
+        "census_code": "5660",
+        "adjust_date": "2025-04-09",
+        "adjust_rate": 0.84,
+        "source": "https://www.federalregister.gov/documents/2025/04/14/2025-06378/amendment-to-reciprocal-tariffs-and-updated-duties-as-applied-to-low-value-imports-from-the-peoples"
+      },
+      {
+        "country_name": "China",
+        "census_code": "5700",
+        "adjust_date": "2025-04-09",
+        "adjust_rate": 0.84,
+        "source": "https://www.federalregister.gov/documents/2025/04/14/2025-06378/amendment-to-reciprocal-tariffs-and-updated-duties-as-applied-to-low-value-imports-from-the-peoples"
+      },
+      {
+        "country_name": "Hong Kong",
+        "census_code": "5820",
+        "adjust_date": "2025-04-09",
+        "adjust_rate": 0.84,
+        "source": "https://www.federalregister.gov/documents/2025/04/14/2025-06378/amendment-to-reciprocal-tariffs-and-updated-duties-as-applied-to-low-value-imports-from-the-peoples"
+      },
+      {
+        "country_name": "Macao",
+        "census_code": "5660",
+        "adjust_date": "2025-04-10",
+        "adjust_rate": 1.25,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/04/modifying-reciprocal-tariff-rates-to-reflect-trading-partner-retaliation-and-alignment/"
+      },
+      {
+        "country_name": "China",
+        "census_code": "5700",
+        "adjust_date": "2025-04-10",
+        "adjust_rate": 1.25,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/04/modifying-reciprocal-tariff-rates-to-reflect-trading-partner-retaliation-and-alignment/"
+      },
+      {
+        "country_name": "Hong Kong",
+        "census_code": "5820",
+        "adjust_date": "2025-04-10",
+        "adjust_rate": 1.25,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/04/modifying-reciprocal-tariff-rates-to-reflect-trading-partner-retaliation-and-alignment/"
+      },
+      {
+        "country_name": "Macao",
+        "census_code": "5660",
+        "adjust_date": "2025-05-14",
+        "adjust_rate": 0.1,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/05/modifying-reciprocal-tariff-rates-to-reflect-discussions-with-the-peoples-republic-of-china/"
+      },
+      {
+        "country_name": "China",
+        "census_code": "5700",
+        "adjust_date": "2025-05-14",
+        "adjust_rate": 0.1,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/05/modifying-reciprocal-tariff-rates-to-reflect-discussions-with-the-peoples-republic-of-china/"
+      },
+      {
+        "country_name": "Hong Kong",
+        "census_code": "5820",
+        "adjust_date": "2025-05-14",
+        "adjust_rate": 0.1,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/05/modifying-reciprocal-tariff-rates-to-reflect-discussions-with-the-peoples-republic-of-china/"
+      },
+      {
+        "country_name": "Nicaragua",
+        "census_code": "2190",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.18,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Costa Rica",
+        "census_code": "2230",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Trinidad and Tobago",
+        "census_code": "2740",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Venezuela",
+        "census_code": "3070",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Guyana",
+        "census_code": "3120",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Ecuador",
+        "census_code": "3310",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Bolivia",
+        "census_code": "3350",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Brazil",
+        "census_code": "3510",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.5,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Iceland",
+        "census_code": "4000",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Sweden",
+        "census_code": "4010",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Norway",
+        "census_code": "4039",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Finland",
+        "census_code": "4050",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Denmark, except Greenland",
+        "census_code": "4099",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Ireland",
+        "census_code": "4190",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Netherlands",
+        "census_code": "4210",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Belgium",
+        "census_code": "4231",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Luxembourg",
+        "census_code": "4239",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "France",
+        "census_code": "4279",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Germany (Federal Republic of Germany)",
+        "census_code": "4280",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Austria",
+        "census_code": "4330",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Czech Republic",
+        "census_code": "4351",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Slovakia",
+        "census_code": "4359",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Hungary",
+        "census_code": "4370",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Liechtenstein",
+        "census_code": "4411",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Switzerland",
+        "census_code": "4419",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.39,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Estonia",
+        "census_code": "4470",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Latvia",
+        "census_code": "4490",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Lithuania",
+        "census_code": "4510",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Poland",
+        "census_code": "4550",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Kazakhstan",
+        "census_code": "4634",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.25,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Moldova (Republic of Moldova)",
+        "census_code": "4641",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.25,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Spain",
+        "census_code": "4700",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Portugal",
+        "census_code": "4710",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Malta",
+        "census_code": "4730",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Italy",
+        "census_code": "4759",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Croatia",
+        "census_code": "4791",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Slovenia",
+        "census_code": "4792",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Bosnia and Herzegovina",
+        "census_code": "4793",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.3,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "North Macedonia",
+        "census_code": "4794",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Serbia",
+        "census_code": "4801",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.35,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Greece",
+        "census_code": "4840",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Romania",
+        "census_code": "4850",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Bulgaria",
+        "census_code": "4870",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Turkey",
+        "census_code": "4890",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Cyprus",
+        "census_code": "4910",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Syria (Syrian Arab Republic)",
+        "census_code": "5020",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.41,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Iraq",
+        "census_code": "5050",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.35,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Israel",
+        "census_code": "5081",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Jordan",
+        "census_code": "5110",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Afghanistan",
+        "census_code": "5310",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "India",
+        "census_code": "5330",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.25,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Pakistan",
+        "census_code": "5350",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.19,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Bangladesh",
+        "census_code": "5380",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.2,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Sri Lanka",
+        "census_code": "5420",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.2,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Burma (Myanmar)",
+        "census_code": "5460",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.4,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Thailand",
+        "census_code": "5490",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.19,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Vietnam",
+        "census_code": "5520",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.2,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Laos (Lao People's Democratic Republic)",
+        "census_code": "5530",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.4,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Cambodia",
+        "census_code": "5550",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.19,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Malaysia",
+        "census_code": "5570",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.19,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Indonesia",
+        "census_code": "5600",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.19,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Brunei",
+        "census_code": "5610",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.25,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Philippines",
+        "census_code": "5650",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.19,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "South Korea (Republic of Korea)",
+        "census_code": "5800",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Taiwan",
+        "census_code": "5830",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.2,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Japan",
+        "census_code": "5880",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Papua New Guinea",
+        "census_code": "6040",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "New Zealand",
+        "census_code": "6141",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Vanuatu",
+        "census_code": "6224",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Nauru",
+        "census_code": "6862",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Fiji",
+        "census_code": "6863",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Algeria",
+        "census_code": "7210",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.3,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Tunisia",
+        "census_code": "7230",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.25,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Libya",
+        "census_code": "7250",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.3,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Equatorial Guinea",
+        "census_code": "7380",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Cameroon",
+        "census_code": "7420",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Ghana",
+        "census_code": "7490",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Nigeria",
+        "census_code": "7530",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Chad",
+        "census_code": "7560",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Angola",
+        "census_code": "7620",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Congo, Democratic Republic of the Congo (formerly Za",
+        "census_code": "7660",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Uganda",
+        "census_code": "7780",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Mauritius",
+        "census_code": "7850",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Mozambique",
+        "census_code": "7870",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Madagascar",
+        "census_code": "7880",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "South Africa",
+        "census_code": "7910",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.3,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Namibia",
+        "census_code": "7920",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Botswana",
+        "census_code": "7930",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Zambia",
+        "census_code": "7940",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Zimbabwe",
+        "census_code": "7960",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Malawi",
+        "census_code": "7970",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "Lesotho",
+        "census_code": "7990",
+        "adjust_date": "2025-08-07",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates"
+      },
+      {
+        "country_name": "India",
+        "census_code": "5330",
+        "adjust_date": "2025-08-27",
+        "adjust_rate": 0.5,
+        "source": "https://www.federalregister.gov/documents/2025/08/27/2025-16419/notice-of-implementation-of-additional-duties-on-products-of-india-pursuant-to-the-presidents"
+      },
+      {
+        "country_name": "Switzerland",
+        "census_code": "4419",
+        "adjust_date": "2025-11-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/12/18/2025-23316/implementing-certain-tariff-related-elements-of-the-framework-for-a-united"
+      },
+      {
+        "country_name": "India",
+        "census_code": "5330",
+        "adjust_date": "2026-02-07",
+        "adjust_rate": 0.25,
+        "source": "https://www.whitehouse.gov/presidential-actions/2026/02/modifying-duties-to-address-threats-to-the-united-states-by-the-government-of-the-russian-federation-04b2/"
+      }
+    ]
+  },
+  {
+    "tariff_authority": "s232",
+    "tariff_name": "auto_parts",
+    "effective_date": [
+      {
+        "base_date": "2025-05-03",
+        "base_rate": 0.25,
+        "source": "https://www.federalregister.gov/documents/2025/04/03/2025-05930/adjusting-imports-of-automobiles-and-automobile-parts-into-the-united-states"
+      },
+      {
+        "country_name": "Canada",
+        "census_code": "1220",
+        "adjust_date": "2025-05-03",
+        "adjust_rate": 0,
+        "source": "https://www.federalregister.gov/documents/2025/04/03/2025-05930/adjusting-imports-of-automobiles-and-automobile-parts-into-the-united-states"
+      },
+      {
+        "country_name": "Mexico",
+        "census_code": "2010",
+        "adjust_date": "2025-05-03",
+        "adjust_rate": 0,
+        "source": "https://www.federalregister.gov/documents/2025/04/03/2025-05930/adjusting-imports-of-automobiles-and-automobile-parts-into-the-united-states"
+      },
+      {
+        "country_name": "United Kingdom",
+        "census_code": "4120",
+        "adjust_date": "2025-07-01",
+        "adjust_rate": 0.1,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/06/implementing-the-general-terms-of-the-united-states-of-america-united-kingdom-economic-prosperity-deal/"
+      },
+      {
+        "country_name": "Japan",
+        "census_code": "5880",
+        "adjust_date": "2025-09-16",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/16/2025-17908/implementing-certain-tariff-related-elements-of-the-united-states-japan-agreement"
+      },
+      {
+        "country_name": "Sweden",
+        "census_code": "4010",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Finland",
+        "census_code": "4050",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Denmark, except Greenland",
+        "census_code": "4099",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Ireland",
+        "census_code": "4190",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Netherlands",
+        "census_code": "4210",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Belgium",
+        "census_code": "4231",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Luxembourg",
+        "census_code": "4239",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "France",
+        "census_code": "4279",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Germany (Federal Republic of Germany)",
+        "census_code": "4280",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Austria",
+        "census_code": "4330",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Czech Republic",
+        "census_code": "4351",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Slovakia",
+        "census_code": "4359",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Hungary",
+        "census_code": "4370",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Estonia",
+        "census_code": "4470",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Latvia",
+        "census_code": "4490",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Lithuania",
+        "census_code": "4510",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Poland",
+        "census_code": "4550",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Spain",
+        "census_code": "4700",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Portugal",
+        "census_code": "4710",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Malta",
+        "census_code": "4730",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Italy",
+        "census_code": "4759",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Croatia",
+        "census_code": "4791",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Slovenia",
+        "census_code": "4792",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Greece",
+        "census_code": "4840",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Romania",
+        "census_code": "4850",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Bulgaria",
+        "census_code": "4870",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "Cyprus",
+        "census_code": "4910",
+        "adjust_date": "2025-09-25",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/09/25/2025-18660/implementing-certain-tariff-related-elements-of-the-us-eu-framework-on-an-agreement-on-reciprocal"
+      },
+      {
+        "country_name": "South Korea (Republic of Korea)",
+        "census_code": "5800",
+        "adjust_date": "2025-12-05",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/12/04/2025-21940/implementing-certain-tariff-related-elements-of-the-us-korea-strategic-trade-and-investment-deal"
+      },
+      {
+        "country_name": "Taiwan",
+        "census_code": "5830",
+        "adjust_date": "2026-05-01",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/05/28/2026-10571/implementing-certain-tariff-related-elements-of-a-trade-and-security-agreement-between-the-american"
+      }
+    ]
+  },
+  {
+    "tariff_authority": "s232",
+    "tariff_name": "copper",
+    "effective_date": [
+      {
+        "base_date": "2025-08-01",
+        "base_rate": 0.5,
+        "source": "https://www.federalregister.gov/documents/2025/08/05/2025-14893/adjusting-imports-of-copper-into-the-united-states"
+      }
+    ]
+  },
+  {
+    "tariff_authority": "s232",
+    "tariff_name": "softwood_lumber",
+    "effective_date": [
+      {
+        "base_date": "2025-10-14",
+        "base_rate": 0.1,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Sweden",
+        "census_code": "4010",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Finland",
+        "census_code": "4050",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Denmark, except Greenland",
+        "census_code": "4099",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Ireland",
+        "census_code": "4190",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Netherlands",
+        "census_code": "4210",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Belgium",
+        "census_code": "4231",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Luxembourg",
+        "census_code": "4239",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "France",
+        "census_code": "4279",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Germany (Federal Republic of Germany)",
+        "census_code": "4280",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Austria",
+        "census_code": "4330",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Czech Republic",
+        "census_code": "4351",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Slovakia",
+        "census_code": "4359",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Hungary",
+        "census_code": "4370",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Estonia",
+        "census_code": "4470",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Latvia",
+        "census_code": "4490",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Lithuania",
+        "census_code": "4510",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Poland",
+        "census_code": "4550",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Spain",
+        "census_code": "4700",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Portugal",
+        "census_code": "4710",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Malta",
+        "census_code": "4730",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Italy",
+        "census_code": "4759",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Croatia",
+        "census_code": "4791",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Slovenia",
+        "census_code": "4792",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Greece",
+        "census_code": "4840",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Romania",
+        "census_code": "4850",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Bulgaria",
+        "census_code": "4870",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Cyprus",
+        "census_code": "4910",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "Japan",
+        "census_code": "5880",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.whitehouse.gov/presidential-actions/2025/09/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states/"
+      },
+      {
+        "country_name": "South Korea (Republic of Korea)",
+        "census_code": "5800",
+        "adjust_date": "2025-12-05",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/12/04/2025-21940/implementing-certain-tariff-related-elements-of-the-us-korea-strategic-trade-and-investment-deal"
+      },
+      {
+        "country_name": "Taiwan",
+        "census_code": "5830",
+        "adjust_date": "2026-05-01",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/05/28/2026-10571/implementing-certain-tariff-related-elements-of-a-trade-and-security-agreement-between-the-american"
+      }
+    ]
+  },
+  {
+    "tariff_authority": "s232",
+    "tariff_name": "wood_furniture",
+    "effective_date": [
+      {
+        "base_date": "2025-10-14",
+        "base_rate": 0.25,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Sweden",
+        "census_code": "4010",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Finland",
+        "census_code": "4050",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Denmark, except Greenland",
+        "census_code": "4099",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "United Kingdom",
+        "census_code": "4120",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.1,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Ireland",
+        "census_code": "4190",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Netherlands",
+        "census_code": "4210",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Belgium",
+        "census_code": "4231",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Luxembourg",
+        "census_code": "4239",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "France",
+        "census_code": "4279",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Germany (Federal Republic of Germany)",
+        "census_code": "4280",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Austria",
+        "census_code": "4330",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Czech Republic",
+        "census_code": "4351",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Slovakia",
+        "census_code": "4359",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Hungary",
+        "census_code": "4370",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Estonia",
+        "census_code": "4470",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Latvia",
+        "census_code": "4490",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Lithuania",
+        "census_code": "4510",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Poland",
+        "census_code": "4550",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Spain",
+        "census_code": "4700",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Portugal",
+        "census_code": "4710",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Malta",
+        "census_code": "4730",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Italy",
+        "census_code": "4759",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Croatia",
+        "census_code": "4791",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Slovenia",
+        "census_code": "4792",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Greece",
+        "census_code": "4840",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Romania",
+        "census_code": "4850",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Bulgaria",
+        "census_code": "4870",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Cyprus",
+        "census_code": "4910",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Japan",
+        "census_code": "5880",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "South Korea (Republic of Korea)",
+        "census_code": "5800",
+        "adjust_date": "2025-12-05",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/12/04/2025-21940/implementing-certain-tariff-related-elements-of-the-us-korea-strategic-trade-and-investment-deal"
+      },
+      {
+        "country_name": "Taiwan",
+        "census_code": "5830",
+        "adjust_date": "2026-05-01",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/05/28/2026-10571/implementing-certain-tariff-related-elements-of-a-trade-and-security-agreement-between-the-american"
+      }
+    ]
+  },
+  {
+    "tariff_authority": "s232",
+    "tariff_name": "kitchen_cabinets",
+    "effective_date": [
+      {
+        "base_date": "2025-10-14",
+        "base_rate": 0.25,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Sweden",
+        "census_code": "4010",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Finland",
+        "census_code": "4050",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Denmark, except Greenland",
+        "census_code": "4099",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "United Kingdom",
+        "census_code": "4120",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.1,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Ireland",
+        "census_code": "4190",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Netherlands",
+        "census_code": "4210",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Belgium",
+        "census_code": "4231",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Luxembourg",
+        "census_code": "4239",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "France",
+        "census_code": "4279",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Germany (Federal Republic of Germany)",
+        "census_code": "4280",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Austria",
+        "census_code": "4330",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Czech Republic",
+        "census_code": "4351",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Slovakia",
+        "census_code": "4359",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Hungary",
+        "census_code": "4370",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Estonia",
+        "census_code": "4470",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Latvia",
+        "census_code": "4490",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Lithuania",
+        "census_code": "4510",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Poland",
+        "census_code": "4550",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Spain",
+        "census_code": "4700",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Portugal",
+        "census_code": "4710",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Malta",
+        "census_code": "4730",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Italy",
+        "census_code": "4759",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Croatia",
+        "census_code": "4791",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Slovenia",
+        "census_code": "4792",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Greece",
+        "census_code": "4840",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Romania",
+        "census_code": "4850",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Bulgaria",
+        "census_code": "4870",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Cyprus",
+        "census_code": "4910",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "Japan",
+        "census_code": "5880",
+        "adjust_date": "2025-10-14",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/10/06/2025-19482/adjusting-imports-of-timber-lumber-and-their-derivative-products-into-the-united-states"
+      },
+      {
+        "country_name": "South Korea (Republic of Korea)",
+        "census_code": "5800",
+        "adjust_date": "2025-12-05",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2025/12/04/2025-21940/implementing-certain-tariff-related-elements-of-the-us-korea-strategic-trade-and-investment-deal"
+      },
+      {
+        "country_name": "Taiwan",
+        "census_code": "5830",
+        "adjust_date": "2026-05-01",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/05/28/2026-10571/implementing-certain-tariff-related-elements-of-a-trade-and-security-agreement-between-the-american"
+      }
+    ]
+  },
+  {
+    "tariff_authority": "s232",
+    "tariff_name": "buses",
+    "effective_date": [
+      {
+        "base_date": "2025-11-01",
+        "base_rate": 0.1,
+        "source": "https://www.federalregister.gov/documents/2025/10/22/2025-19639/adjusting-imports-of-medium--and-heavy-duty-vehicles-medium--and-heavy-duty-vehicle-parts-and-buses"
+      }
+    ]
+  },
+  {
+    "tariff_authority": "s232",
+    "tariff_name": "mhd_vehicles",
+    "effective_date": [
+      {
+        "base_date": "2025-11-01",
+        "base_rate": 0.25,
+        "source": "https://www.federalregister.gov/documents/2025/10/22/2025-19639/adjusting-imports-of-medium--and-heavy-duty-vehicles-medium--and-heavy-duty-vehicle-parts-and-buses"
+      }
+    ]
+  },
+  {
+    "tariff_authority": "s232",
+    "tariff_name": "mhd_parts",
+    "effective_date": [
+      {
+        "base_date": "2025-11-01",
+        "base_rate": 0.25,
+        "source": "https://www.federalregister.gov/documents/2025/10/22/2025-19639/adjusting-imports-of-medium--and-heavy-duty-vehicles-medium--and-heavy-duty-vehicle-parts-and-buses"
+      },
+      {
+        "country_name": "Canada",
+        "census_code": "1220",
+        "adjust_date": "2025-11-01",
+        "adjust_rate": 0,
+        "source": "https://www.federalregister.gov/documents/2025/10/22/2025-19639/adjusting-imports-of-medium--and-heavy-duty-vehicles-medium--and-heavy-duty-vehicle-parts-and-buses"
+      },
+      {
+        "country_name": "Mexico",
+        "census_code": "2010",
+        "adjust_date": "2025-11-01",
+        "adjust_rate": 0,
+        "source": "https://www.federalregister.gov/documents/2025/10/22/2025-19639/adjusting-imports-of-medium--and-heavy-duty-vehicles-medium--and-heavy-duty-vehicle-parts-and-buses"
+      }
+    ]
+  },
+  {
+    "tariff_authority": "s232",
+    "tariff_name": "semiconductors",
+    "effective_date": [
+      {
+        "base_date": "2026-01-15",
+        "base_rate": 0.25,
+        "source": "https://www.federalregister.gov/documents/2026/01/20/2026-01052/adjusting-imports-of-semiconductors-semiconductor-manufacturing-equipment-and-their-derivative"
+      }
+    ]
+  },
+  {
+    "tariff_authority": "s122",
+    "tariff_name": "section_122",
+    "effective_date": [
+      {
+        "base_date": "2026-02-24",
+        "base_rate": 0.1,
+        "source": "https://www.federalregister.gov/documents/2026/02/25/2026-03824/imposing-a-temporary-import-surcharge-to-address-fundamental-international-payments-problems"
+      }
+    ]
+  },
+  {
+    "tariff_authority": "s232",
+    "tariff_name": "pharmaceuticals",
+    "effective_date": [
+      {
+        "base_date": "2026-09-29",
+        "base_rate": 1,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Sweden",
+        "census_code": "4010",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Finland",
+        "census_code": "4050",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Denmark, except Greenland",
+        "census_code": "4099",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "United Kingdom",
+        "census_code": "4120",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.1,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Ireland",
+        "census_code": "4190",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Netherlands",
+        "census_code": "4210",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Belgium",
+        "census_code": "4231",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Luxembourg",
+        "census_code": "4239",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "France",
+        "census_code": "4279",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Germany (Federal Republic of Germany)",
+        "census_code": "4280",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Austria",
+        "census_code": "4330",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Czech Republic",
+        "census_code": "4351",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Slovakia",
+        "census_code": "4359",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Hungary",
+        "census_code": "4370",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Liechtenstein",
+        "census_code": "4411",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Switzerland",
+        "census_code": "4419",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Estonia",
+        "census_code": "4470",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Latvia",
+        "census_code": "4490",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Lithuania",
+        "census_code": "4510",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Poland",
+        "census_code": "4550",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Spain",
+        "census_code": "4700",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Portugal",
+        "census_code": "4710",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Malta",
+        "census_code": "4730",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Italy",
+        "census_code": "4759",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Croatia",
+        "census_code": "4791",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Slovenia",
+        "census_code": "4792",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Greece",
+        "census_code": "4840",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Romania",
+        "census_code": "4850",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Bulgaria",
+        "census_code": "4870",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Cyprus",
+        "census_code": "4910",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "South Korea (Republic of Korea)",
+        "census_code": "5800",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      },
+      {
+        "country_name": "Japan",
+        "census_code": "5880",
+        "adjust_date": "2026-09-29",
+        "adjust_rate": 0.15,
+        "source": "https://www.federalregister.gov/documents/2026/04/09/2026-06956/adjusting-imports-of-pharmaceuticals-and-pharmaceutical-ingredients-into-the-united-states"
+      }
+    ]
+  }
+]

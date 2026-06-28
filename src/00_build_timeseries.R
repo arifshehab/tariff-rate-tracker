@@ -599,7 +599,7 @@ assemble_timeseries <- function(output_dir, rev_dates, pp_build,
 #' @return List with metadata and final timeseries path
 build_full_timeseries <- function(
   archive_dir = 'data/hts_archives',
-  output_dir = 'data/timeseries',
+  output_dir = 'data/timeseries/updated_232_logic',
   revision_dates_path = 'config/revision_dates.csv',
   census_codes_path = 'resources/census_codes.csv',
   tpc_path = NULL,

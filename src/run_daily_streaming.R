@@ -24,7 +24,7 @@ imports   <- load_import_weights()   # weighted (uses config/local_paths.yaml)
 # boundary snapshots out (revision %in% rev_dates) — silently dropping e.g. the
 # pharma 232 turn-on at bnd_2026-09-29. Re-attach one rev_dates row per on-disk
 # boundary snapshot. The boundary date is the snapshot id suffix (bnd_<date>).
-snap_dir   <- here('data', 'timeseries')
+snap_dir   <- here('data', 'timeseries', 'updated_232_logic')
 bnd_snaps  <- list.files(snap_dir, pattern = '^snapshot_bnd_\\d{4}-\\d{2}-\\d{2}\\.rds$')
 bnd_revs   <- sub('^snapshot_(bnd_\\d{4}-\\d{2}-\\d{2})\\.rds$', '\\1', bnd_snaps)
 bnd_dates  <- as.Date(sub('^bnd_', '', bnd_revs))
@@ -41,7 +41,7 @@ if (is.na(cores) || cores < 1L) cores <- 1L
 
 message('=== Streaming weighted daily series (cores=', cores, ') ===')
 daily <- build_daily_aggregates_streaming(
-  snapshot_dir   = here('data', 'timeseries'),
+  snapshot_dir   = snap_dir,
   rev_dates      = rev_dates,
   imports        = imports,
   policy_params  = pp,

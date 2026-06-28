@@ -423,19 +423,19 @@ apply_pharma_232_adjustments <- function(rates, pharma_products, cfg, countries,
       # the post-dense-grid pass (schema coalesces NA -> 0 only at the very end),
       # so the zero_only gate must treat NA as 0 to reach them.
       .pharma_hit = hts10 %in% pharma_products &
-        (if (zero_only) coalesce(rate_232, 0) == 0 else coalesce(rate_232, 0) > 0),
+        (if (zero_only) coalesce(rate_232_pharmaceuticals, 0) == 0 else coalesce(rate_232_pharmaceuticals, 0) > 0),
       .pharma_base = coalesce(pharma_country_rate, 0),
       .pharma_floor = if_else(
         !is.na(pharma_target_total),
         pmax(pharma_target_total - base_rate, 0),
         0
       ),
-      rate_232 = if_else(
+      rate_232_pharmaceuticals = if_else(
         .pharma_hit,
         pmax(.pharma_base, .pharma_floor) *
           (1 - coalesce(pharma_generic_share, 0)) *
           (1 - coalesce(pharma_company_deal_share, 0)),
-        rate_232
+        rate_232_pharmaceuticals
       )
     ) %>%
     select(-pharma_country_rate, -pharma_target_total,
@@ -634,17 +634,17 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
             left_join(country_alum %>% select(country, .alum_deriv_rate = deriv_rate), by = 'country', relationship = 'many-to-one') %>%
             mutate(
               .alum_deriv_rate = coalesce(.alum_deriv_rate, 0),
-              rate_232 = if_else(hts10 %in% alum_matched & .alum_deriv_rate > 0,
-                                 pmax(rate_232, .alum_deriv_rate), rate_232),
+              rate_232_aluminum = if_else(hts10 %in% alum_matched & .alum_deriv_rate > 0,
+                                          pmax(rate_232_aluminum, .alum_deriv_rate), rate_232_aluminum),
               deriv_type = if_else(hts10 %in% alum_matched & .alum_deriv_rate > 0,
                                    'aluminum', deriv_type)
             ) %>% select(-.alum_deriv_rate)
           blanket_alum <- country_alum %>% select(country, blanket_rate = deriv_rate)
           rates <- add_blanket_pairs(rates, products, alum_matched, blanket_alum,
-                                     'rate_232', '232 aluminum derivative duties')
+                                     'rate_232_aluminum', '232 aluminum derivative duties')
           # Tag newly added pairs
           rates <- rates %>%
-            mutate(deriv_type = if_else(hts10 %in% alum_matched & is.na(deriv_type) & rate_232 > 0,
+            mutate(deriv_type = if_else(hts10 %in% alum_matched & is.na(deriv_type) & rate_232_aluminum > 0,
                                          'aluminum', deriv_type))
           message('  Aluminum derivative coverage: ', length(alum_matched), ' products')
         }
@@ -668,8 +668,8 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
             left_join(country_steel %>% select(country, .steel_deriv_rate = deriv_rate), by = 'country', relationship = 'many-to-one') %>%
             mutate(
               .steel_deriv_rate = coalesce(.steel_deriv_rate, 0),
-              rate_232 = if_else(hts10 %in% steel_matched & .steel_deriv_rate > 0,
-                                 pmax(rate_232, .steel_deriv_rate), rate_232),
+              rate_232_steel = if_else(hts10 %in% steel_matched & .steel_deriv_rate > 0,
+                                       pmax(rate_232_steel, .steel_deriv_rate), rate_232_steel),
               # Products in both types: steel takes precedence for deriv_type
               # (stacking uses steel_share, which is correct since steel content
               # is what triggers the steel derivative classification)
@@ -678,9 +678,9 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
             ) %>% select(-.steel_deriv_rate)
           blanket_steel <- country_steel %>% select(country, blanket_rate = deriv_rate)
           rates <- add_blanket_pairs(rates, products, steel_matched, blanket_steel,
-                                     'rate_232', '232 steel derivative duties')
+                                     'rate_232_steel', '232 steel derivative duties')
           rates <- rates %>%
-            mutate(deriv_type = if_else(hts10 %in% steel_matched & is.na(deriv_type) & rate_232 > 0,
+            mutate(deriv_type = if_else(hts10 %in% steel_matched & is.na(deriv_type) & rate_232_steel > 0,
                                          'steel', deriv_type))
           message('  Steel derivative coverage: ', length(steel_matched), ' products')
         }
@@ -696,10 +696,15 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
   if (length(deriv_matched) > 0) {
     rates <- rates %>%
       mutate(
-        statutory_rate_232 = if_else(
-          hts10 %in% deriv_matched,
-          pmax(coalesce(statutory_rate_232, 0), rate_232),
-          statutory_rate_232
+        statutory_rate_232_aluminum = if_else(
+          hts10 %in% alum_matched,
+          pmax(coalesce(statutory_rate_232_aluminum, 0), rate_232_aluminum),
+          statutory_rate_232_aluminum
+        ),
+        statutory_rate_232_steel = if_else(
+          hts10 %in% steel_matched,
+          pmax(coalesce(statutory_rate_232_steel, 0), rate_232_steel),
+          statutory_rate_232_steel
         )
       )
   }
@@ -755,26 +760,42 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
           # with zero-filled type shares (load_metal_content), so scaling by
           # the type share would zero the duty entirely (e.g. 8483.90.50.20).
           # Fall back to the aggregate share instead.
-          .scale_share = case_when(
-            hts10 %in% deriv_only & deriv_type == 'steel'    & steel_share    > 0 ~ steel_share,
+          .alum_scale = case_when(
             hts10 %in% deriv_only & deriv_type == 'aluminum' & aluminum_share > 0 ~ aluminum_share,
-            hts10 %in% deriv_only                            ~ metal_share,  # fallback
+            hts10 %in% deriv_only & deriv_type == 'aluminum' ~ metal_share,
             TRUE ~ 1.0
           ),
-          rate_232 = if_else(
-            hts10 %in% deriv_only & .scale_share < 1.0,
-            rate_232 * .scale_share,
-            rate_232
+          .steel_scale = case_when(
+            hts10 %in% deriv_only & deriv_type == 'steel' & steel_share > 0 ~ steel_share,
+            hts10 %in% deriv_only & deriv_type == 'steel' ~ metal_share,
+            TRUE ~ 1.0
+          ),
+          rate_232_aluminum = if_else(
+            hts10 %in% deriv_only & deriv_type == 'aluminum' & .alum_scale < 1.0,
+            rate_232_aluminum * .alum_scale,
+            rate_232_aluminum
+          ),
+          rate_232_steel = if_else(
+            hts10 %in% deriv_only & deriv_type == 'steel' & .steel_scale < 1.0,
+            rate_232_steel * .steel_scale,
+            rate_232_steel
           )
-        ) %>% select(-.scale_share)
+        ) %>% select(-.alum_scale, -.steel_scale)
     } else {
       # Fallback: aggregate metal_share (backward compat for flat/cbo methods)
       rates <- rates %>%
-        mutate(rate_232 = if_else(
-          hts10 %in% deriv_only & metal_share < 1.0,
-          rate_232 * metal_share,
-          rate_232
-        ))
+        mutate(
+          rate_232_aluminum = if_else(
+            hts10 %in% deriv_only & deriv_type == 'aluminum' & metal_share < 1.0,
+            rate_232_aluminum * metal_share,
+            rate_232_aluminum
+          ),
+          rate_232_steel = if_else(
+            hts10 %in% deriv_only & deriv_type == 'steel' & metal_share < 1.0,
+            rate_232_steel * metal_share,
+            rate_232_steel
+          )
+        )
     }
 
     # Reset metal_share to 1.0 for heading products excluded from scaling.
@@ -798,7 +819,8 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
               ' heading/derivative overlap products')
     }
 
-    n_deriv_with_232 <- sum(rates$hts10 %in% deriv_matched & rates$rate_232 > 0)
+    n_deriv_with_232 <- sum(rates$hts10 %in% deriv_matched &
+                              (rates$rate_232_steel > 0 | rates$rate_232_aluminum > 0))
     message('  Derivative 232 after metal scaling: ', n_deriv_with_232,
             ' product-country pairs')
   }
@@ -838,7 +860,12 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
   # Required input columns — function silently produces garbage if missing.
   REQUIRED_RATE_COLS <- c(
     'hts10', 'country',
-    'rate_232', 'rate_301', 'rate_301_cs', 'rate_ieepa_recip', 'rate_ieepa_fent',
+    'rate_232_steel', 'rate_232_aluminum', 'rate_232_copper',
+    'rate_232_autos', 'rate_232_auto_parts',
+    'rate_232_mhd_vehicles', 'rate_232_mhd_parts', 'rate_232_buses',
+    'rate_232_softwood', 'rate_232_wood_furniture', 'rate_232_kitchen_cabinets',
+    'rate_232_semiconductors', 'rate_232_pharmaceuticals',
+    'rate_301', 'rate_301_cs', 'rate_ieepa_recip', 'rate_ieepa_fent',
     'rate_s122', 'rate_section_201', 'rate_other'
   )
   missing_required <- setdiff(REQUIRED_RATE_COLS, names(rates))
@@ -890,6 +917,11 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
   # in normal production pipelines.
   SAFE_NA_COLUMNS <- c('ieepa_type', 's232_annex', 's232_usmca_eligible',
                        'deriv_type',
+                       # .annex_metal — temporary metal-type tag (steel/aluminum) for annex
+                       # products, set in step 5c and consumed in step 6e. MFN-only rows have
+                       # no annex classification; all 6e reads are guarded by !is.na(s232_annex)
+                       # or coalesce(rates$.annex_metal == 'steel', FALSE).
+                       '.annex_metal',
                        # s232_deal_floor — transient step-4c tag (deal floor
                        # target rate) consumed by the 6f post-MFN recompute and
                        # dropped before output; NA is correct for MFN-only
@@ -913,7 +945,20 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
   # Columns `new_pairs` sets explicitly (must match the mutate() below).
   # `statutory_rate_232` is set to 0 here so MFN-only rows carry a valid
   # statutory rate, not NA, into the remaining statutory_rate_* save in 6b2.
-  EXPLICIT_SET_COLUMNS <- c(REQUIRED_RATE_COLS, 'base_rate', 'statutory_rate_232', 'heading_program')
+  EXPLICIT_SET_COLUMNS <- c(REQUIRED_RATE_COLS, 'base_rate',
+    'rate_232_steel', 'rate_232_aluminum', 'rate_232_copper',
+    'rate_232_autos', 'rate_232_auto_parts',
+    'rate_232_mhd_vehicles', 'rate_232_mhd_parts', 'rate_232_buses',
+    'rate_232_softwood', 'rate_232_wood_furniture', 'rate_232_kitchen_cabinets',
+    'rate_232_semiconductors', 'rate_232_pharmaceuticals',
+    'statutory_rate_232',
+    'statutory_rate_232_steel', 'statutory_rate_232_aluminum', 'statutory_rate_232_copper',
+    'statutory_rate_232_autos', 'statutory_rate_232_auto_parts',
+    'statutory_rate_232_mhd_vehicles', 'statutory_rate_232_mhd_parts', 'statutory_rate_232_buses',
+    'statutory_rate_232_softwood', 'statutory_rate_232_wood_furniture',
+    'statutory_rate_232_kitchen_cabinets',
+    'statutory_rate_232_semiconductors', 'statutory_rate_232_pharmaceuticals',
+    'heading_program')
 
   set_cols <- c(EXPLICIT_SET_COLUMNS, SAFE_NA_COLUMNS)
   unaccounted <- setdiff(names(rates), set_cols)
@@ -937,18 +982,44 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
     expand_grid(country = countries) %>%
     anti_join(existing_pairs, by = c('hts10', 'country')) %>%
     mutate(
-      rate_232 = 0, rate_301 = 0, rate_301_cs = 0, rate_ieepa_recip = 0,
+      rate_232_steel = 0, rate_232_aluminum = 0, rate_232_copper = 0,
+      rate_232_autos = 0, rate_232_auto_parts = 0,
+      rate_232_mhd_vehicles = 0, rate_232_mhd_parts = 0, rate_232_buses = 0,
+      rate_232_softwood = 0, rate_232_wood_furniture = 0, rate_232_kitchen_cabinets = 0,
+      rate_232_semiconductors = 0, rate_232_pharmaceuticals = 0,
+      rate_301 = 0, rate_301_cs = 0, rate_ieepa_recip = 0,
       rate_ieepa_fent = 0, rate_s122 = 0,
       rate_section_201 = 0, rate_other = 0,
       statutory_rate_232 = 0,
+      statutory_rate_232_steel = 0, statutory_rate_232_aluminum = 0, statutory_rate_232_copper = 0,
+      statutory_rate_232_autos = 0, statutory_rate_232_auto_parts = 0,
+      statutory_rate_232_mhd_vehicles = 0, statutory_rate_232_mhd_parts = 0, statutory_rate_232_buses = 0,
+      statutory_rate_232_softwood = 0, statutory_rate_232_wood_furniture = 0,
+      statutory_rate_232_kitchen_cabinets = 0,
+      statutory_rate_232_semiconductors = 0, statutory_rate_232_pharmaceuticals = 0,
       heading_program = FALSE
     )
 
   # At the post-IEEPA call site `rates` does not yet have statutory_rate_232
-  # (it's set in step 4c). Drop the column from new_pairs in that case so
-  # bind_rows doesn't introduce it prematurely.
-  if (!'statutory_rate_232' %in% names(rates)) {
-    new_pairs <- new_pairs %>% select(-statutory_rate_232)
+  # or the per-program columns (set in step 4c). Drop them from new_pairs in
+  # that case so bind_rows doesn't introduce them prematurely.
+  per_prog_cols <- c(
+    'rate_232_steel', 'rate_232_aluminum', 'rate_232_copper',
+    'rate_232_autos', 'rate_232_auto_parts',
+    'rate_232_mhd_vehicles', 'rate_232_mhd_parts', 'rate_232_buses',
+    'rate_232_softwood', 'rate_232_wood_furniture', 'rate_232_kitchen_cabinets',
+    'rate_232_semiconductors', 'rate_232_pharmaceuticals',
+    'statutory_rate_232',
+    'statutory_rate_232_steel', 'statutory_rate_232_aluminum', 'statutory_rate_232_copper',
+    'statutory_rate_232_autos', 'statutory_rate_232_auto_parts',
+    'statutory_rate_232_mhd_vehicles', 'statutory_rate_232_mhd_parts', 'statutory_rate_232_buses',
+    'statutory_rate_232_softwood', 'statutory_rate_232_wood_furniture',
+    'statutory_rate_232_kitchen_cabinets',
+    'statutory_rate_232_semiconductors', 'statutory_rate_232_pharmaceuticals'
+  )
+  cols_to_drop <- setdiff(per_prog_cols, names(rates))
+  if (length(cols_to_drop) > 0) {
+    new_pairs <- new_pairs %>% select(-all_of(cols_to_drop))
   }
 
   # heading_program is only present once the post-annex 232 block (step 6e)
@@ -1047,6 +1118,22 @@ calculate_rates_for_revision <- function(
     message('  No footnote-linked rates for ', revision_id, ' — blanket authorities will seed rows')
     rates <- enforce_rate_schema(tibble())
   }
+
+  # Initialize per-program §232 columns to 0. calculate_rates_fast() produces a
+  # blended rate_232 from footnotes; those footnote-based §232 rates are overwritten
+  # by the blanket assignments in step 4 (which write directly to per-program cols).
+  # rate_232 from footnotes is intentionally NOT forwarded to per-program columns:
+  # the blanket step covers the same products more accurately via product lists.
+  for (.col in c('rate_232_steel', 'rate_232_aluminum', 'rate_232_copper',
+                 'rate_232_autos', 'rate_232_auto_parts',
+                 'rate_232_mhd_vehicles', 'rate_232_mhd_parts', 'rate_232_buses',
+                 'rate_232_softwood', 'rate_232_wood_furniture', 'rate_232_kitchen_cabinets',
+                 'rate_232_semiconductors', 'rate_232_pharmaceuticals')) {
+    rates[[.col]] <- 0
+  }
+  # Remove the blended footnote rate_232 — it will be re-derived from per-program
+  # columns at the end of the pipeline (before step 8).
+  rates$rate_232 <- NULL
 
   # 1b. Check IEEPA invalidation (SCOTUS ruling in Learning Resources v. Trump)
   #     If this revision's effective_date is on or after the invalidation date,
@@ -1359,7 +1446,12 @@ calculate_rates_for_revision <- function(
 
       new_pairs <- new_pairs %>%
         mutate(
-          rate_232 = 0, rate_301 = 0, rate_301_cs = 0, rate_ieepa_fent = 0, rate_s122 = 0,
+          rate_232_steel = 0, rate_232_aluminum = 0, rate_232_copper = 0,
+          rate_232_autos = 0, rate_232_auto_parts = 0,
+          rate_232_mhd_vehicles = 0, rate_232_mhd_parts = 0, rate_232_buses = 0,
+          rate_232_softwood = 0, rate_232_wood_furniture = 0, rate_232_kitchen_cabinets = 0,
+          rate_232_semiconductors = 0, rate_232_pharmaceuticals = 0,
+          rate_301 = 0, rate_301_cs = 0, rate_ieepa_fent = 0, rate_s122 = 0,
           rate_section_201 = 0, rate_other = 0,
           is_universally_exempt = hts10 %in% ieepa_exempt_products,
           is_country_eo_exempt  = !is.na(country_eo_ch99) & (
@@ -1807,6 +1899,50 @@ calculate_rates_for_revision <- function(
     parts_products <- intersect(parts_products, c(auto_products, mhd_products))
     usmca_vehicle_products <- setdiff(c(auto_products, mhd_products), parts_products)
 
+    # Per-program product sets for per-column 232 assignment.
+    # Maps heading_product_lists keys to per-program column names.
+    tariff_name_to_program_col <- function(nm) {
+      if (grepl('auto_parts|parts.*auto', nm, ignore.case = TRUE)) {
+        'rate_232_auto_parts'
+      } else if (grepl('mhd_parts|parts.*mhd', nm, ignore.case = TRUE)) {
+        'rate_232_mhd_parts'
+      } else if (grepl('bus', nm, ignore.case = TRUE)) {
+        'rate_232_buses'
+      } else if (grepl('mhd|medium.*heavy|heavy.*duty', nm, ignore.case = TRUE)) {
+        'rate_232_mhd_vehicles'
+      } else if (grepl('passenger|light_truck|auto', nm, ignore.case = TRUE)) {
+        'rate_232_autos'
+      } else if (grepl('copper', nm, ignore.case = TRUE)) {
+        'rate_232_copper'
+      } else if (grepl('cabinet|kitchen', nm, ignore.case = TRUE)) {
+        'rate_232_kitchen_cabinets'
+      } else if (grepl('furniture', nm, ignore.case = TRUE)) {
+        'rate_232_wood_furniture'
+      } else if (grepl('softwood|lumber', nm, ignore.case = TRUE)) {
+        'rate_232_softwood'
+      } else if (grepl('semi', nm, ignore.case = TRUE)) {
+        'rate_232_semiconductors'
+      } else if (grepl('pharma', nm, ignore.case = TRUE)) {
+        'rate_232_pharmaceuticals'
+      } else {
+        NA_character_
+      }
+    }
+    # hts10 -> program_col lookup (first match wins for overlapping heading lists)
+    heading_program_col_df <- bind_rows(lapply(names(heading_product_lists), function(nm) {
+      col <- tariff_name_to_program_col(nm)
+      if (is.na(col) || length(heading_product_lists[[nm]]$products) == 0) return(NULL)
+      tibble(hts10 = heading_product_lists[[nm]]$products, program_col = col)
+    }))
+    if (nrow(heading_program_col_df) > 0) {
+      heading_program_col_df <- heading_program_col_df %>% distinct(hts10, .keep_all = TRUE)
+    }
+    # Split into per-program vectors for efficient in-set lookup
+    heading_prods_by_col <- if (nrow(heading_program_col_df) > 0)
+      split(heading_program_col_df$hts10, heading_program_col_df$program_col)
+    else
+      list()
+
     n_steel <- length(steel_products)
     n_alum <- length(aluminum_products)
     n_auto <- length(auto_products)
@@ -1951,21 +2087,41 @@ calculate_rates_for_revision <- function(
           is.na(heading_232_rate) | heading_232_rate == 0 ~ 0,
           TRUE ~ heading_232_rate
         ),
-        blanket_232 = case_when(
-          hts10 %in% steel_products ~ coalesce(steel_rate_232, 0),
-          hts10 %in% aluminum_products ~ coalesce(alum_rate_232, 0),
-          heading_rate_adj > 0 ~ heading_rate_adj,
-          TRUE ~ 0
-        ),
-        rate_232 = pmax(rate_232, blanket_232),
+        # Per-program column assignments (steel/aluminum from metals program;
+        # heading programs each get their own column).
+        rate_232_steel = if_else(hts10 %in% steel_products,
+                                  pmax(rate_232_steel, coalesce(steel_rate_232, 0)),
+                                  rate_232_steel),
+        rate_232_aluminum = if_else(hts10 %in% aluminum_products,
+                                     pmax(rate_232_aluminum, coalesce(alum_rate_232, 0)),
+                                     rate_232_aluminum),
+        rate_232_autos = if_else(hts10 %in% (heading_prods_by_col[['rate_232_autos']] %||% character(0)),
+                                  pmax(rate_232_autos, heading_rate_adj), rate_232_autos),
+        rate_232_auto_parts = if_else(hts10 %in% (heading_prods_by_col[['rate_232_auto_parts']] %||% character(0)),
+                                       pmax(rate_232_auto_parts, heading_rate_adj), rate_232_auto_parts),
+        rate_232_mhd_vehicles = if_else(hts10 %in% (heading_prods_by_col[['rate_232_mhd_vehicles']] %||% character(0)),
+                                         pmax(rate_232_mhd_vehicles, heading_rate_adj), rate_232_mhd_vehicles),
+        rate_232_mhd_parts = if_else(hts10 %in% (heading_prods_by_col[['rate_232_mhd_parts']] %||% character(0)),
+                                      pmax(rate_232_mhd_parts, heading_rate_adj), rate_232_mhd_parts),
+        rate_232_buses = if_else(hts10 %in% (heading_prods_by_col[['rate_232_buses']] %||% character(0)),
+                                  pmax(rate_232_buses, heading_rate_adj), rate_232_buses),
+        rate_232_copper = if_else(hts10 %in% (heading_prods_by_col[['rate_232_copper']] %||% character(0)),
+                                   pmax(rate_232_copper, heading_rate_adj), rate_232_copper),
+        rate_232_softwood = if_else(hts10 %in% (heading_prods_by_col[['rate_232_softwood']] %||% character(0)),
+                                     pmax(rate_232_softwood, heading_rate_adj), rate_232_softwood),
+        rate_232_wood_furniture = if_else(hts10 %in% (heading_prods_by_col[['rate_232_wood_furniture']] %||% character(0)),
+                                           pmax(rate_232_wood_furniture, heading_rate_adj), rate_232_wood_furniture),
+        rate_232_kitchen_cabinets = if_else(hts10 %in% (heading_prods_by_col[['rate_232_kitchen_cabinets']] %||% character(0)),
+                                             pmax(rate_232_kitchen_cabinets, heading_rate_adj), rate_232_kitchen_cabinets),
+        rate_232_semiconductors = if_else(hts10 %in% (heading_prods_by_col[['rate_232_semiconductors']] %||% character(0)),
+                                           pmax(rate_232_semiconductors, heading_rate_adj), rate_232_semiconductors),
+        rate_232_pharmaceuticals = if_else(hts10 %in% (heading_prods_by_col[['rate_232_pharmaceuticals']] %||% character(0)),
+                                            pmax(rate_232_pharmaceuticals, heading_rate_adj), rate_232_pharmaceuticals),
         # Track which products have USMCA-eligible 232 headings (for step 7).
-        # Only when the heading rate is actually used — steel/aluminum-program
-        # products get their rate from the metals program, not the heading,
-        # so they should NOT inherit the heading's USMCA eligibility.
         s232_usmca_eligible = coalesce(heading_usmca_exempt, FALSE) & heading_rate_adj > 0 &
           !(hts10 %in% metal_program_products)
       ) %>%
-      select(-steel_rate_232, -alum_rate_232, -blanket_232,
+      select(-steel_rate_232, -alum_rate_232,
              -heading_232_rate, -heading_usmca_exempt, -heading_rate_adj)
 
     # --- Add rows for 232-covered products NOT yet in rates ---
@@ -2011,18 +2167,40 @@ calculate_rates_for_revision <- function(
           is.na(heading_232_rate) | heading_232_rate == 0 ~ 0,
           TRUE ~ heading_232_rate
         ),
-        rate_232 = case_when(
-          hts10 %in% steel_products ~ coalesce(steel_rate_232, 0),
-          hts10 %in% aluminum_products ~ coalesce(alum_rate_232, 0),
-          heading_rate_adj > 0 ~ heading_rate_adj,
-          TRUE ~ 0
-        ),
+        rate_232_steel = if_else(hts10 %in% steel_products, coalesce(steel_rate_232, 0), 0),
+        rate_232_aluminum = if_else(hts10 %in% aluminum_products, coalesce(alum_rate_232, 0), 0),
+        rate_232_autos = if_else(hts10 %in% (heading_prods_by_col[['rate_232_autos']] %||% character(0)),
+                                  heading_rate_adj, 0),
+        rate_232_auto_parts = if_else(hts10 %in% (heading_prods_by_col[['rate_232_auto_parts']] %||% character(0)),
+                                       heading_rate_adj, 0),
+        rate_232_mhd_vehicles = if_else(hts10 %in% (heading_prods_by_col[['rate_232_mhd_vehicles']] %||% character(0)),
+                                         heading_rate_adj, 0),
+        rate_232_mhd_parts = if_else(hts10 %in% (heading_prods_by_col[['rate_232_mhd_parts']] %||% character(0)),
+                                      heading_rate_adj, 0),
+        rate_232_buses = if_else(hts10 %in% (heading_prods_by_col[['rate_232_buses']] %||% character(0)),
+                                  heading_rate_adj, 0),
+        rate_232_copper = if_else(hts10 %in% (heading_prods_by_col[['rate_232_copper']] %||% character(0)),
+                                   heading_rate_adj, 0),
+        rate_232_softwood = if_else(hts10 %in% (heading_prods_by_col[['rate_232_softwood']] %||% character(0)),
+                                     heading_rate_adj, 0),
+        rate_232_wood_furniture = if_else(hts10 %in% (heading_prods_by_col[['rate_232_wood_furniture']] %||% character(0)),
+                                           heading_rate_adj, 0),
+        rate_232_kitchen_cabinets = if_else(hts10 %in% (heading_prods_by_col[['rate_232_kitchen_cabinets']] %||% character(0)),
+                                             heading_rate_adj, 0),
+        rate_232_semiconductors = if_else(hts10 %in% (heading_prods_by_col[['rate_232_semiconductors']] %||% character(0)),
+                                           heading_rate_adj, 0),
+        rate_232_pharmaceuticals = if_else(hts10 %in% (heading_prods_by_col[['rate_232_pharmaceuticals']] %||% character(0)),
+                                            heading_rate_adj, 0),
         s232_usmca_eligible = coalesce(heading_usmca_exempt, FALSE) & heading_rate_adj > 0 &
           !(hts10 %in% metal_program_products),
         rate_301 = 0, rate_301_cs = 0, rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_s122 = 0,
         rate_section_201 = 0, rate_other = 0
       ) %>%
-      filter(rate_232 > 0) %>%
+      filter(rate_232_steel > 0 | rate_232_aluminum > 0 | rate_232_autos > 0 |
+               rate_232_auto_parts > 0 | rate_232_mhd_vehicles > 0 | rate_232_mhd_parts > 0 |
+               rate_232_buses > 0 | rate_232_copper > 0 | rate_232_softwood > 0 |
+               rate_232_wood_furniture > 0 | rate_232_kitchen_cabinets > 0 |
+               rate_232_semiconductors > 0 | rate_232_pharmaceuticals > 0) %>%
       select(-steel_rate_232, -alum_rate_232,
              -heading_232_rate, -heading_usmca_exempt, -heading_rate_adj)
 
@@ -2070,13 +2248,19 @@ calculate_rates_for_revision <- function(
   if (rebate_deduction > 0 && length(auto_products) > 0) {
     rates <- rates %>%
       mutate(
-        rate_232 = if_else(
-          hts10 %in% auto_products & rate_232 > 0,
-          pmax(rate_232 - rebate_deduction, 0),
-          rate_232
+        rate_232_autos = if_else(
+          hts10 %in% auto_products & rate_232_autos > 0,
+          pmax(rate_232_autos - rebate_deduction, 0),
+          rate_232_autos
+        ),
+        rate_232_auto_parts = if_else(
+          hts10 %in% auto_products & rate_232_auto_parts > 0,
+          pmax(rate_232_auto_parts - rebate_deduction, 0),
+          rate_232_auto_parts
         )
       )
-    n_rebated <- sum(rates$hts10 %in% auto_products & rates$rate_232 > 0)
+    n_rebated <- sum(rates$hts10 %in% auto_products &
+                       (rates$rate_232_autos > 0 | rates$rate_232_auto_parts > 0))
     message('  Auto rebate: -', round(rebate_deduction * 100, 2),
             'pp on ', n_rebated, ' auto product-country pairs',
             if (us_auto_content_share < 1) paste0(
@@ -2127,6 +2311,9 @@ calculate_rates_for_revision <- function(
         vehicle_products
       }
 
+      # Determine the target program column (vehicles vs parts)
+      auto_deal_col <- if (deal$scope == 'auto_parts') 'rate_232_auto_parts' else 'rate_232_autos'
+
       if (deal$rate_type == 'floor') {
         # Floor deals are MFN-INCLUSIVE totals ("15%", no '+', sets forth the
         # ordinary customs duty treatment): total duty must land on deal$rate.
@@ -2142,20 +2329,21 @@ calculate_rates_for_revision <- function(
         rates <- rates %>%
           mutate(
             .hit = hts10 %in% deal_products & country %in% census_codes,
-            rate_232 = if_else(.hit, pmax(deal$rate - base_rate, 0), rate_232),
             s232_deal_floor = if_else(.hit, deal$rate, s232_deal_floor)
           ) %>%
           select(-.hit)
+        rates[[auto_deal_col]] <- if_else(
+          rates$hts10 %in% deal_products & rates$country %in% census_codes,
+          pmax(deal$rate - rates$base_rate, 0),
+          rates[[auto_deal_col]]
+        )
       } else {
         # surcharge: flat additional rate
-        rates <- rates %>%
-          mutate(
-            rate_232 = if_else(
-              hts10 %in% deal_products & country %in% census_codes,
-              deal$rate,
-              rate_232
-            )
-          )
+        rates[[auto_deal_col]] <- if_else(
+          rates$hts10 %in% deal_products & rates$country %in% census_codes,
+          deal$rate,
+          rates[[auto_deal_col]]
+        )
       }
       n_affected <- sum(rates$hts10 %in% deal_products & rates$country %in% census_codes)
       n_deal_overrides <- n_deal_overrides + n_affected
@@ -2189,29 +2377,34 @@ calculate_rates_for_revision <- function(
       census_codes <- deal$countries
       if (length(census_codes) == 0) next
 
-      # Wood deals apply to all wood products (softwood + furniture/cabinets)
+      # Wood deals apply to wood products (softwood / furniture / cabinets separately)
       if (deal$rate_type == 'floor') {
         # Same MFN-inclusive floor semantics as auto deals: tag for the step-6f
         # recompute against the post-FTA base_rate.
         if (!'s232_deal_floor' %in% names(rates)) {
           rates$s232_deal_floor <- NA_real_
         }
-        rates <- rates %>%
-          mutate(
-            .hit = hts10 %in% all_wood_products & country %in% census_codes,
-            rate_232 = if_else(.hit, pmax(deal$rate - base_rate, 0), rate_232),
-            s232_deal_floor = if_else(.hit, deal$rate, s232_deal_floor)
-          ) %>%
-          select(-.hit)
-      } else {
-        rates <- rates %>%
-          mutate(
-            rate_232 = if_else(
-              hts10 %in% all_wood_products & country %in% census_codes,
-              deal$rate,
-              rate_232
-            )
+        rates$s232_deal_floor <- if_else(
+          rates$hts10 %in% all_wood_products & rates$country %in% census_codes,
+          deal$rate, rates$s232_deal_floor
+        )
+        for (wood_col in c('rate_232_softwood', 'rate_232_wood_furniture', 'rate_232_kitchen_cabinets')) {
+          wood_prods <- heading_prods_by_col[[wood_col]] %||% character(0)
+          rates[[wood_col]] <- if_else(
+            rates$hts10 %in% wood_prods & rates$country %in% census_codes,
+            pmax(deal$rate - rates$base_rate, 0),
+            rates[[wood_col]]
           )
+        }
+      } else {
+        for (wood_col in c('rate_232_softwood', 'rate_232_wood_furniture', 'rate_232_kitchen_cabinets')) {
+          wood_prods <- heading_prods_by_col[[wood_col]] %||% character(0)
+          rates[[wood_col]] <- if_else(
+            rates$hts10 %in% wood_prods & rates$country %in% census_codes,
+            deal$rate,
+            rates[[wood_col]]
+          )
+        }
       }
       n_affected <- sum(rates$hts10 %in% all_wood_products & rates$country %in% census_codes)
       n_deal_overrides <- n_deal_overrides + n_affected
@@ -2224,12 +2417,26 @@ calculate_rates_for_revision <- function(
   }
 
   # Save post-deal, post-rebate statutory 232 rates for CSV export.
-  # After deal overrides (step 4c), rate_232 reflects the effective rate including
-  # floor/surcharge adjustments and auto rebate. The generated other_params.yaml
-  # sets auto_rebate_rate = 0 so ETRs does not re-apply the rebate.
-  # Derivatives (set in step 5) update this column for their products.
+  # After deal overrides (step 4c), per-program columns reflect effective rates
+  # including floor/surcharge adjustments and auto rebate. The generated
+  # other_params.yaml sets auto_rebate_rate = 0 so ETRs does not re-apply the
+  # rebate. Derivatives (step 5) update their per-program statutory columns.
   rates <- rates %>%
-    mutate(statutory_rate_232 = rate_232)
+    mutate(
+      statutory_rate_232_steel         = rate_232_steel,
+      statutory_rate_232_aluminum      = rate_232_aluminum,
+      statutory_rate_232_copper        = rate_232_copper,
+      statutory_rate_232_autos         = rate_232_autos,
+      statutory_rate_232_auto_parts    = rate_232_auto_parts,
+      statutory_rate_232_mhd_vehicles  = rate_232_mhd_vehicles,
+      statutory_rate_232_mhd_parts     = rate_232_mhd_parts,
+      statutory_rate_232_buses         = rate_232_buses,
+      statutory_rate_232_softwood      = rate_232_softwood,
+      statutory_rate_232_wood_furniture    = rate_232_wood_furniture,
+      statutory_rate_232_kitchen_cabinets  = rate_232_kitchen_cabinets,
+      statutory_rate_232_semiconductors    = rate_232_semiconductors,
+      statutory_rate_232_pharmaceuticals   = rate_232_pharmaceuticals
+    )
 
   # 5. Apply Section 232 derivative tariff + metal content scaling
   #    Aluminum derivatives (9903.85.04/.07/.08) and steel derivatives (9903.81.89-93)
@@ -2279,18 +2486,18 @@ calculate_rates_for_revision <- function(
     rates <- rates %>%
       mutate(
         is_copper_heading = hts10 %in% copper_products,
-        rate_232 = if_else(
-          is_copper_heading & rate_232 > 0,
-          rate_232 * copper_share,
-          rate_232
+        rate_232_copper = if_else(
+          is_copper_heading & rate_232_copper > 0,
+          rate_232_copper * copper_share,
+          rate_232_copper
         ),
-        statutory_rate_232 = if_else(
-          is_copper_heading & statutory_rate_232 > 0,
-          statutory_rate_232 * copper_share,
-          statutory_rate_232
+        statutory_rate_232_copper = if_else(
+          is_copper_heading & statutory_rate_232_copper > 0,
+          statutory_rate_232_copper * copper_share,
+          statutory_rate_232_copper
         )
       )
-    n_scaled <- sum(rates$is_copper_heading & rates$rate_232 > 0)
+    n_scaled <- sum(rates$is_copper_heading & rates$rate_232_copper > 0)
     message('  Copper heading metal scaling: ', n_scaled, ' product-country pairs')
   } else {
     rates$is_copper_heading <- FALSE
@@ -2318,6 +2525,23 @@ calculate_rates_for_revision <- function(
       rates$s232_annex <- unname(ann$tier[as.character(rates$hts10)])
       annex_flat <- unname(ann$flat_rate[as.character(rates$hts10)])
 
+      # Per-product metal type from the annex CSV — needed to route annex rates
+      # to rate_232_steel vs rate_232_aluminum rather than the blended rate_232.
+      annex_metal_tbl <- suppressMessages(
+        read_csv(here('resources', 's232_annex_products.csv'),
+                 col_types = cols(.default = col_character()),
+                 show_col_types = FALSE)
+      ) %>% select(hts_prefix, metal_type)
+      # Match each hts10 to its annex metal type via prefix
+      annex_metal_map <- character(nrow(rates))
+      for (.i in seq_len(nrow(annex_metal_tbl))) {
+        .pfx <- annex_metal_tbl$hts_prefix[.i]
+        .mt  <- annex_metal_tbl$metal_type[.i]
+        annex_metal_map[startsWith(rates$hts10, .pfx)] <- .mt
+      }
+      annex_metal_map[annex_metal_map == ''] <- NA_character_
+      rates$.annex_metal <- annex_metal_map
+
       # Override rate_232 by annex
       #
       # Important scoping: the April 2026 proclamation governs Section 232
@@ -2341,12 +2565,20 @@ calculate_rates_for_revision <- function(
                                            copper_products, wood_products,
                                            semi_products))
       rates <- rates %>%
-        mutate(rate_232 = case_when(
-          hts10 %in% heading_program_products ~ rate_232,             # heading rate wins
-          !is.na(annex_flat) ~ annex_flat,                            # tiers 1a/1b/2 from the spec
-          s232_annex == 'annex_3' ~ apply_rate_semantics(ann$floor_rate, 'floor_post_mfn', base_rate),  # tier-3 floor vs base
-          TRUE ~ rate_232
-        ))
+        mutate(
+          rate_232_steel = case_when(
+            hts10 %in% heading_program_products ~ rate_232_steel,
+            .annex_metal == 'steel' & !is.na(annex_flat) ~ annex_flat,
+            .annex_metal == 'steel' & s232_annex == 'annex_3' ~ apply_rate_semantics(ann$floor_rate, 'floor_post_mfn', base_rate),
+            TRUE ~ rate_232_steel
+          ),
+          rate_232_aluminum = case_when(
+            hts10 %in% heading_program_products ~ rate_232_aluminum,
+            .annex_metal == 'aluminum' & !is.na(annex_flat) ~ annex_flat,
+            .annex_metal == 'aluminum' & s232_annex == 'annex_3' ~ apply_rate_semantics(ann$floor_rate, 'floor_post_mfn', base_rate),
+            TRUE ~ rate_232_aluminum
+          )
+        )
 
       # Proclamation 11032 Annex I-C (effective 2026-06-08 through 2027-12-31):
       # mobile industrial equipment defaults to 25%, with lower 15% framework
@@ -2366,19 +2598,28 @@ calculate_rates_for_revision <- function(
         rates <- rates %>%
           mutate(
             .ann1c_framework_rate = apply_rate_semantics(fw_floor, 'floor_post_mfn', base_rate),
-            rate_232 = if_else(
-              s232_annex == 'annex_1c' & country %in% fw_countries,
-              pmin(rate_232, .ann1c_framework_rate),
-              rate_232
+            .ann1c_cond = !is.na(s232_annex) & s232_annex == 'annex_1c',
+            rate_232_steel = if_else(
+              .ann1c_cond & .annex_metal == 'steel' & country %in% fw_countries,
+              pmin(rate_232_steel, .ann1c_framework_rate), rate_232_steel
+            ),
+            rate_232_aluminum = if_else(
+              .ann1c_cond & .annex_metal == 'aluminum' & country %in% fw_countries,
+              pmin(rate_232_aluminum, .ann1c_framework_rate), rate_232_aluminum
             ),
             .ann1c_usmetal_rate = apply_rate_semantics(usm_floor, 'floor_post_mfn', base_rate),
-            rate_232 = if_else(
-              s232_annex == 'annex_1c' & !is.na(usm_share) & usm_share > 0,
-              usm_share * pmin(rate_232, .ann1c_usmetal_rate) + (1 - usm_share) * rate_232,
-              rate_232
+            rate_232_steel = if_else(
+              .ann1c_cond & .annex_metal == 'steel' & !is.na(usm_share) & usm_share > 0,
+              usm_share * pmin(rate_232_steel, .ann1c_usmetal_rate) + (1 - usm_share) * rate_232_steel,
+              rate_232_steel
+            ),
+            rate_232_aluminum = if_else(
+              .ann1c_cond & .annex_metal == 'aluminum' & !is.na(usm_share) & usm_share > 0,
+              usm_share * pmin(rate_232_aluminum, .ann1c_usmetal_rate) + (1 - usm_share) * rate_232_aluminum,
+              rate_232_aluminum
             )
           ) %>%
-          select(-.ann1c_framework_rate, -.ann1c_usmetal_rate)
+          select(-.ann1c_framework_rate, -.ann1c_usmetal_rate, -.ann1c_cond)
       }
 
       # Record heading-program membership (the exact set the override above keys
@@ -2401,11 +2642,16 @@ calculate_rates_for_revision <- function(
       if (!is.na(zmc_share) && zmc_share > 0) {
         zmc_annexes <- paste0('annex_', unlist(zmc_cfg$applies_to %||% c('1a', '1b', '3')))
         rates <- rates %>%
-          mutate(rate_232 = if_else(
-            !(hts10 %in% heading_program_products) & s232_annex %in% zmc_annexes,
-            rate_232 * (1 - zmc_share),
-            rate_232
-          ))
+          mutate(
+            rate_232_steel = if_else(
+              !(hts10 %in% heading_program_products) & .annex_metal == 'steel' & s232_annex %in% zmc_annexes,
+              rate_232_steel * (1 - zmc_share), rate_232_steel
+            ),
+            rate_232_aluminum = if_else(
+              !(hts10 %in% heading_program_products) & .annex_metal == 'aluminum' & s232_annex %in% zmc_annexes,
+              rate_232_aluminum * (1 - zmc_share), rate_232_aluminum
+            )
+          )
         message('  zero_metal_content exemption applied: share=', zmc_share,
                 ', annexes=', paste(zmc_annexes, collapse = ','))
       }
@@ -2436,10 +2682,15 @@ calculate_rates_for_revision <- function(
         rates <- rates %>%
           mutate(
             .usm_g_route = apply_rate_semantics(usm_g_rate, 'floor_post_mfn', base_rate),
-            rate_232 = if_else(
-              !(hts10 %in% heading_program_products) & s232_annex %in% usm_g_annexes,
-              usm_g_share * pmin(rate_232, .usm_g_route) + (1 - usm_g_share) * rate_232,
-              rate_232
+            rate_232_steel = if_else(
+              !(hts10 %in% heading_program_products) & .annex_metal == 'steel' & s232_annex %in% usm_g_annexes,
+              usm_g_share * pmin(rate_232_steel, .usm_g_route) + (1 - usm_g_share) * rate_232_steel,
+              rate_232_steel
+            ),
+            rate_232_aluminum = if_else(
+              !(hts10 %in% heading_program_products) & .annex_metal == 'aluminum' & s232_annex %in% usm_g_annexes,
+              usm_g_share * pmin(rate_232_aluminum, .usm_g_route) + (1 - usm_g_share) * rate_232_aluminum,
+              rate_232_aluminum
             )
           ) %>%
           select(-.usm_g_route)
@@ -2457,12 +2708,18 @@ calculate_rates_for_revision <- function(
         dmw_annexes <- paste0('annex_', unlist(dmw_cfg$applies_to %||% c('1b', '3')))
         dmw_excl <- as.character(unlist(dmw_cfg$excludes_chapters %||% character(0)))
         rates <- rates %>%
-          mutate(rate_232 = if_else(
-            !(hts10 %in% heading_program_products) & s232_annex %in% dmw_annexes &
-              !(substr(hts10, 1, 2) %in% dmw_excl),
-            rate_232 * (1 - dmw_share),
-            rate_232
-          ))
+          mutate(
+            rate_232_steel = if_else(
+              !(hts10 %in% heading_program_products) & .annex_metal == 'steel' &
+                s232_annex %in% dmw_annexes & !(substr(hts10, 1, 2) %in% dmw_excl),
+              rate_232_steel * (1 - dmw_share), rate_232_steel
+            ),
+            rate_232_aluminum = if_else(
+              !(hts10 %in% heading_program_products) & .annex_metal == 'aluminum' &
+                s232_annex %in% dmw_annexes & !(substr(hts10, 1, 2) %in% dmw_excl),
+              rate_232_aluminum * (1 - dmw_share), rate_232_aluminum
+            )
+          )
         message('  de_minimis_weight exemption applied: share=', dmw_share,
                 ', annexes=', paste(dmw_annexes, collapse = ','))
       }
@@ -2476,12 +2733,18 @@ calculate_rates_for_revision <- function(
         moto_annexes <- paste0('annex_', unlist(moto_cfg$applies_to %||% c('1b')))
         moto_ch <- as.character(unlist(moto_cfg$chapters %||% c('84', '85', '87')))
         rates <- rates %>%
-          mutate(rate_232 = if_else(
-            !(hts10 %in% heading_program_products) & s232_annex %in% moto_annexes &
-              substr(hts10, 1, 2) %in% moto_ch,
-            rate_232 * (1 - moto_share),
-            rate_232
-          ))
+          mutate(
+            rate_232_steel = if_else(
+              !(hts10 %in% heading_program_products) & .annex_metal == 'steel' &
+                s232_annex %in% moto_annexes & substr(hts10, 1, 2) %in% moto_ch,
+              rate_232_steel * (1 - moto_share), rate_232_steel
+            ),
+            rate_232_aluminum = if_else(
+              !(hts10 %in% heading_program_products) & .annex_metal == 'aluminum' &
+                s232_annex %in% moto_annexes & substr(hts10, 1, 2) %in% moto_ch,
+              rate_232_aluminum * (1 - moto_share), rate_232_aluminum
+            )
+          )
         message('  motorcycle_parts exemption applied: share=', moto_share,
                 ', annexes=', paste(moto_annexes, collapse = ','))
       }
@@ -2495,37 +2758,53 @@ calculate_rates_for_revision <- function(
       for (ov in (ann$country_overrides %||% list())) {
         r    <- ov$rate_map[as.character(rates$hts10)]       # NA where product not in map
         hit  <- rates$country %in% ov$countries & !is.na(r)
-        newr <- if (identical(ov$mode, 'max')) pmax(rates$rate_232, unname(r)) else unname(r)
-        rates$rate_232 <- if_else(hit, newr, rates$rate_232)
+        for (.metal_col in c('rate_232_steel', 'rate_232_aluminum')) {
+          .metal <- sub('rate_232_', '', .metal_col)
+          .metal_hit <- hit & coalesce(rates$.annex_metal == .metal, FALSE)
+          newr <- if (identical(ov$mode, 'max')) pmax(rates[[.metal_col]], unname(r)) else unname(r)
+          rates[[.metal_col]] <- if_else(.metal_hit, newr, rates[[.metal_col]])
+        }
       }
 
       # Annex III / I-C sunset: after sunset_date, temporary products move to I-B rate
       sunset <- annex_cfg$annexes$annex_3$sunset_date
       if (!is.null(sunset) && as.Date(effective_date) > as.Date(sunset)) {
+        .annex3_rate <- annex_cfg$annexes$annex_1b$rate
         rates <- rates %>%
           mutate(
-            rate_232 = if_else(s232_annex == 'annex_3',
-                                annex_cfg$annexes$annex_1b$rate, rate_232),
-            s232_annex = if_else(s232_annex == 'annex_3', 'annex_1b', s232_annex)
+            rate_232_steel = if_else(!is.na(s232_annex) & s232_annex == 'annex_3' & .annex_metal == 'steel',
+                                      .annex3_rate, rate_232_steel),
+            rate_232_aluminum = if_else(!is.na(s232_annex) & s232_annex == 'annex_3' & .annex_metal == 'aluminum',
+                                         .annex3_rate, rate_232_aluminum),
+            s232_annex = if_else(!is.na(s232_annex) & s232_annex == 'annex_3', 'annex_1b', s232_annex)
           )
         message('  Annex III sunset: reclassified to I-B')
       }
       sunset_1c <- annex_cfg$annexes$annex_1c$sunset_date
       if (!is.null(sunset_1c) && as.Date(effective_date) > as.Date(sunset_1c)) {
+        .annex1c_rate <- annex_cfg$annexes$annex_1b$rate
         rates <- rates %>%
           mutate(
-            rate_232 = if_else(s232_annex == 'annex_1c',
-                                annex_cfg$annexes$annex_1b$rate, rate_232),
-            s232_annex = if_else(s232_annex == 'annex_1c', 'annex_1b', s232_annex)
+            rate_232_steel = if_else(!is.na(s232_annex) & s232_annex == 'annex_1c' & .annex_metal == 'steel',
+                                      .annex1c_rate, rate_232_steel),
+            rate_232_aluminum = if_else(!is.na(s232_annex) & s232_annex == 'annex_1c' & .annex_metal == 'aluminum',
+                                         .annex1c_rate, rate_232_aluminum),
+            s232_annex = if_else(!is.na(s232_annex) & s232_annex == 'annex_1c', 'annex_1b', s232_annex)
           )
         message('  Annex I-C sunset: reclassified to I-B')
       }
 
-      # Update statutory_rate_232 to reflect annex overrides
+      # Update per-program statutory columns to reflect annex overrides.
+      # .annex_metal is kept alive until after step 6e for the annex floor recompute.
       rates <- rates %>%
-        mutate(statutory_rate_232 = if_else(!is.na(s232_annex), rate_232, statutory_rate_232))
+        mutate(
+          statutory_rate_232_steel = if_else(!is.na(s232_annex) & coalesce(.annex_metal, '') == 'steel',
+                                              rate_232_steel, statutory_rate_232_steel),
+          statutory_rate_232_aluminum = if_else(!is.na(s232_annex) & coalesce(.annex_metal, '') == 'aluminum',
+                                                 rate_232_aluminum, statutory_rate_232_aluminum)
+        )
 
-      n_by_annex <- rates %>% filter(!is.na(s232_annex), rate_232 > 0) %>% count(s232_annex)
+      n_by_annex <- rates %>% filter(!is.na(s232_annex), rate_232_steel > 0 | rate_232_aluminum > 0) %>% count(s232_annex)
       if (nrow(n_by_annex) > 0) {
         message('  Annex rate override: ',
                 paste(n_by_annex$s232_annex, n_by_annex$n, sep = '=', collapse = ', '))
@@ -2592,13 +2871,14 @@ calculate_rates_for_revision <- function(
               .subdiv_r = grepl(eligible_pattern, hts10) & country %in% census_codes,
               .floor_232 = pmax(floor_rate_r - base_rate, 0),
               .non_fta_blend = certified_share * .floor_232 +
-                                (1 - certified_share) * rate_232,
-              rate_232 = if_else(
+                                (1 - certified_share) * rate_232_auto_parts,
+              rate_232_auto_parts = if_else(
                 .subdiv_r,
                 fta_share * 0 + (1 - fta_share) * .non_fta_blend,
-                rate_232
+                rate_232_auto_parts
               ),
-              statutory_rate_232 = if_else(.subdiv_r, rate_232, statutory_rate_232)
+              statutory_rate_232_auto_parts = if_else(.subdiv_r, rate_232_auto_parts,
+                                                       statutory_rate_232_auto_parts)
             ) %>%
             select(-.subdiv_r, -.floor_232, -.non_fta_blend, -fta_share)
 
@@ -2756,7 +3036,12 @@ calculate_rates_for_revision <- function(
             ) %>%
             left_join(s301_lookup, by = 'hts8', relationship = 'many-to-one') %>%
             mutate(
-              rate_232 = 0, rate_301_cs = 0, rate_ieepa_recip = 0,
+              rate_232_steel = 0, rate_232_aluminum = 0, rate_232_copper = 0,
+              rate_232_autos = 0, rate_232_auto_parts = 0,
+              rate_232_mhd_vehicles = 0, rate_232_mhd_parts = 0, rate_232_buses = 0,
+              rate_232_softwood = 0, rate_232_wood_furniture = 0, rate_232_kitchen_cabinets = 0,
+              rate_232_semiconductors = 0, rate_232_pharmaceuticals = 0,
+              rate_301_cs = 0, rate_ieepa_recip = 0,
               rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0, rate_other = 0,
               rate_301 = coalesce(blanket_301, 0)
             ) %>%
@@ -2826,7 +3111,12 @@ calculate_rates_for_revision <- function(
               ) %>%
               left_join(s301_cs_lookup, by = 'hts8', relationship = 'many-to-one') %>%
               mutate(
-                rate_232 = 0, rate_301 = 0, rate_ieepa_recip = 0,
+                rate_232_steel = 0, rate_232_aluminum = 0, rate_232_copper = 0,
+                rate_232_autos = 0, rate_232_auto_parts = 0,
+                rate_232_mhd_vehicles = 0, rate_232_mhd_parts = 0, rate_232_buses = 0,
+                rate_232_softwood = 0, rate_232_wood_furniture = 0, rate_232_kitchen_cabinets = 0,
+                rate_232_semiconductors = 0, rate_232_pharmaceuticals = 0,
+                rate_301 = 0, rate_ieepa_recip = 0,
                 rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0, rate_other = 0,
                 rate_301_cs = coalesce(blanket_301_cs, 0)
               ) %>%
@@ -3306,8 +3596,13 @@ calculate_rates_for_revision <- function(
                      rates$base_rate < rates$statutory_base_rate
       if (any(annex3_mask)) {
         floor_val <- annex_cfg$annexes$annex_3$floor_rate
-        rates$rate_232[annex3_mask] <- apply_rate_semantics(floor_val, 'floor_post_mfn', rates$base_rate[annex3_mask])
-        rates$statutory_rate_232[annex3_mask] <- rates$rate_232[annex3_mask]
+        .new_rate <- apply_rate_semantics(floor_val, 'floor_post_mfn', rates$base_rate[annex3_mask])
+        steel_a3  <- annex3_mask & coalesce(rates$.annex_metal == 'steel', FALSE)
+        alum_a3   <- annex3_mask & coalesce(rates$.annex_metal == 'aluminum', FALSE)
+        rates$rate_232_steel[steel_a3]              <- apply_rate_semantics(floor_val, 'floor_post_mfn', rates$base_rate[steel_a3])
+        rates$statutory_rate_232_steel[steel_a3]    <- rates$rate_232_steel[steel_a3]
+        rates$rate_232_aluminum[alum_a3]            <- apply_rate_semantics(floor_val, 'floor_post_mfn', rates$base_rate[alum_a3])
+        rates$statutory_rate_232_aluminum[alum_a3]  <- rates$rate_232_aluminum[alum_a3]
         message('  Annex III floor recomputation: updated ', sum(annex3_mask),
                 ' pairs (against post-MFN base_rate)')
       }
@@ -3323,15 +3618,18 @@ calculate_rates_for_revision <- function(
                       rates$base_rate < rates$statutory_base_rate
         if (any(ann1c_mask)) {
           floor_val <- ann1c_cfg$framework_floor_rate %||% 0.15
-          rates$rate_232[ann1c_mask] <- pmin(
-            rates$rate_232[ann1c_mask],
-            apply_rate_semantics(floor_val, 'floor_post_mfn', rates$base_rate[ann1c_mask])
-          )
-          rates$statutory_rate_232[ann1c_mask] <- rates$rate_232[ann1c_mask]
+          steel_1c <- ann1c_mask & coalesce(rates$.annex_metal == 'steel', FALSE)
+          alum_1c  <- ann1c_mask & coalesce(rates$.annex_metal == 'aluminum', FALSE)
+          rates$rate_232_steel[steel_1c]             <- pmin(rates$rate_232_steel[steel_1c], apply_rate_semantics(floor_val, 'floor_post_mfn', rates$base_rate[steel_1c]))
+          rates$statutory_rate_232_steel[steel_1c]   <- rates$rate_232_steel[steel_1c]
+          rates$rate_232_aluminum[alum_1c]           <- pmin(rates$rate_232_aluminum[alum_1c], apply_rate_semantics(floor_val, 'floor_post_mfn', rates$base_rate[alum_1c]))
+          rates$statutory_rate_232_aluminum[alum_1c] <- rates$rate_232_aluminum[alum_1c]
           message('  Annex I-C framework floor recomputation: updated ', sum(ann1c_mask),
                   ' pairs (against post-MFN base_rate)')
         }
       }
+      # Drop temporary annex metal type column — no longer needed after 6e
+      if ('.annex_metal' %in% names(rates)) rates$.annex_metal <- NULL
     }
 
     # 6f. Recompute §232 deal floors against post-MFN base_rate (same logic as
@@ -3346,8 +3644,25 @@ calculate_rates_for_revision <- function(
       deal_floor_mask <- !is.na(rates$s232_deal_floor) &
                          rates$base_rate < rates$statutory_base_rate
       if (any(deal_floor_mask)) {
-        rates$rate_232[deal_floor_mask] <- pmax(
-          rates$s232_deal_floor[deal_floor_mask] - rates$base_rate[deal_floor_mask], 0)
+        new_rate_df <- pmax(rates$s232_deal_floor[deal_floor_mask] - rates$base_rate[deal_floor_mask], 0)
+        # Dispatch deal floor recompute to the correct per-program column.
+        all_auto_prods <- unique(c(
+          heading_prods_by_col[['rate_232_autos']] %||% character(0),
+          heading_prods_by_col[['rate_232_auto_parts']] %||% character(0)
+        ))
+        all_wood_prods <- unique(c(
+          heading_prods_by_col[['rate_232_softwood']] %||% character(0),
+          heading_prods_by_col[['rate_232_wood_furniture']] %||% character(0),
+          heading_prods_by_col[['rate_232_kitchen_cabinets']] %||% character(0)
+        ))
+        for (.prog_col in c('rate_232_autos', 'rate_232_auto_parts',
+                            'rate_232_softwood', 'rate_232_wood_furniture', 'rate_232_kitchen_cabinets')) {
+          .prods <- heading_prods_by_col[[.prog_col]] %||% character(0)
+          .mask  <- deal_floor_mask & rates$hts10 %in% .prods
+          if (any(.mask)) {
+            rates[[.prog_col]][.mask] <- pmax(rates$s232_deal_floor[.mask] - rates$base_rate[.mask], 0)
+          }
+        }
         message('  232 deal floor recomputation: updated ', sum(deal_floor_mask),
                 ' pairs (against post-MFN base_rate)')
       }
@@ -3484,30 +3799,35 @@ calculate_rates_for_revision <- function(
           rate_s301fl = rate_s301fl * (1 - usmca_share),
           # Apply USMCA shares to 232 auto/MHD (heading products with usmca_exempt flag)
           # and Annex I-C steel treatment (Proc. 11032 / U.S. note 16(j)).
-          # Annex I-C clause (2)(d): the 25% duty applies ONLY to non-U.S. content
-          # (the usmca_share is exempt, not taxed), and the total effective duty is
-          # floored at 15%. So it's max(rate_232 * non-US-content, 0.15) — NOT a
-          # convex blend. importer-level U.S.-content above/below the 40% exempt cap
-          # is not observed; (1 - usmca_share) proxies the non-U.S. content fraction.
-          # Whole VEHICLES (usmca_vehicle_products) use the adjusted USMCA share:
-          # usmca_share * us_auto_content_share (only ~40% of USMCA-eligible vehicle
-          # value is US/USMCA-origin content). PARTS (auto_parts 9903.94.06, MHD
-          # parts per Proc. 10984) are fully exempt when USMCA-qualifying — Commerce
-          # had no non-US-content process for parts in the data window — so they are
-          # NOT content-scaled; they fall through to the s232_usmca_eligible arm and
-          # get the full (1 - usmca_share) exemption.
-          rate_232 = if_else(
-            country %in% c(CTY_CANADA, CTY_MEXICO),
-            case_when(
-              coalesce(s232_annex == 'annex_1c', FALSE) ~
-                pmax(rate_232 * (1 - usmca_share), ann1c_usmca_target),
-              coalesce(s232_usmca_eligible, FALSE) & hts10 %in% usmca_vehicle_products ~
-                rate_232 * (1 - usmca_share * us_auto_content_share),
-              coalesce(s232_usmca_eligible, FALSE) ~
-                rate_232 * (1 - usmca_share),
-              TRUE ~ rate_232
-            ),
-            rate_232
+          rate_232_steel = if_else(
+            country %in% c(CTY_CANADA, CTY_MEXICO) & coalesce(s232_annex == 'annex_1c', FALSE),
+            pmax(rate_232_steel * (1 - usmca_share), ann1c_usmca_target),
+            rate_232_steel
+          ),
+          rate_232_autos = if_else(
+            country %in% c(CTY_CANADA, CTY_MEXICO) & coalesce(s232_usmca_eligible, FALSE),
+            if_else(hts10 %in% usmca_vehicle_products,
+                    rate_232_autos * (1 - usmca_share * us_auto_content_share),
+                    rate_232_autos * (1 - usmca_share)),
+            rate_232_autos
+          ),
+          rate_232_auto_parts = if_else(
+            country %in% c(CTY_CANADA, CTY_MEXICO) & coalesce(s232_usmca_eligible, FALSE) &
+              !(hts10 %in% usmca_vehicle_products),
+            rate_232_auto_parts * (1 - usmca_share),
+            rate_232_auto_parts
+          ),
+          rate_232_mhd_vehicles = if_else(
+            country %in% c(CTY_CANADA, CTY_MEXICO) & coalesce(s232_usmca_eligible, FALSE) &
+              hts10 %in% usmca_vehicle_products,
+            rate_232_mhd_vehicles * (1 - usmca_share * us_auto_content_share),
+            rate_232_mhd_vehicles
+          ),
+          rate_232_mhd_parts = if_else(
+            country %in% c(CTY_CANADA, CTY_MEXICO) & coalesce(s232_usmca_eligible, FALSE) &
+              !(hts10 %in% usmca_vehicle_products),
+            rate_232_mhd_parts * (1 - usmca_share),
+            rate_232_mhd_parts
           )
         ) %>%
         select(-usmca_share)
@@ -3542,22 +3862,37 @@ calculate_rates_for_revision <- function(
             country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
             0, rate_s301fl
           ),
-          # Binary fallback: 232 for USMCA-eligible CA/MX. Whole VEHICLES
-          # (usmca_vehicle_products): scale by (1 - us_auto_content_share). PARTS
-          # (auto_parts 9903.94.06, MHD parts per Proc. 10984) and other generic
-          # s232_usmca_eligible rows are fully exempt (zero) — parts are not
-          # content-scaled. Annex I-C steel gets the 15% minimum.
-          rate_232 = if_else(
-            country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
-            case_when(
-              coalesce(s232_annex == 'annex_1c', FALSE) ~
-                pmin(rate_232, ann1c_usmca_target),
-              coalesce(s232_usmca_eligible, FALSE) & hts10 %in% usmca_vehicle_products ~
-                rate_232 * (1 - us_auto_content_share),
-              coalesce(s232_usmca_eligible, FALSE) ~ 0,
-              TRUE ~ rate_232
-            ),
-            rate_232
+          # Binary fallback: 232 for USMCA-eligible CA/MX. Per-program columns.
+          rate_232_steel = if_else(
+            country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible &
+              coalesce(s232_annex == 'annex_1c', FALSE),
+            pmin(rate_232_steel, ann1c_usmca_target),
+            rate_232_steel
+          ),
+          rate_232_autos = if_else(
+            country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible &
+              coalesce(s232_usmca_eligible, FALSE),
+            if_else(hts10 %in% usmca_vehicle_products,
+                    rate_232_autos * (1 - us_auto_content_share), 0),
+            rate_232_autos
+          ),
+          rate_232_auto_parts = if_else(
+            country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible &
+              coalesce(s232_usmca_eligible, FALSE) & !(hts10 %in% usmca_vehicle_products),
+            0,
+            rate_232_auto_parts
+          ),
+          rate_232_mhd_vehicles = if_else(
+            country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible &
+              coalesce(s232_usmca_eligible, FALSE) & hts10 %in% usmca_vehicle_products,
+            rate_232_mhd_vehicles * (1 - us_auto_content_share),
+            rate_232_mhd_vehicles
+          ),
+          rate_232_mhd_parts = if_else(
+            country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible &
+              coalesce(s232_usmca_eligible, FALSE) & !(hts10 %in% usmca_vehicle_products),
+            0,
+            rate_232_mhd_parts
           )
         )
     }
@@ -3583,10 +3918,12 @@ calculate_rates_for_revision <- function(
       rates <- rates %>%
         left_join(semi_override, by = 'hts10', relationship = 'many-to-one') %>%
         mutate(
-          rate_232 = if_else(!is.na(.semi_heading_rate), .semi_heading_rate, rate_232),
+          rate_232_semiconductors = if_else(!is.na(.semi_heading_rate),
+                                            .semi_heading_rate, rate_232_semiconductors),
           deriv_type = if_else(!is.na(.semi_heading_rate), NA_character_, deriv_type),
-          statutory_rate_232 = if_else(!is.na(.semi_heading_rate), .semi_heading_rate,
-                                       statutory_rate_232)
+          statutory_rate_232_semiconductors = if_else(!is.na(.semi_heading_rate),
+                                                       .semi_heading_rate,
+                                                       statutory_rate_232_semiconductors)
         ) %>%
         select(-.semi_heading_rate)
       message('  Semi: restored heading rate on ', nrow(semi_override), ' HTS10s')
@@ -3627,10 +3964,11 @@ calculate_rates_for_revision <- function(
     # from the metals annex, never one written by a non-metals 232 program.
     air_key <- paste(rates$country, substr(rates$hts10, 1, 8), sep = '|')
     air_mask <- air_key %in% aircraft_exemptions$.air_key &
-      rates$rate_232 > 0 & annex_232_mask
+      (rates$rate_232_steel > 0 | rates$rate_232_aluminum > 0) & annex_232_mask
     n_air <- sum(air_mask)
     if (n_air > 0) {
-      rates$rate_232[air_mask] <- 0
+      rates$rate_232_steel[air_mask]    <- 0
+      rates$rate_232_aluminum[air_mask] <- 0
       if ('s232_annex' %in% names(rates)) rates$s232_annex[air_mask] <- NA_character_
       message('  Civil-aircraft 232 exemption (note 35): zeroed Section 232 on ',
               n_air, ' product-country rows')
@@ -3669,13 +4007,15 @@ calculate_rates_for_revision <- function(
       rates <- rates %>%
         left_join(shadow, by = 'hts10', relationship = 'many-to-one') %>%
         mutate(
-          statutory_rate_232 = if_else(!is.na(.stat_shadow),
-                                       .stat_shadow, statutory_rate_232)
+          # Shadow goes to the auto heading's statutory column (excluded products
+          # are from the autos heading — see applicability_excluded construction).
+          statutory_rate_232_autos = if_else(!is.na(.stat_shadow),
+                                              .stat_shadow, statutory_rate_232_autos)
         ) %>%
         select(-.stat_shadow)
-      message('  Applicability-excluded statutory shadow: statutory_rate_232 = ',
+      message('  Applicability-excluded statutory shadow: statutory_rate_232_autos = ',
               'literal heading rate (post-rebate) on ', nrow(shadow),
-              ' products (effective rate_232 stays 0)')
+              ' products (effective rate_232_autos stays 0)')
     }
   }
 
@@ -3705,6 +4045,21 @@ calculate_rates_for_revision <- function(
   # names fail loud. See apply_authority_disables() in rate_schema.R.
   rates <- apply_authority_disables(rates, pp$disabled_authorities,
                                     pp$AUTHORITY_COLUMNS)
+
+  # Derive aggregate rate_232 / statutory_rate_232 from per-program columns.
+  # All per-program assignments are complete at this point (steps 4-7 inclusive).
+  # The aggregate is preserved for backward compatibility with stacking.R,
+  # export_for_etrs.R, and any downstream consumer that references rate_232 directly.
+  s232_prog_cols <- c(
+    'rate_232_steel', 'rate_232_aluminum', 'rate_232_copper',
+    'rate_232_autos', 'rate_232_auto_parts',
+    'rate_232_mhd_vehicles', 'rate_232_mhd_parts', 'rate_232_buses',
+    'rate_232_softwood', 'rate_232_wood_furniture', 'rate_232_kitchen_cabinets',
+    'rate_232_semiconductors', 'rate_232_pharmaceuticals'
+  )
+  statutory_prog_cols <- sub('^rate_', 'statutory_rate_', s232_prog_cols)
+  rates$rate_232 <- rowSums(rates[, s232_prog_cols], na.rm = TRUE)
+  rates$statutory_rate_232 <- rowSums(rates[, statutory_prog_cols], na.rm = TRUE)
 
   # 8. Re-apply stacking rules with updated IEEPA and 232 rates. Phase 3b: when
   # enabled (TARIFF_RESOLVED_STACKING), route through the resolved-program long

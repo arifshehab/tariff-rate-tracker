@@ -103,6 +103,14 @@ decompose_232 <- function(snap) {
   W[, 'softwood']         <- as.numeric(grepl(soft_pat, snap$hts10))
   W[, 'wood_furniture']   <- as.numeric(grepl(wfurn_pat, snap$hts10))
   W[, 'kitchen_cabinets'] <- as.numeric(grepl(kcab_pat, snap$hts10))
+  # annex_1b chapter 94 codes not matched by the prefix lists above fall into
+  # metals_unspecified because they carry no metal shares. Attribute them here:
+  # kitchen_cabinets gets priority (kcab_pat already set); everything else is
+  # wood_furniture. Covers the expanded product universe in post-rev_9 snapshots
+  # where the upholstered-seat codes dropped to zero and broader 9401/9403/9406
+  # furniture parts became the active annex_1b carriers.
+  annex_1b_ch94 <- !is.na(snap$s232_annex) & snap$s232_annex == 'annex_1b' & ch == '94'
+  W[annex_1b_ch94 & W[, 'kitchen_cabinets'] == 0, 'wood_furniture'] <- 1
   W[, 'auto_parts']       <- as.numeric(snap$hts10 %in% auto_parts)
   W[, 'mhd_parts']        <- as.numeric(snap$hts10 %in% mhd_parts)
   # Pharma (eff. 2026-09-29) and semiconductors (eff. 2026-01-16) are date-gated:
